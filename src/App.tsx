@@ -26,6 +26,7 @@ function separateIntoUniquePaths(paths) {
 
 function App() {
 
+  const [loading, setLoading] = useState(false);
   const [paths, setPaths] = useState("");
   const [readResults, setReadResults] = useState(new Map());
   const [activePath, setActivePath] = useState(undefined);
@@ -44,6 +45,7 @@ function App() {
   useEffect(() => {
       stopWatching();
       void (async () => {
+          setLoading(true);
           if (paths.trim()) {
               await readFileContents();
               await startWatching();
@@ -51,6 +53,7 @@ function App() {
           else {
               setReadResults(new Map());
           }
+          setLoading(false);
       })();
   }, [paths]);
 
@@ -101,12 +104,18 @@ function App() {
           placeholder="Enter &quot;;&quot;-separated paths"
         />
       </div>
-      <div className="row">
-        <select value={activePath} onChange={(e) => setActivePath(e.target.value)}>
-          { Array.from(readResults.keys()).map((k) => <option key={k} value={k}>{k}</option>) }
-        </select>
-      </div>
-      { activePath ? <ReadResult value={readResults.get(activePath)} /> : <></> }
+      {
+        loading ?
+        <p>Please hold</p> :
+        <>
+          <div className="row">
+            <select value={activePath} onChange={(e) => setActivePath(e.target.value)}>
+              { Array.from(readResults.keys()).map((k) => <option key={k} value={k}>{k}</option>) }
+            </select>
+          </div>
+          { activePath ? <ReadResult value={readResults.get(activePath)} /> : <></> }
+        </>
+      }
     </div>
   );
 }
