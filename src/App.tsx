@@ -18,6 +18,11 @@ interface Association {
   Err?: string
 }
 
+function separateIntoUniquePaths(paths) {
+  let separatePaths = paths.split(";").map((p) => p.trim()).filter((p) => p !== "");
+  return [...new Set(separatePaths)];
+}
+
 function App() {
 
   const [paths, setPaths] = useState("");
@@ -37,8 +42,7 @@ function App() {
 
   async function readFileContents() {
       // example paths: /home/vincent/Projects/tauritest/src-tauri/test/git.yaml;/home/vincent/Projects/tauritest/src-tauri/test/got.yaml
-      let separatePaths = paths.split(";").map((p) => p.trim()).filter((p) => p != "");
-      separatePaths = [...new Set(separatePaths)];
+      let separatePaths = separateIntoUniquePaths(paths);
       let svgs = await invoke('read_contents', { paths: separatePaths.join(";") });
       let newReadResults = new Map<string,Lv1ReadResult>();
       svgs.forEach((pair) => { newReadResults.set(pair[0], pair[1]); });
@@ -50,8 +54,7 @@ function App() {
   }
 
   async function startWatching() {
-    let separatePaths = paths.split(";").map((p) => p.trim()).filter((p) => p != "");
-    separatePaths = [...new Set(separatePaths)];
+    let separatePaths = separateIntoUniquePaths(paths);
     try {
         const association = await invoke('associate', { paths: separatePaths.join(";") });
         console.log(association);
