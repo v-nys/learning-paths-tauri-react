@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { ReadResult } from "./ReadResult.tsx";
 import reactLogo from "./assets/react.svg";
 import { invoke } from "@tauri-apps/api/tauri";
 import "./App.css";
@@ -27,8 +28,18 @@ function App() {
 
   const [paths, setPaths] = useState("");
   const [readResults, setReadResults] = useState(new Map());
+  const [activePath, setActivePath] = useState(undefined);
 
-  console.log(readResults);
+  useEffect(() => {
+      // select does not switch back to undefined automatically if there is no option...
+      const separatePaths = separateIntoUniquePaths(paths);
+      if (!separatePaths.length) {
+        setActivePath(undefined);
+      }
+      else if (!separatePaths.includes(activePath)) {
+        setActivePath(separatePaths[0]);
+      }
+  }, [paths]);
 
   useEffect(() => {
       stopWatching();
@@ -36,6 +47,9 @@ function App() {
           if (paths.trim()) {
               await readFileContents();
               await startWatching();
+          }
+          else {
+              setReadResults(new Map());
           }
       })();
   }, [paths]);
@@ -87,7 +101,12 @@ function App() {
           placeholder="Enter &quot;;&quot;-separated paths"
         />
       </div>
-      <p>Need a dropdown or something to select graph here.</p>
+      <div className="row">
+        <select value={activePath} onChange={(e) => setActivePath(e.target.value)}>
+          { Array.from(readResults.keys()).map((k) => <option key={k} value={k}>{k}</option>) }
+        </select>
+      </div>
+      { activePath ? <ReadResult value={readResults.get(activePath)} /> : <></> }
     </div>
   );
 }
