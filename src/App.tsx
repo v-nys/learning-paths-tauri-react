@@ -13,13 +13,16 @@ interface Lv1ReadResult {
   Err?: string
 }
 
+interface Association {
+  Ok?: object,
+  Err?: string
+}
+
 function App() {
 
   const [paths, setPaths] = useState("");
   const [readResults, setReadResults] = useState(new Map());
 
-  console.log(readResults);
-  
   useEffect(() => {
       stopWatching();
       void (async () => {
@@ -32,7 +35,7 @@ function App() {
 
   async function readFileContents() {
       // example paths: /home/vincent/Projects/tauritest/src-tauri/test/git.yaml;/home/vincent/Projects/tauritest/src-tauri/test/got.yaml
-      let separatePaths = paths.split(";").map((p) => p.trim());
+      let separatePaths = paths.split(";").map((p) => p.trim()).filter((p) => p != "");
       let svgs = await invoke('read_contents', { paths: separatePaths.join(";") });
       let newReadResults = new Map<string,Lv1ReadResult>();
       svgs.forEach((pair) => { newReadResults.set(pair[0], pair[1]); });
@@ -44,9 +47,14 @@ function App() {
   }
 
   async function startWatching() {
-    let separatePaths = paths.split(";").map((p) => p.trim());
-    const associations = await invoke('associate', { paths: separatePaths.join(";") });
-    console.log("TODO: start watching new files and populate stopCallbacks (neither should cause re-render).");
+    let separatePaths = paths.split(";").map((p) => p.trim()).filter((p) => p != "");
+    try {
+        const association = await invoke('associate', { paths: separatePaths.join(";") });
+        console.log(association);
+    }
+    catch (err) {
+        console.log(`${err} lacks a watchable parent node`);
+    }
   }
 
   return (

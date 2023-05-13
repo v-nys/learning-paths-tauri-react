@@ -109,17 +109,21 @@ fn read_contents(paths: &str) -> Vec<(&str, Result<Result<String, String>, Strin
 }
 
 #[tauri::command]
-fn associate(paths: &str) -> HashMap<&Path,Vec<&Path>> {
+fn associate(paths: &str) -> Result<HashMap<&Path,Vec<&Path>>,&Path> {
     eprintln!("associate was invoked!");
     let paths = paths.split(";").map(|p| {Path::new(p)});
     let mut map = HashMap::new();
     for path in paths {
-        // TODO: deal with this properly, return a Result
-        let parent = path.parent().expect("Expecting absolute path with a parent.");
-        let value = map.entry(parent).or_insert(vec![]);
-        value.push(path);
+        let parent = path.parent();
+        match parent {
+            None => return Err(path),
+            Some(parent) => {
+                let value = map.entry(parent).or_insert(vec![]);
+                value.push(path);
+            }
+        }
     }
-    map
+    Ok(map)
 }
 
 fn main() {
