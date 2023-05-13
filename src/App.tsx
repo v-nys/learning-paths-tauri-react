@@ -37,8 +37,8 @@ function App() {
 
   async function readFileContents() {
       // example paths: /home/vincent/Projects/tauritest/src-tauri/test/git.yaml;/home/vincent/Projects/tauritest/src-tauri/test/got.yaml
-      // TODO: remove duplicates
       let separatePaths = paths.split(";").map((p) => p.trim()).filter((p) => p != "");
+      separatePaths = [...new Set(separatePaths)];
       let svgs = await invoke('read_contents', { paths: separatePaths.join(";") });
       let newReadResults = new Map<string,Lv1ReadResult>();
       svgs.forEach((pair) => { newReadResults.set(pair[0], pair[1]); });
@@ -51,6 +51,7 @@ function App() {
 
   async function startWatching() {
     let separatePaths = paths.split(";").map((p) => p.trim()).filter((p) => p != "");
+    separatePaths = [...new Set(separatePaths)];
     try {
         const association = await invoke('associate', { paths: separatePaths.join(";") });
         console.log(association);
