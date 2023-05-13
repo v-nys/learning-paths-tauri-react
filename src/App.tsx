@@ -23,6 +23,8 @@ function App() {
   const [paths, setPaths] = useState("");
   const [readResults, setReadResults] = useState(new Map());
 
+  console.log(readResults);
+
   useEffect(() => {
       stopWatching();
       void (async () => {
@@ -35,6 +37,7 @@ function App() {
 
   async function readFileContents() {
       // example paths: /home/vincent/Projects/tauritest/src-tauri/test/git.yaml;/home/vincent/Projects/tauritest/src-tauri/test/got.yaml
+      // TODO: remove duplicates
       let separatePaths = paths.split(";").map((p) => p.trim()).filter((p) => p != "");
       let svgs = await invoke('read_contents', { paths: separatePaths.join(";") });
       let newReadResults = new Map<string,Lv1ReadResult>();
@@ -80,6 +83,7 @@ function App() {
           placeholder="Enter &quot;;&quot;-separated paths"
         />
       </div>
+      <p>Need a dropdown or something to select graph here.</p>
     </div>
   );
 }
