@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, Fragment } from "react";
 import { ReadResult } from "./ReadResult.tsx";
 import reactLogo from "./assets/react.svg";
 import { invoke } from "@tauri-apps/api/tauri";
@@ -81,6 +81,10 @@ function App() {
     }
   }
 
+  const onOptionChange = (e) => {
+    setActivePath(e.target.value);
+  }
+
   return (
     <div className="container">
       <h1>Welcome to Tauri!</h1>
@@ -107,14 +111,25 @@ function App() {
       {
         loading ?
         <p>Please hold</p> :
-        <>
-          <div className="row">
-            <select value={activePath} onChange={(e) => setActivePath(e.target.value)}>
-              { Array.from(readResults.keys()).map((k) => <option key={k} value={k}>{k}</option>) }
-            </select>
-          </div>
-          { activePath ? <ReadResult value={readResults.get(activePath)} /> : <></> }
-        </>
+        <div className="row">
+            {
+             Array.from(readResults.keys())
+                   .map((k) => {
+                return (<Fragment key={k}>
+                          <input
+                            name="active-path"
+                            type="radio"
+                            id={`radio-button-${k}`}
+                            value={k}
+                            checked={activePath === k}
+                            onChange={onOptionChange}
+                            />
+                          <label htmlFor={`radio-button-${k}`}>{k}</label>
+                        </Fragment>
+                       )
+              })
+            }
+        </div>
       }
     </div>
   );
