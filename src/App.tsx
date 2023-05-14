@@ -126,9 +126,9 @@ function App() {
         </div>
       }
       {
-        readResults.get(activePath) ?
+        activePath ?
         <ReadResult value={readResults.get(activePath)} /> :
-        <p>Cannot display graph right now.</p>
+        <p>Cannot display anything with this input.</p>
       }
     </div>
   );
