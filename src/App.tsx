@@ -1,18 +1,9 @@
 import { useState, useEffect, Fragment } from "react";
 import { ReadResult } from "./ReadResult.tsx";
+import { Lv1ReadResult, Lv2ReadResult } from "./iointerfaces.ts";
 import reactLogo from "./assets/react.svg";
 import { invoke } from "@tauri-apps/api/tauri";
 import "./App.css";
-
-interface Lv2ReadResult {
-  Ok?: string,
-  Err?: string
-}
-
-interface Lv1ReadResult {
-  Ok?: Lv2ReadResult,
-  Err?: string
-}
 
 interface Association {
   Ok?: object,
@@ -26,6 +17,9 @@ function separateIntoUniquePaths(paths) {
 
 function App() {
 
+  // TODO: pause reacting to changes while loading
+  // just register fact that one more change should be processed
+  // otherwise auto-saving editors will be an issue
   const [loading, setLoading] = useState(false);
   const [paths, setPaths] = useState("");
   const [readResults, setReadResults] = useState(new Map());
@@ -130,6 +124,11 @@ function App() {
               })
             }
         </div>
+      }
+      {
+        readResults.get(activePath) ?
+        <ReadResult value={readResults.get(activePath)} /> :
+        <p>Cannot display graph right now.</p>
       }
     </div>
   );
