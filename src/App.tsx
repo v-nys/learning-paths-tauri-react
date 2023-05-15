@@ -23,16 +23,16 @@ function App() {
   const [loading, setLoading] = useState(false);
   const [paths, setPaths] = useState("");
   const [readResults, setReadResults] = useState(new Map());
-  const [activePath, setActivePath] = useState(undefined);
+  const [pathToDisplayOnceRead, setPathToDisplayOnceRead] = useState(undefined);
 
   useEffect(() => {
       // select does not switch back to undefined automatically if there is no option...
       const separatePaths = separateIntoUniquePaths(paths);
       if (!separatePaths.length) {
-        setActivePath(undefined);
+        setPathToDisplayOnceRead(undefined);
       }
-      else if (!separatePaths.includes(activePath)) {
-        setActivePath(separatePaths[0]);
+      else if (!separatePaths.includes(pathToDisplayOnceRead)) {
+        setPathToDisplayOnceRead(separatePaths[0]);
       }
   }, [paths]);
 
@@ -76,7 +76,7 @@ function App() {
   }
 
   const onOptionChange = (e) => {
-    setActivePath(e.target.value);
+    setPathToDisplayOnceRead(e.target.value);
   }
 
   return (
@@ -115,7 +115,7 @@ function App() {
                             type="radio"
                             id={`radio-button-${k}`}
                             value={k}
-                            checked={activePath === k}
+                            checked={pathToDisplayOnceRead === k}
                             onChange={onOptionChange}
                             />
                           <label htmlFor={`radio-button-${k}`}>{k}</label>
@@ -126,8 +126,8 @@ function App() {
         </div>
       }
       {
-        activePath ?
-        <ReadResult value={readResults.get(activePath)} /> :
+        readResults.get(pathToDisplayOnceRead) ?
+        <ReadResult value={readResults.get(pathToDisplayOnceRead)} /> :
         <p>Cannot display anything with this input.</p>
       }
     </div>
