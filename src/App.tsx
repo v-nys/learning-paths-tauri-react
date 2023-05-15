@@ -1,8 +1,9 @@
-import { useState, useEffect, Fragment } from "react";
+import { useState, useEffect, useRef, Fragment } from "react";
 import { ReadResult } from "./ReadResult.tsx";
 import { Lv1ReadResult, Lv2ReadResult } from "./iointerfaces.ts";
 import reactLogo from "./assets/react.svg";
 import { invoke } from "@tauri-apps/api/tauri";
+import { watch } from "tauri-plugin-fs-watch-api";
 import "./App.css";
 
 interface Association {
@@ -17,16 +18,15 @@ function separateIntoUniquePaths(paths) {
 
 function App() {
 
-  // TODO: pause reacting to changes while loading
-  // just register fact that one more change should be processed
+  // TODO: also pause / restrict reacting to changes while loading
   // otherwise auto-saving editors will be an issue
   const [loading, setLoading] = useState(false);
   const [paths, setPaths] = useState("");
   const [readResults, setReadResults] = useState(new Map());
   const [pathToDisplayOnceRead, setPathToDisplayOnceRead] = useState(undefined);
+  const stopCallbacks = useRef([]);
 
   useEffect(() => {
-      // select does not switch back to undefined automatically if there is no option...
       const separatePaths = separateIntoUniquePaths(paths);
       if (!separatePaths.length) {
         setPathToDisplayOnceRead(undefined);
@@ -51,6 +51,27 @@ function App() {
       })();
   }, [paths]);
 
+  async function waitForEvents(parent,children) {
+      return await watch(
+          parent,
+          // actually produces an array, not a single event!
+          (events) => {
+              let shouldReload = false;
+              for (let {path} of events) {
+                  if (children.includes(path)) {
+                      shouldReload = true;
+                  }
+              }
+              if (shouldReload) {
+                setLoading(true);
+                readFileContents();
+                setLoading(false);
+              }
+          },
+          { recursive: false }
+      );
+  }
+
   async function readFileContents() {
       // example paths: /home/vincent/Projects/tauritest/src-tauri/test/git.yaml;/home/vincent/Projects/tauritest/src-tauri/test/got.yaml
       let separatePaths = separateIntoUniquePaths(paths);
@@ -61,18 +82,27 @@ function App() {
   }
 
   function stopWatching() {
-    console.log("TODO: stop watching currently watched files.");
+    for (let callback of stopCallbacks.current) {
+      callback();
+    }
+    stopCallbacks.current = [];
   }
 
   async function startWatching() {
-    let separatePaths = separateIntoUniquePaths(paths);
+    const separatePaths = separateIntoUniquePaths(paths);
+    const newStopcallbacks = [];
     try {
         const association = await invoke('associate', { paths: separatePaths.join(";") });
-        console.log(association);
+        // this is an object, not a map!
+        for (const parent in association) {
+          const children = association[parent];
+          newStopcallbacks.push(await waitForEvents(parent,children));
+        }
     }
     catch (err) {
         console.log(`${err} lacks a watchable parent node`);
     }
+    stopCallbacks.current = newStopcallbacks;
   }
 
   const onOptionChange = (e) => {
@@ -81,25 +111,12 @@ function App() {
 
   return (
     <div className="container">
-      <h1>Welcome to Tauri!</h1>
-
-      <div className="row">
-        <a href="https://vitejs.dev" target="_blank">
-          <img src="/vite.svg" className="logo vite" alt="Vite logo" />
-        </a>
-        <a href="https://tauri.app" target="_blank">
-          <img src="/tauri.svg" className="logo tauri" alt="Tauri logo" />
-        </a>
-        <a href="https://reactjs.org" target="_blank">
-          <img src={reactLogo} className="logo react" alt="React logo" />
-        </a>
-      </div>
-
       <div className="row">
         <input
           id="files-input"
           onChange={(e) => setPaths(e.currentTarget.value)}
           placeholder="Enter &quot;;&quot;-separated paths"
+          disabled={loading}
         />
       </div>
       {
