@@ -144,7 +144,10 @@ function App() {
       }
       {
         readResults.get(pathToDisplayOnceRead) ?
-        <ReadResult value={readResults.get(pathToDisplayOnceRead)} /> :
+        (loading ?
+         // possible when watched file changes
+         <p>Loading</p> :
+         <ReadResult value={readResults.get(pathToDisplayOnceRead)} />) :
         <p>Cannot display anything with this input.</p>
       }
     </div>
