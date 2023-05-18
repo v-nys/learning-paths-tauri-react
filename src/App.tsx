@@ -18,74 +18,39 @@ function separateIntoUniquePaths(paths) {
 
 function App() {
 
-  // TODO: also pause / restrict reacting to changes while loading
-  // otherwise auto-saving editors will be an issue
   const [loading, setLoading] = useState(false);
   const [paths, setPaths] = useState("");
   const [readResults, setReadResults] = useState(new Map());
   const [pathToDisplayOnceRead, setPathToDisplayOnceRead] = useState(undefined);
   const stopCallbacks = useRef([]);
-
-  useEffect(() => {
-      const separatePaths = separateIntoUniquePaths(paths);
-      if (!separatePaths.length) {
-        setPathToDisplayOnceRead(undefined);
-      }
-      else if (!separatePaths.includes(pathToDisplayOnceRead)) {
-        setPathToDisplayOnceRead(separatePaths[0]);
-      }
-  }, [paths]);
-
-  useEffect(() => {
-      stopWatching();
-      void (async () => {
-          setLoading(true);
-          if (paths.trim()) {
-              await readFileContents();
-              await startWatching();
-          }
-          else {
-              setReadResults(new Map());
-          }
-          setLoading(false);
-      })();
-  }, [paths]);
-
-  async function waitForEvents(parent,children) {
-      return await watch(
-          parent,
-          // actually produces an array, not a single event!
-          (events) => {
-              let shouldReload = false;
-              for (let {path} of events) {
-                  if (children.includes(path)) {
-                      shouldReload = true;
-                  }
-              }
-              if (shouldReload) {
-                setLoading(true);
-                readFileContents();
-                setLoading(false);
-              }
-          },
-          { recursive: false }
-      );
-  }
-
-  async function readFileContents() {
-      // example paths: /home/vincent/Projects/tauritest/src-tauri/test/git.yaml;/home/vincent/Projects/tauritest/src-tauri/test/got.yaml
-      let separatePaths = separateIntoUniquePaths(paths);
-      let svgs = await invoke('read_contents', { paths: separatePaths.join(";") });
-      let newReadResults = new Map<string,Lv1ReadResult>();
-      svgs.forEach((pair) => { newReadResults.set(pair[0], pair[1]); });
-      setReadResults(newReadResults);
-  }
+  const eventToHandle = useRef<undefined|"filechange"|"pathchange">(undefined);
 
   function stopWatching() {
     for (let callback of stopCallbacks.current) {
       callback();
     }
     stopCallbacks.current = [];
+  }
+
+  async function waitForEvents(parent,children) {
+      return await watch(
+          parent,
+          // actually produces an array, not a single event!
+          (events) => {
+              if (!eventToHandle.current) {
+                let shouldReload = false;
+                for (let {path} of events) {
+                    if (children.includes(path)) {
+                        shouldReload = true;
+                    }
+                }
+                if (shouldReload) {
+                  eventToHandle.current = "filechange"
+                }
+              }
+          },
+          { recursive: false }
+      );
   }
 
   async function startWatching() {
@@ -105,18 +70,62 @@ function App() {
     stopCallbacks.current = newStopcallbacks;
   }
 
+  async function readFileContents() {
+      let separatePaths = separateIntoUniquePaths(paths);
+      let svgs = await invoke('read_contents', { paths: separatePaths.join(";") });
+      let newReadResults = new Map<string,Lv1ReadResult>();
+      svgs.forEach((pair) => { newReadResults.set(pair[0], pair[1]); });
+      setReadResults(newReadResults);
+  }
+
+  useEffect(() => {
+    eventToHandle.current = "pathchange";
+  }, [paths]);
+
+  useEffect(() => void (async () => {
+    if (!loading) {
+      const toHandle = eventToHandle.current;
+      eventToHandle.current = undefined;
+      switch (toHandle) {
+        case "pathchange": {
+          setLoading(true);
+          stopWatching();
+          if (paths.trim()) {
+              await readFileContents();
+              await startWatching();
+          }
+          else {
+              setReadResults(new Map());
+          }
+          setLoading(false);
+          break;
+        }
+        case "filechange": {
+          setLoading(true);
+          await readFileContents();
+          setLoading(false);
+          break;
+        }
+        default: {
+          break;
+        }
+      }
+    }
+  })(), [loading]);
+
   const onOptionChange = (e) => {
     setPathToDisplayOnceRead(e.target.value);
   }
 
   return (
+    <>
+    <p>{eventToHandle.current} {loading ? "loading" : "not loading"}</p>
     <div className="container">
       <div className="row">
         <input
           id="files-input"
           onChange={(e) => setPaths(e.currentTarget.value)}
           placeholder="Enter &quot;;&quot;-separated paths"
-          disabled={loading}
         />
       </div>
       {
@@ -151,6 +160,7 @@ function App() {
         <p>Cannot display anything with this input.</p>
       }
     </div>
+    </>
   );
 }
 
