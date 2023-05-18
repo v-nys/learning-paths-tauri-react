@@ -46,6 +46,7 @@ function App() {
                 }
                 if (shouldReload) {
                   setEventToHandle("filechange");
+                  console.log("file change!");
                 }
               }
           },
@@ -80,6 +81,16 @@ function App() {
 
   useEffect(() => {
     setEventToHandle("pathchange");
+  }, [paths]);
+
+  useEffect(() => {
+      const separatePaths = separateIntoUniquePaths(paths);
+      if (!separatePaths.length) {
+        setPathToDisplayOnceRead(undefined);
+      }
+      else if (!separatePaths.includes(pathToDisplayOnceRead)) {
+        setPathToDisplayOnceRead(separatePaths[0]);
+      }
   }, [paths]);
 
   useEffect(() => void (async () => {
