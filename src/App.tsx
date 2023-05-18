@@ -23,7 +23,7 @@ function App() {
   const [readResults, setReadResults] = useState(new Map());
   const [pathToDisplayOnceRead, setPathToDisplayOnceRead] = useState(undefined);
   const stopCallbacks = useRef([]);
-  const eventToHandle = useRef<undefined|"filechange"|"pathchange">(undefined);
+  const [eventToHandle, setEventToHandle] = useState<undefined|"filechange"|"pathchange">(undefined);
 
   function stopWatching() {
     for (let callback of stopCallbacks.current) {
@@ -37,7 +37,7 @@ function App() {
           parent,
           // actually produces an array, not a single event!
           (events) => {
-              if (!eventToHandle.current) {
+              if (!eventToHandle) {
                 let shouldReload = false;
                 for (let {path} of events) {
                     if (children.includes(path)) {
@@ -45,7 +45,7 @@ function App() {
                     }
                 }
                 if (shouldReload) {
-                  eventToHandle.current = "filechange"
+                  setEventToHandle("filechange");
                 }
               }
           },
@@ -79,13 +79,13 @@ function App() {
   }
 
   useEffect(() => {
-    eventToHandle.current = "pathchange";
+    setEventToHandle("pathchange");
   }, [paths]);
 
   useEffect(() => void (async () => {
     if (!loading) {
-      const toHandle = eventToHandle.current;
-      eventToHandle.current = undefined;
+      const toHandle = eventToHandle;
+      setEventToHandle(undefined);
       switch (toHandle) {
         case "pathchange": {
           setLoading(true);
@@ -111,7 +111,7 @@ function App() {
         }
       }
     }
-  })(), [loading]);
+  })(), [loading,eventToHandle]);
 
   const onOptionChange = (e) => {
     setPathToDisplayOnceRead(e.target.value);
@@ -119,7 +119,7 @@ function App() {
 
   return (
     <>
-    <p>{eventToHandle.current} {loading ? "loading" : "not loading"}</p>
+    <p>{eventToHandle} {loading ? "loading" : "not loading"}</p>
     <div className="container">
       <div className="row">
         <input
