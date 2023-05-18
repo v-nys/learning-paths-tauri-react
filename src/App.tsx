@@ -37,6 +37,7 @@ function App() {
           parent,
           // actually produces an array, not a single event!
           (events) => {
+              console.log("event noticed");
               if (!eventToHandle) {
                 let shouldReload = false;
                 for (let {path} of events) {
@@ -48,6 +49,9 @@ function App() {
                   setEventToHandle("filechange");
                   console.log("file change!");
                 }
+              }
+              else {
+                console.log(`still have to deal with ${eventToHandle}`);
               }
           },
           { recursive: false }
