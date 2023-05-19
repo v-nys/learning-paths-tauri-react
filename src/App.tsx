@@ -148,7 +148,6 @@ function App() {
 
   return (
     <>
-    <p>{eventToHandle} {loading ? "loading" : "not loading"}</p>
     <div className="container">
       <div className="row">
         <input
@@ -183,7 +182,6 @@ function App() {
       {
         readResults.get(pathToDisplayOnceRead) ?
         (loading ?
-         // possible when watched file changes
          <p>Loading</p> :
          <ReadResult value={readResults.get(pathToDisplayOnceRead)} />) :
         <p>Cannot display anything with this input.</p>
