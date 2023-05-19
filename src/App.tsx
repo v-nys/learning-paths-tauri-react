@@ -3,6 +3,7 @@ import { ReadResult } from "./ReadResult.tsx";
 import { Lv1ReadResult, Lv2ReadResult } from "./iointerfaces.ts";
 import reactLogo from "./assets/react.svg";
 import { invoke } from "@tauri-apps/api/tauri";
+import { appWindow } from "@tauri-apps/api/window";
 import { watch } from "tauri-plugin-fs-watch-api";
 import "./App.css";
 
@@ -16,8 +17,33 @@ function separateIntoUniquePaths(paths) {
   return [...new Set(separatePaths)];
 }
 
+// this is passed off to watch, so it shouldn't capture any component state
+// that would get outdated
+// instead, use signals to communicate
+async function waitForEvents(parent,children) {
+  return await watch(
+      parent,
+      // actually produces an array, not a single event
+      (events) => {
+          let shouldReload = false;
+          for (let {path} of events) {
+              if (children.includes(path)) {
+                  shouldReload = true;
+              }
+          }
+          if (shouldReload) {
+            appWindow.emit('filechange');
+          }
+      },
+      { recursive: false }
+  );
+}
+
+
+
 function App() {
 
+  // TODO: consider making more use of useReducer
   const [loading, setLoading] = useState(false);
   const [paths, setPaths] = useState("");
   const [readResults, setReadResults] = useState(new Map());
@@ -25,37 +51,29 @@ function App() {
   const stopCallbacks = useRef([]);
   const [eventToHandle, setEventToHandle] = useState<undefined|"filechange"|"pathchange">(undefined);
 
+  /* Setting the type of event to handle is different depending on situation.
+   * A path change just occurs when the input field is modified.
+   * A file change is signaled from outside the component code.
+   * Furthermore, a pending path change takes precedence over that.
+   */
+  useEffect(() => {
+    const onFileChange = () => {
+      if (!eventToHandle) {
+        setEventToHandle("filechange");
+      }
+    }
+    const unlisten = appWindow.listen('filechange', onFileChange);
+    return async () => { const fn = await unlisten; fn(); }
+  });
+  useEffect(() => {
+    setEventToHandle("pathchange");
+  }, [paths]);
+
   function stopWatching() {
     for (let callback of stopCallbacks.current) {
       callback();
     }
     stopCallbacks.current = [];
-  }
-
-  async function waitForEvents(parent,children) {
-      return await watch(
-          parent,
-          // actually produces an array, not a single event!
-          (events) => {
-              console.log("event noticed");
-              if (!eventToHandle) {
-                let shouldReload = false;
-                for (let {path} of events) {
-                    if (children.includes(path)) {
-                        shouldReload = true;
-                    }
-                }
-                if (shouldReload) {
-                  setEventToHandle("filechange");
-                  console.log("file change!");
-                }
-              }
-              else {
-                console.log(`still have to deal with ${eventToHandle}`);
-              }
-          },
-          { recursive: false }
-      );
   }
 
   async function startWatching() {
@@ -82,10 +100,6 @@ function App() {
       svgs.forEach((pair) => { newReadResults.set(pair[0], pair[1]); });
       setReadResults(newReadResults);
   }
-
-  useEffect(() => {
-    setEventToHandle("pathchange");
-  }, [paths]);
 
   useEffect(() => {
       const separatePaths = separateIntoUniquePaths(paths);
