@@ -33,10 +33,9 @@ enum ReadError {
 }
 
 #[derive(Debug)]
-enum SemanticError {
-    StructuralErrors, // TODO: add detail?
-                      // CURRENT_MOD: could add RepeatedNodeIdError(node_id) and
-                      // NonExistentEndpointError(id1, id2, nondexistent)
+enum StructuralError {
+    DoubleNodeError(String),
+    MissingEndpointError(String,String,String),
 }
 
 enum Dependency {
@@ -51,7 +50,7 @@ fn get_node_attributes(graph: &Graph<String,&str>,
 }
 
 #[tauri::command]
-fn read_contents(paths: &str) -> Vec<(&str, Result<Result<String, String>, String>)> {
+fn read_contents(paths: &str) -> Vec<(&str, Result<Result<String, Vec<String>>, String>)> {
     eprintln!("read_contents was invoked!");
     let paths = paths.split(";");
     let read_results = paths.clone().map(std::fs::read_to_string);
@@ -62,22 +61,18 @@ fn read_contents(paths: &str) -> Vec<(&str, Result<Result<String, String>, Strin
         })
         .collect();
     eprintln!("Graphs have been deserialized.");
-    // final form of the raw data is Result<Result<Cluster,SemanticError>,ReadError>, I believe
-    // I suppose there could be multiple SemanticErrors
-    // might be possible to use Vec<SemanticError> as the level 2 Err type
     let dots = deserialized_graphs.into_iter().map(|r| {
         r.map(|c| {
             let mut map = std::collections::HashMap::new();
             let mut graph = Graph::new();
+            let mut structural_errors: Vec<StructuralError> = vec![];
             for node in c.nodes {
                 let map_key = node.id.clone();
                 if !map.contains_key(&map_key) {
                     let idx = graph.add_node(node.title);
                     map.insert(map_key, idx);
                 } else {
-                    // this is when a node is added twice
-                    // TODO: be more specific, add to vector first...
-                    return Err(SemanticError::StructuralErrors);
+                    structural_errors.push(StructuralError::DoubleNodeError(map_key));
                 }
             }
             for edge in &c.edges {
@@ -86,12 +81,24 @@ fn read_contents(paths: &str) -> Vec<(&str, Result<Result<String, String>, Strin
                         // don't need edge labels, so just using ""
                         graph.add_edge(*idx1, *idx2, "");
                     }
-                    // so this is when a node has a missing start / end
-                    // TODO: be more specific, add to vector first
-                    _ => return Err(SemanticError::StructuralErrors),
-                }
+                    (Some(_), None) => {
+                        structural_errors.push(StructuralError::MissingEndpointError(edge.start_id.to_owned(), edge.end_id.to_owned(), edge.end_id.to_owned()));
+                    }
+                    (None, Some(_)) => {
+                        structural_errors.push(StructuralError::MissingEndpointError(edge.start_id.to_owned(), edge.end_id.to_owned(), edge.start_id.to_owned()));
+                    }
+                    (None, None) => {
+                        structural_errors.push(StructuralError::MissingEndpointError(edge.start_id.to_owned(), edge.end_id.to_owned(), edge.start_id.to_owned()));
+                        structural_errors.push(StructuralError::MissingEndpointError(edge.start_id.to_owned(), edge.end_id.to_owned(), edge.end_id.to_owned()));
+                    }
+                 }
             }
-            Ok(graph)
+            if is_empty(structural_errors) {
+                Ok(graph)
+            }
+            else {
+                Err(structural_errors)
+            }
         })
         .map(|g| {
             g.map(|cluster| {
@@ -122,8 +129,11 @@ fn read_contents(paths: &str) -> Vec<(&str, Result<Result<String, String>, Strin
     });
     eprintln!("SVGs have been rendered.");
     let serializable = svgs.map(|svg| {
-        svg.map(|ok| ok.map_err(|se| format!("{:#?}", se)))
-            .map_err(|re| format!("{:#?}", re))
+        svg.map(|ok|
+                ok.map_err(|ses|
+                           ses.into_iter().map(|se|
+                                               format!("{:#?}", se)).collect()))
+           .map_err(|re| format!("{:#?}", re))
     });
     eprintln!("Errors have been converted into strings.");
     std::iter::zip(paths, serializable).collect()

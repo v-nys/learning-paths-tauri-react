@@ -7,6 +7,6 @@ export interface ReadResultProps {
 
 export function ReadResult(props: ReadResultProps) {
   return props.value.Err ??
-         props.value.Ok.Err ??
+         props.value.Ok.Err.join("\n") ??
          <div dangerouslySetInnerHTML={{__html: props.value.Ok.Ok}} />
 }

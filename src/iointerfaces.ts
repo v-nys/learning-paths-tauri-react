@@ -1,6 +1,6 @@
 export interface Lv2ReadResult {
   Ok?: string,
-  Err?: string
+  Err?: string[]
 }
 
 export interface Lv1ReadResult {
