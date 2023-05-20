@@ -2,10 +2,9 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 use std::{collections::HashMap, path::Path};
-
 use graphviz_rust::{cmd::Format, exec, printer::PrinterContext};
-use petgraph::{dot::Dot, Directed, Graph};
-use serde::{Deserialize};
+use petgraph::{dot::Config, dot::Dot, Directed, Graph, graph::NodeIndex};
+use serde::Deserialize;
 
 /* Maybe more use of references would be more idiomatic here. */
 #[derive(Deserialize)]
@@ -17,7 +16,7 @@ struct Node {
 #[derive(Deserialize)]
 struct Edge {
     start_id: String,
-    end_id: String
+    end_id: String,
 }
 
 #[derive(Deserialize)]
@@ -35,12 +34,20 @@ enum ReadError {
 
 #[derive(Debug)]
 enum SemanticError {
-    StructuralErrors, // TODO: add detail? maybe split into separate error types ReadError and InterpretationError?
+    StructuralErrors, // TODO: add detail?
+                      // CURRENT_MOD: could add RepeatedNodeIdError(node_id) and
+                      // NonExistentEndpointError(id1, id2, nondexistent)
 }
 
 enum Dependency {
     Requirement(Directed),
     Motivation(Directed),
+}
+
+fn get_node_attributes(graph: &Graph<String,&str>,
+                       node_ref: (NodeIndex, &String)) -> String {
+    // label specified last is used, so this overrides the auto-generated one
+    format!("label=\"{}\"", node_ref.1)
 }
 
 #[tauri::command]
@@ -55,6 +62,9 @@ fn read_contents(paths: &str) -> Vec<(&str, Result<Result<String, String>, Strin
         })
         .collect();
     eprintln!("Graphs have been deserialized.");
+    // final form of the raw data is Result<Result<Cluster,SemanticError>,ReadError>, I believe
+    // I suppose there could be multiple SemanticErrors
+    // might be possible to use Vec<SemanticError> as the level 2 Err type
     let dots = deserialized_graphs.into_iter().map(|r| {
         r.map(|c| {
             let mut map = std::collections::HashMap::new();
@@ -62,9 +72,10 @@ fn read_contents(paths: &str) -> Vec<(&str, Result<Result<String, String>, Strin
             for node in c.nodes {
                 let map_key = node.id.clone();
                 if !map.contains_key(&map_key) {
-                    let idx = graph.add_node(node.id);
+                    let idx = graph.add_node(node.title);
                     map.insert(map_key, idx);
                 } else {
+                    // this is when a node is added twice
                     // TODO: be more specific, add to vector first...
                     return Err(SemanticError::StructuralErrors);
                 }
@@ -72,20 +83,36 @@ fn read_contents(paths: &str) -> Vec<(&str, Result<Result<String, String>, Strin
             for edge in &c.edges {
                 match (map.get(&edge.start_id), map.get(&edge.end_id)) {
                     (Some(idx1), Some(idx2)) => {
-                        graph.add_edge(*idx1, *idx2, 1);
+                        // don't need edge labels, so just using ""
+                        graph.add_edge(*idx1, *idx2, "");
                     }
+                    // so this is when a node has a missing start / end
                     // TODO: be more specific, add to vector first
                     _ => return Err(SemanticError::StructuralErrors),
                 }
             }
             Ok(graph)
         })
-        .map(|g| g.map(|c| format!("{:?}", Dot::new(&c))))
+        .map(|g| {
+            g.map(|cluster| {
+                // format!("{:?}", Dot::new(&cluster))
+                format!(
+                    "{:?}",
+                    Dot::with_attr_getters(
+                        &cluster,
+                        &[Config::EdgeNoLabel],
+                        &|_g, _g_edge_ref| "".to_owned(),
+                        &get_node_attributes
+                    )
+                )
+            })
+        })
     });
     eprintln!("Dots have been generated.");
     let svgs = dots.map(|dot_result| {
         dot_result.map(|dot| {
             dot.map(|ref src| {
+                eprintln!("Dot syntax is:\n{}", src);
                 let g = graphviz_rust::parse(src)
                     .expect("Assuming petgraph generated valid dot syntax.");
                 exec(g, &mut PrinterContext::default(), vec![Format::Svg.into()])
@@ -103,9 +130,8 @@ fn read_contents(paths: &str) -> Vec<(&str, Result<Result<String, String>, Strin
 }
 
 #[tauri::command]
-fn associate(paths: &str) -> Result<HashMap<&Path,Vec<&Path>>,&Path> {
-    eprintln!("associate was invoked!");
-    let paths = paths.split(";").map(|p| {Path::new(p)});
+fn associate(paths: &str) -> Result<HashMap<&Path, Vec<&Path>>, &Path> {
+    let paths = paths.split(";").map(|p| Path::new(p));
     let mut map = HashMap::new();
     for path in paths {
         let parent = path.parent();
@@ -123,7 +149,7 @@ fn associate(paths: &str) -> Result<HashMap<&Path,Vec<&Path>>,&Path> {
 fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_fs_watch::init())
-        .invoke_handler(tauri::generate_handler![read_contents,associate])
+        .invoke_handler(tauri::generate_handler![read_contents, associate])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
