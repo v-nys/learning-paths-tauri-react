@@ -93,7 +93,7 @@ fn read_contents(paths: &str) -> Vec<(&str, Result<Result<String, Vec<String>>, 
                     }
                  }
             }
-            if is_empty(structural_errors) {
+            if structural_errors.is_empty() {
                 Ok(graph)
             }
             else {

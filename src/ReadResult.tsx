@@ -6,7 +6,8 @@ export interface ReadResultProps {
 }
 
 export function ReadResult(props: ReadResultProps) {
+  const errs = props.value.Ok.Err;
   return props.value.Err ??
-         props.value.Ok.Err.join("\n") ??
+         (errs ? Array.from(new Set(errs)).map((e) => <p key={e}>{e}</p>) : undefined) ??
          <div dangerouslySetInnerHTML={{__html: props.value.Ok.Ok}} />
 }
