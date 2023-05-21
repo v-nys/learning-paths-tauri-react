@@ -34,8 +34,11 @@ enum ReadError {
 
 #[derive(Debug)]
 enum StructuralError {
-    DoubleNodeError(String),
-    MissingEndpointError(String, String, String),
+    DoubleNode(String), // creating two nodes with same ID
+    MissingInternalEndpoint(String, String, String), // referring to non-existent node
+    NodeMultipleNamespace(String), // creating a node with explicit namespace
+    EdgeMultipleNamespace(String, String, String), // edge from / to internal node with
+                             // explicit namespace
 }
 
 enum Dependency {
@@ -70,47 +73,96 @@ fn read_contents(
             let mut map = std::collections::HashMap::new();
             let mut graph = Graph::new();
             let mut structural_errors: Vec<StructuralError> = vec![];
+            // these should only be internal nodes
             for node in c.nodes {
-                let map_key = node.id.clone();
-                if !map.contains_key(&map_key) {
-                    let idx = graph.add_node(node.title);
-                    map.insert(map_key, idx);
+                let maybe_namespaced_key = node.id.clone();
+                if maybe_namespaced_key.contains("__") {
+                    structural_errors.push(StructuralError::NodeMultipleNamespace(
+                        maybe_namespaced_key,
+                    ));
                 } else {
-                    structural_errors.push(StructuralError::DoubleNodeError(map_key));
+                    let definitely_namespaced_key =
+                        format!("{}__{maybe_namespaced_key}", c.namespace_prefix);
+                    if !map.contains_key(&definitely_namespaced_key) {
+                        let idx = graph.add_node(node.title);
+                        map.insert(definitely_namespaced_key, idx);
+                    } else {
+                        structural_errors
+                            .push(StructuralError::DoubleNode(definitely_namespaced_key));
+                    }
                 }
             }
-            for edge in &c.edges {
-                // TODO: modify to take into account existence of namespaced nodes
-                match (map.get(&edge.start_id), map.get(&edge.end_id)) {
-                    (Some(idx1), Some(idx2)) => {
-                        // don't need edge labels, so just using ""
-                        graph.add_edge(*idx1, *idx2, "");
+
+            for Edge { start_id, end_id } in &c.edges {
+                let mut can_add = true;
+                if start_id.starts_with(&format!("{}__", &c.namespace_prefix)) {
+                    structural_errors.push(StructuralError::EdgeMultipleNamespace(
+                        start_id.to_owned(),
+                        end_id.to_owned(),
+                        start_id.to_owned(),
+                    ));
+                    can_add = false;
+                }
+                if end_id.starts_with(&format!("{}__", &c.namespace_prefix)) {
+                    structural_errors.push(StructuralError::EdgeMultipleNamespace(
+                        start_id.to_owned(),
+                        end_id.to_owned(),
+                        start_id.to_owned(),
+                    ));
+                    can_add = false;
+                }
+                if can_add {
+                    let mut start_id = start_id.to_owned();
+                    let mut end_id = end_id.to_owned();
+                    if start_id.contains("__") {
+                        if !map.contains_key(&start_id) {
+                            let idx = graph.add_node(start_id.clone());
+                            map.insert(start_id.clone(), idx);
+                        }
                     }
-                    (Some(_), None) => {
-                        structural_errors.push(StructuralError::MissingEndpointError(
-                            edge.start_id.to_owned(),
-                            edge.end_id.to_owned(),
-                            edge.end_id.to_owned(),
-                        ));
+                    else {
+                        start_id = format!("{}__{start_id}", c.namespace_prefix);
                     }
-                    (None, Some(_)) => {
-                        structural_errors.push(StructuralError::MissingEndpointError(
-                            edge.start_id.to_owned(),
-                            edge.end_id.to_owned(),
-                            edge.start_id.to_owned(),
-                        ));
+                    if end_id.contains("__") {
+                        if !map.contains_key(&end_id) {
+                            let idx = graph.add_node(end_id.clone());
+                            map.insert(end_id.clone(), idx);
+                        }
                     }
-                    (None, None) => {
-                        structural_errors.push(StructuralError::MissingEndpointError(
-                            edge.start_id.to_owned(),
-                            edge.end_id.to_owned(),
-                            edge.start_id.to_owned(),
-                        ));
-                        structural_errors.push(StructuralError::MissingEndpointError(
-                            edge.start_id.to_owned(),
-                            edge.end_id.to_owned(),
-                            edge.end_id.to_owned(),
-                        ));
+                    else {
+                        end_id = format!("{}__{end_id}", c.namespace_prefix);
+                    }
+                    match (map.get(&start_id), map.get(&end_id)) {
+                        (Some(idx1), Some(idx2)) => {
+                            // don't need edge labels, so just using ""
+                            graph.add_edge(*idx1, *idx2, "");
+                        }
+                        (Some(_), None) => {
+                            structural_errors.push(StructuralError::MissingInternalEndpoint(
+                                start_id.to_owned(),
+                                end_id.to_owned(),
+                                end_id.to_owned(),
+                            ));
+                        }
+                        (None, Some(_)) => {
+                            structural_errors.push(StructuralError::MissingInternalEndpoint(
+                                start_id.to_owned(),
+                                end_id.to_owned(),
+                                start_id.to_owned(),
+                            ));
+                        }
+                        (None, None) => {
+                            structural_errors.push(StructuralError::MissingInternalEndpoint(
+                                start_id.to_owned(),
+                                end_id.to_owned(),
+                                start_id.to_owned(),
+                            ));
+                            structural_errors.push(StructuralError::MissingInternalEndpoint(
+                                start_id.to_owned(),
+                                end_id.to_owned(),
+                                end_id.to_owned(),
+                            ));
+                        }
                     }
                 }
             }
