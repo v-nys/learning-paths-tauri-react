@@ -1,10 +1,10 @@
 // Prevents additional console window on Windows in release, DO NOT REMOVE!!
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-use std::{collections::HashMap, path::Path};
 use graphviz_rust::{cmd::Format, exec, printer::PrinterContext};
-use petgraph::{dot::Config, dot::Dot, Directed, Graph, graph::NodeIndex};
+use petgraph::{dot::Config, dot::Dot, graph::NodeIndex, Directed, Graph};
 use serde::Deserialize;
+use std::{collections::HashMap, path::Path};
 
 /* Maybe more use of references would be more idiomatic here. */
 #[derive(Deserialize)]
@@ -35,7 +35,7 @@ enum ReadError {
 #[derive(Debug)]
 enum StructuralError {
     DoubleNodeError(String),
-    MissingEndpointError(String,String,String),
+    MissingEndpointError(String, String, String),
 }
 
 enum Dependency {
@@ -43,14 +43,20 @@ enum Dependency {
     Motivation(Directed),
 }
 
-fn get_node_attributes(graph: &Graph<String,&str>,
-                       node_ref: (NodeIndex, &String)) -> String {
+fn get_node_attributes(graph: &Graph<String, &str>, node_ref: (NodeIndex, &String)) -> String {
     // label specified last is used, so this overrides the auto-generated one
     format!("label=\"{}\"", node_ref.1)
 }
 
 #[tauri::command]
-fn read_contents(paths: &str) -> Vec<(&str, Result<Result<String, Vec<String>>, String>)> {
+fn read_contents(
+    paths: &str,
+) -> Vec<(
+    &str,
+    Result<Result<(String, Vec<String>), Vec<String>>, String>,
+)> {
+    /* currently working on turning main Ok type (SVG code) from String into (String,Vec<String>).
+     * idea is to add remarks, e.g. regarding missing attachments, redundant edges,... */
     eprintln!("read_contents was invoked!");
     let paths = paths.split(";");
     let read_results = paths.clone().map(std::fs::read_to_string);
@@ -82,58 +88,81 @@ fn read_contents(paths: &str) -> Vec<(&str, Result<Result<String, Vec<String>>, 
                         graph.add_edge(*idx1, *idx2, "");
                     }
                     (Some(_), None) => {
-                        structural_errors.push(StructuralError::MissingEndpointError(edge.start_id.to_owned(), edge.end_id.to_owned(), edge.end_id.to_owned()));
+                        structural_errors.push(StructuralError::MissingEndpointError(
+                            edge.start_id.to_owned(),
+                            edge.end_id.to_owned(),
+                            edge.end_id.to_owned(),
+                        ));
                     }
                     (None, Some(_)) => {
-                        structural_errors.push(StructuralError::MissingEndpointError(edge.start_id.to_owned(), edge.end_id.to_owned(), edge.start_id.to_owned()));
+                        structural_errors.push(StructuralError::MissingEndpointError(
+                            edge.start_id.to_owned(),
+                            edge.end_id.to_owned(),
+                            edge.start_id.to_owned(),
+                        ));
                     }
                     (None, None) => {
-                        structural_errors.push(StructuralError::MissingEndpointError(edge.start_id.to_owned(), edge.end_id.to_owned(), edge.start_id.to_owned()));
-                        structural_errors.push(StructuralError::MissingEndpointError(edge.start_id.to_owned(), edge.end_id.to_owned(), edge.end_id.to_owned()));
+                        structural_errors.push(StructuralError::MissingEndpointError(
+                            edge.start_id.to_owned(),
+                            edge.end_id.to_owned(),
+                            edge.start_id.to_owned(),
+                        ));
+                        structural_errors.push(StructuralError::MissingEndpointError(
+                            edge.start_id.to_owned(),
+                            edge.end_id.to_owned(),
+                            edge.end_id.to_owned(),
+                        ));
                     }
-                 }
+                }
             }
             if structural_errors.is_empty() {
                 Ok(graph)
-            }
-            else {
+            } else {
                 Err(structural_errors)
             }
         })
         .map(|g| {
             g.map(|cluster| {
-                // format!("{:?}", Dot::new(&cluster))
-                format!(
-                    "{:?}",
-                    Dot::with_attr_getters(
-                        &cluster,
-                        &[Config::EdgeNoLabel],
-                        &|_g, _g_edge_ref| "".to_owned(),
-                        &get_node_attributes
-                    )
+                let remarks = vec![
+                    "This needs work".to_owned(),
+                    "This other thing needs work".to_owned(),
+                    "Another placeholder".to_owned(),
+                ];
+                (
+                    format!(
+                        "{:?}",
+                        Dot::with_attr_getters(
+                            &cluster,
+                            &[Config::EdgeNoLabel],
+                            &|_g, _g_edge_ref| "".to_owned(),
+                            &get_node_attributes
+                        )
+                    ),
+                    remarks,
                 )
             })
         })
     });
-    eprintln!("Dots have been generated.");
+    eprintln!("Dots have been generated and remarks have been added.");
     let svgs = dots.map(|dot_result| {
-        dot_result.map(|dot| {
-            dot.map(|ref src| {
-                eprintln!("Dot syntax is:\n{}", src);
-                let g = graphviz_rust::parse(src)
+        dot_result.map(|dot_with_remarks| {
+            dot_with_remarks.map(|(ref dot_src, remarks)| {
+                eprintln!("Dot syntax is:\n{}", dot_src);
+                let g = graphviz_rust::parse(dot_src)
                     .expect("Assuming petgraph generated valid dot syntax.");
-                exec(g, &mut PrinterContext::default(), vec![Format::Svg.into()])
-                    .expect("Assuming valid graph can be rendered into SVG.")
+                (
+                    exec(g, &mut PrinterContext::default(), vec![Format::Svg.into()])
+                        .expect("Assuming valid graph can be rendered into SVG."),
+                    remarks,
+                )
             })
         })
     });
     eprintln!("SVGs have been rendered.");
-    let serializable = svgs.map(|svg| {
-        svg.map(|ok|
-                ok.map_err(|ses|
-                           ses.into_iter().map(|se|
-                                               format!("{:#?}", se)).collect()))
-           .map_err(|re| format!("{:#?}", re))
+    let serializable = svgs.map(|svg_with_remarks| {
+        svg_with_remarks
+            .map(|ok| ok.map_err(|ses| ses.into_iter().map(|se| format!("{:#?}", se)).collect()))
+            .map_err(|re| format!("{:#?}", re))
     });
     eprintln!("Errors have been converted into strings.");
     std::iter::zip(paths, serializable).collect()

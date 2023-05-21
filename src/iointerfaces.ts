@@ -1,5 +1,5 @@
 export interface Lv2ReadResult {
-  Ok?: string,
+  Ok?: [string,string[]],
   Err?: string[]
 }
 
