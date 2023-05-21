@@ -55,8 +55,6 @@ fn read_contents(
     &str,
     Result<Result<(String, Vec<String>), Vec<String>>, String>,
 )> {
-    /* currently working on turning main Ok type (SVG code) from String into (String,Vec<String>).
-     * idea is to add remarks, e.g. regarding missing attachments, redundant edges,... */
     eprintln!("read_contents was invoked!");
     let paths = paths.split(";");
     let read_results = paths.clone().map(std::fs::read_to_string);
@@ -82,6 +80,7 @@ fn read_contents(
                 }
             }
             for edge in &c.edges {
+                // TODO: modify to take into account existence of namespaced nodes
                 match (map.get(&edge.start_id), map.get(&edge.end_id)) {
                     (Some(idx1), Some(idx2)) => {
                         // don't need edge labels, so just using ""
