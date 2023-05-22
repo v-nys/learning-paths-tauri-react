@@ -54,6 +54,7 @@ fn get_node_attributes(graph: &Graph<String, &str>, node_ref: (NodeIndex, &Strin
 #[tauri::command]
 fn read_contents(
     paths: &str,
+    check_redundant_edges: bool,
 ) -> Vec<(
     &str,
     Result<Result<(String, Vec<String>), Vec<String>>, String>,
@@ -174,8 +175,11 @@ fn read_contents(
         })
         .map(|g| {
             g.map(|cluster| {
-                let remarks: Vec<String> = vec![
+                let mut remarks: Vec<String> = vec![
                 ];
+                if check_redundant_edges {
+                    remarks.push("Can't check for redundant edges yet.".to_owned());
+                }
                 (
                     format!(
                         "{:?}",

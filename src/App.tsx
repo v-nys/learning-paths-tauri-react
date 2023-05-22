@@ -49,12 +49,14 @@ function App() {
   const [readResults, setReadResults] = useState(new Map());
   const [pathToDisplayOnceRead, setPathToDisplayOnceRead] = useState(undefined);
   const stopCallbacks = useRef([]);
-  const [eventToHandle, setEventToHandle] = useState<undefined|"filechange"|"pathchange">(undefined);
+  const [eventToHandle, setEventToHandle] = useState<undefined|"filechange"|"pathchange"|"settingschange">(undefined);
+  const [checkRedundantEdges, setCheckRedundantEdges] = useState(true);
 
   /* Setting the type of event to handle is different depending on situation.
    * A path change just occurs when the input field is modified.
    * A file change is signaled from outside the component code.
    * Furthermore, a pending path change takes precedence over that.
+   * A settings change has the same priority as a file change, neither overrides the other.
    */
   useEffect(() => {
     const onFileChange = () => {
@@ -65,6 +67,13 @@ function App() {
     const unlisten = appWindow.listen('filechange', onFileChange);
     return async () => { const fn = await unlisten; fn(); }
   });
+
+  useEffect(() => {
+      if (!eventToHandle) {
+        setEventToHandle("settingschange");
+      }
+  }, [setCheckRedundantEdges]);
+
   useEffect(() => {
     setEventToHandle("pathchange");
   }, [paths]);
@@ -95,7 +104,7 @@ function App() {
 
   async function readFileContents() {
       let separatePaths = separateIntoUniquePaths(paths);
-      let svgs = await invoke('read_contents', { paths: separatePaths.join(";") });
+      let svgs = await invoke('read_contents', { paths: separatePaths.join(";"), check_redundant_edges: checkRedundantEdges });
       let newReadResults = new Map<string,Lv1ReadResult>();
       svgs.forEach((pair) => { newReadResults.set(pair[0], pair[1]); });
       setReadResults(newReadResults);
@@ -135,6 +144,12 @@ function App() {
           setLoading(false);
           break;
         }
+	case "settingschange": {
+          setLoading(true);
+          await readFileContents();
+          setLoading(false);
+	  break;
+	}
         default: {
           break;
         }
@@ -150,6 +165,15 @@ function App() {
     <>
     <div className="container">
       <div className="row">
+        <input
+	  type="checkbox"
+          id="redundant-edges-input"
+	  checked={checkRedundantEdges}
+          onChange={(e) => setCheckRedundantEdges(e.target.value)}
+        />
+	<label htmlFor="redundant-edges-input">check for redundant edges</label>
+	</div>
+       <div className="row">
         <input
           id="files-input"
           onChange={(e) => setPaths(e.currentTarget.value)}
