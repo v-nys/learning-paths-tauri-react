@@ -72,7 +72,7 @@ function App() {
       if (!eventToHandle) {
         setEventToHandle("settingschange");
       }
-  }, [setCheckRedundantEdges]);
+  }, [checkRedundantEdges]);
 
   useEffect(() => {
     setEventToHandle("pathchange");
@@ -104,7 +104,9 @@ function App() {
 
   async function readFileContents() {
       let separatePaths = separateIntoUniquePaths(paths);
-      let svgs = await invoke('read_contents', { paths: separatePaths.join(";"), check_redundant_edges: checkRedundantEdges });
+      let svgs = await invoke('read_contents',
+                              { paths: separatePaths.join(";"),
+			        check_redundant_edges: checkRedundantEdges });
       let newReadResults = new Map<string,Lv1ReadResult>();
       svgs.forEach((pair) => { newReadResults.set(pair[0], pair[1]); });
       setReadResults(newReadResults);
