@@ -49,19 +49,19 @@ function App() {
   const [readResults, setReadResults] = useState(new Map());
   const [pathToDisplayOnceRead, setPathToDisplayOnceRead] = useState(undefined);
   const stopCallbacks = useRef([]);
-  const [eventToHandle, setEventToHandle] = useState<undefined|"filechange"|"pathchange"|"settingschange">(undefined);
+  // file and settings change really call for the same actions and have same level of precedence, so...
+  const [eventToHandle, setEventToHandle] = useState<undefined|"fileorsettingschange"|"pathchange">(undefined);
   const [checkRedundantEdges, setCheckRedundantEdges] = useState(true);
-
+  const [checkClusterBoundaries, setCheckClusterBoundaries] = useState(true);
+  const [checkMissingFiles, setCheckMissingFiles] = useState(true);
   /* Setting the type of event to handle is different depending on situation.
    * A path change just occurs when the input field is modified.
    * A file change is signaled from outside the component code.
-   * Furthermore, a pending path change takes precedence over that.
-   * A settings change has the same priority as a file change, neither overrides the other.
    */
   useEffect(() => {
     const onFileChange = () => {
       if (!eventToHandle) {
-        setEventToHandle("filechange");
+        setEventToHandle("fileorsettingschange");
       }
     }
     const unlisten = appWindow.listen('filechange', onFileChange);
@@ -70,9 +70,9 @@ function App() {
 
   useEffect(() => {
       if (!eventToHandle) {
-        setEventToHandle("settingschange");
+        setEventToHandle("fileorsettingschange");
       }
-  }, [checkRedundantEdges]);
+  }, [checkRedundantEdges,checkClusterBoundaries,checkMissingFiles]);
 
   useEffect(() => {
     setEventToHandle("pathchange");
@@ -105,8 +105,10 @@ function App() {
   async function readFileContents() {
       let separatePaths = separateIntoUniquePaths(paths);
       let svgs = await invoke('read_contents',
-                              { paths: separatePaths.join(";"),
-			        check_redundant_edges: checkRedundantEdges });
+      { paths: separatePaths.join(";"),
+        checkRedundantEdges: checkRedundantEdges,
+        checkClusterBoundaries: checkClusterBoundaries,
+        checkMissingFiles: checkMissingFiles });
       let newReadResults = new Map<string,Lv1ReadResult>();
       svgs.forEach((pair) => { newReadResults.set(pair[0], pair[1]); });
       setReadResults(newReadResults);
@@ -140,18 +142,12 @@ function App() {
           setLoading(false);
           break;
         }
-        case "filechange": {
+        case "fileorsettingschange": {
           setLoading(true);
           await readFileContents();
           setLoading(false);
           break;
         }
-	case "settingschange": {
-          setLoading(true);
-          await readFileContents();
-          setLoading(false);
-	  break;
-	}
         default: {
           break;
         }
@@ -168,13 +164,36 @@ function App() {
     <div className="container">
       <div className="row">
         <input
-	  type="checkbox"
+	      type="checkbox"
           id="redundant-edges-input"
-	  checked={checkRedundantEdges}
-          onChange={(e) => setCheckRedundantEdges(e.target.value)}
+	      checked={checkRedundantEdges}
+          onChange={() => setCheckRedundantEdges(!checkRedundantEdges)}
         />
-	<label htmlFor="redundant-edges-input">check for redundant edges</label>
-	</div>
+	    <label htmlFor="redundant-edges-input">check for redundant edges</label>
+      </div>
+
+      <div className="row">
+        <input
+	      type="checkbox"
+          id="cluster-boundaries-input"
+	      checked={checkClusterBoundaries}
+          onChange={() => setCheckClusterBoundaries(!checkClusterBoundaries)}
+        />
+	    <label htmlFor="cluster-boundaries-input">check cluster boundaries</label>
+	  </div>
+
+      <div className="row">
+        <input
+	      type="checkbox"
+          id="check-missing-files-input"
+	      checked={checkMissingFiles}
+          onChange={() => setCheckMissingFiles(!checkMissingFiles)}
+        />
+	    <label htmlFor="check-missing-files-input">check for missing files</label>
+	  </div>
+
+
+
        <div className="row">
         <input
           id="files-input"
@@ -182,6 +201,7 @@ function App() {
           placeholder="Enter &quot;;&quot;-separated paths"
         />
       </div>
+
       {
         loading ?
         <p>Please hold</p> :

@@ -34,11 +34,11 @@ enum ReadError {
 
 #[derive(Debug)]
 enum StructuralError {
-    DoubleNode(String), // creating two nodes with same ID
+    DoubleNode(String),                              // creating two nodes with same ID
     MissingInternalEndpoint(String, String, String), // referring to non-existent node
-    NodeMultipleNamespace(String), // creating a node with explicit namespace
-    EdgeMultipleNamespace(String, String, String), // edge from / to internal node with
-                             // explicit namespace
+    NodeMultipleNamespace(String),                   // creating a node with explicit namespace
+    EdgeMultipleNamespace(String, String, String),   // edge from / to internal node with
+                                                     // explicit namespace
 }
 
 enum Dependency {
@@ -55,6 +55,8 @@ fn get_node_attributes(graph: &Graph<String, &str>, node_ref: (NodeIndex, &Strin
 fn read_contents(
     paths: &str,
     check_redundant_edges: bool,
+    check_cluster_boundaries: bool,
+    check_missing_files: bool
 ) -> Vec<(
     &str,
     Result<Result<(String, Vec<String>), Vec<String>>, String>,
@@ -78,9 +80,8 @@ fn read_contents(
             for node in c.nodes {
                 let maybe_namespaced_key = node.id.clone();
                 if maybe_namespaced_key.contains("__") {
-                    structural_errors.push(StructuralError::NodeMultipleNamespace(
-                        maybe_namespaced_key,
-                    ));
+                    structural_errors
+                        .push(StructuralError::NodeMultipleNamespace(maybe_namespaced_key));
                 } else {
                     let definitely_namespaced_key =
                         format!("{}__{maybe_namespaced_key}", c.namespace_prefix);
@@ -120,8 +121,7 @@ fn read_contents(
                             let idx = graph.add_node(start_id.clone());
                             map.insert(start_id.clone(), idx);
                         }
-                    }
-                    else {
+                    } else {
                         start_id = format!("{}__{start_id}", c.namespace_prefix);
                     }
                     if end_id.contains("__") {
@@ -129,8 +129,7 @@ fn read_contents(
                             let idx = graph.add_node(end_id.clone());
                             map.insert(end_id.clone(), idx);
                         }
-                    }
-                    else {
+                    } else {
                         end_id = format!("{}__{end_id}", c.namespace_prefix);
                     }
                     match (map.get(&start_id), map.get(&end_id)) {
@@ -175,10 +174,15 @@ fn read_contents(
         })
         .map(|g| {
             g.map(|cluster| {
-                let mut remarks: Vec<String> = vec![
-                ];
+                let mut remarks: Vec<String> = vec![];
                 if check_redundant_edges {
                     remarks.push("Can't check for redundant edges yet.".to_owned());
+                }
+                if check_cluster_boundaries {
+                    remarks.push("Can't check cluster boundaries yet.".to_owned());
+                }
+                if check_missing_files {
+                    remarks.push("Can't check for missing files yet.".to_owned());
                 }
                 (
                     format!(
