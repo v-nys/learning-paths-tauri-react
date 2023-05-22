@@ -161,8 +161,19 @@ function App() {
         <p>Please hold</p> :
         <div className="row">
             {
-             Array.from(readResults.keys())
-                   .map((k) => {
+            /* Could split into separate component? */
+             Array.from(readResults.entries())
+                   .map(([k,v]) => {
+                let icon = "✅";
+                if (v.Err) {
+                  icon = "✖️"
+                }
+                else if (v.Ok.Err) {
+                  icon = "⁉️"
+                }
+                else if (v.Ok.Ok[1].length > 0) {
+                  icon = "⚠️"
+                }
                 return (<Fragment key={k}>
                           <input
                             name="active-path"
@@ -172,7 +183,7 @@ function App() {
                             checked={pathToDisplayOnceRead === k}
                             onChange={onOptionChange}
                             />
-                          <label htmlFor={`radio-button-${k}`}>{k}</label>
+                          <label htmlFor={`radio-button-${k}`}>{k} {icon}</label>
                         </Fragment>
                        )
               })

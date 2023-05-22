@@ -174,10 +174,7 @@ fn read_contents(
         })
         .map(|g| {
             g.map(|cluster| {
-                let remarks = vec![
-                    "This needs work".to_owned(),
-                    "This other thing needs work".to_owned(),
-                    "Another placeholder".to_owned(),
+                let remarks: Vec<String> = vec![
                 ];
                 (
                     format!(
