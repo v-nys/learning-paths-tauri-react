@@ -200,8 +200,17 @@ fn read_contents(
         })
     });
 
-    let mut dots: Vec<_> = dots.collect();
-    let graph_result: &Result<Vec<_>,_> = dots.into_iter().collect();
+    // to enable serialization and cloning
+    let serializable = dots.map(|dot_with_remarks| {
+        dot_with_remarks
+            .map(|ok| ok.map_err(|ses| ses.into_iter().map(|se| format!("{:#?}", se)).collect()))
+            .map_err(|re| format!("{:#?}", re))
+    });
+    eprintln!("Errors have been converted into strings.");
+
+
+    let mut dots: Vec<_> = serializable.collect();
+    let graph_result: Result<Vec<_>,_> = dots.clone().into_iter().collect();
     let mut paths: Vec<&str> = paths.collect();
     paths.push("complete graph");
     match graph_result {
@@ -237,13 +246,8 @@ fn read_contents(
         })
     });
     eprintln!("SVGs have been rendered.");
-    let serializable = svgs.map(|svg_with_remarks| {
-        svg_with_remarks
-            .map(|ok| ok.map_err(|ses| ses.into_iter().map(|se| format!("{:#?}", se)).collect()))
-            .map_err(|re| format!("{:#?}", re))
-    });
-    eprintln!("Errors have been converted into strings.");
-    std::iter::zip(paths, serializable).collect()
+
+    std::iter::zip(paths, svgs).collect()
 }
 
 #[tauri::command]
