@@ -32,6 +32,7 @@ enum ReadError {
     IO(std::io::Error),
 }
 
+// TODO: consider making making edges whose sink is an external node structural errors, as well
 #[derive(Debug)]
 enum StructuralError {
     DoubleNode(String),                              // creating two nodes with same ID
@@ -233,16 +234,13 @@ fn read_contents(
 
     let graph_result: Result<Vec<_>, _> = dots.clone().into_iter().collect();
     let mut paths: Vec<&str> = paths.collect();
-    paths.push("complete graph");
-
-    let complete_graph_result;
+    let boundary_errors = vec![];
+    let mut complete_graph_result;
     match graph_result {
         Ok(v) => {
             let graph_result: Result<Vec<_>, _> = v.into_iter().collect();
             match graph_result {
                 Ok(v) => {
-                    // TODO: (try to) build and add complete graph
-                    // need to traverse deserialized_graphs again
                     let mut complete_graph: Graph<String, &str> = Graph::new();
                     let mut complete_graph_map = HashMap::new();
                     // wait, I don't get this
@@ -261,35 +259,49 @@ fn read_contents(
                     });
                     deserialized_graphs.iter().for_each(|deserialized| {
                         let (cluster, graph) = deserialized.unwrap().unwrap();
-                        for edge in cluster.edges {
+                        for Edge {start_id, end_id} in cluster.edges {
                             // add the dependencies
-                            // need to namespace both endpoints
-                            // need to get their indices using the map
-                            // if either one can't be found, there's a boundary issue
-                            // otherwise, add the edge
-                            // can then go on to compute transitive reduction
-                            todo!();
+                            let namespaced_start_id = if start_id.contains("__") { start_id } else {format!("{}__{start_id}",cluster.namespace_prefix)};
+                            let namespaced_end_id = if end_id.contains("__") { end_id } else {format!("{}__{end_id}",cluster.namespace_prefix)};
+                            match (complete_graph_map.get(&namespaced_start_id), complete_graph_map.get(&namespaced_end_id)) {
+                                (Some(start_idx),Some(end_idx)) => {
+                                    complete_graph.add_edge(*start_idx,*end_idx,"");
+                                },
+                                (Some(_),None) => {
+                                    boundary_errors.push(format!("Cluster {} refers to missing external node {}", cluster.namespace_prefix, namespaced_end_id));
+                                },
+                                (None,Some(_)) => {
+                                    boundary_errors.push(format!("Cluster {} refers to missing external node {}", cluster.namespace_prefix, namespaced_start_id));
+                                },
+                                (None,None) => {
+                                    boundary_errors.push(format!("Cluster {} refers to missing external node {}", cluster.namespace_prefix, namespaced_end_id));
+                                    boundary_errors.push(format!("Cluster {} refers to missing external node {}", cluster.namespace_prefix, namespaced_start_id));
+                                }
+                            }
                         }
                     });
-                    complete_graph_result = Ok(Ok(complete_graph));
+                    if boundary_errors.is_empty() {
+                        complete_graph_result = Ok(Ok(complete_graph));
+                    }
+                    else {
+                        complete_graph_result = Ok(Err(&boundary_errors));
+                    }
                 }
                 Err(e) => {
-                    dots.push(Ok(Err(e)));
                     complete_graph_result = Ok(Err(e));
                 }
             }
         }
         Err(e) => {
-            dots.push(Err(e));
             complete_graph_result = Err(e);
         }
     }
     eprintln!("Global graph has been represented.");
 
-    let svgs = dots.into_iter().map(|dot_result| {
+    // issue: structural issues are represented as a &Vec<String>, rather than a Vec<String>
+    let mut svgs: Vec<_> = dots.into_iter().map(|dot_result| {
         dot_result.map(|dot_with_remarks| {
             dot_with_remarks.map(|(ref dot_src, remarks)| {
-                eprintln!("Dot syntax is:\n{}", dot_src);
                 let g = graphviz_rust::parse(dot_src)
                     .expect("Assuming petgraph generated valid dot syntax.");
                 (
@@ -299,8 +311,25 @@ fn read_contents(
                 )
             })
         })
-    });
+    }).collect();
     eprintln!("SVGs have been rendered.");
+    paths.push("complete graph");
+    svgs.push(complete_graph_result.map(|lvl1| {
+        lvl1.map(|lvl2| {
+            let dot = format!(
+                "{:?}",
+                Dot::with_attr_getters(
+                    &lvl2,
+                    &[Config::EdgeNoLabel],
+                    &|_g, _g_edge_ref| "".to_owned(),
+                    &get_node_attributes
+                )
+            );
+            (exec(graphviz_rust::parse(&dot)
+            .expect("Assuming petgraph generated valid dot syntax."), &mut PrinterContext::default(), vec![Format::Svg.into()])
+            .expect("Assuming valid graph can be rendered into SVG."), vec![])
+        })
+    }));
 
     std::iter::zip(paths, svgs).collect()
 }
