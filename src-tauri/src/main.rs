@@ -71,17 +71,6 @@ fn read_contents(
         })
         .collect();
     eprintln!("Graphs have been deserialized.");
-    /* TODO: build a big, fully namespaced graph with just -all-> to find redundant -all-> edges
-     * How?
-     * This is another cluster.
-     * Can only be computed if the component clusters can be computed, i.e. if dots consists of
-     * only Ok(Ok(...)) values.
-     * Otherwise, just say that a c component graph is causing an issue.
-     * Its nodes are the (fully namespaced) *internal* nodes of all other clusters combined.
-     * Adding edges requires the node indexes.
-     * Can do this by tracking IDs with a hash map from ID to index.
-     * There is a cluster boundary problem if we cannot get an index for a node.
-     * */
     let dots = deserialized_graphs.into_iter().map(|r| {
         r.map(|c| {
             let mut map = std::collections::HashMap::new();
@@ -211,8 +200,29 @@ fn read_contents(
         })
     });
 
+    let mut dots: Vec<_> = dots.collect();
+    let graph_result: &Result<Vec<_>,_> = dots.into_iter().collect();
+    let mut paths: Vec<&str> = paths.collect();
+    paths.push("complete graph");
+    match graph_result {
+        Ok(v) => {
+            let graph_result: Result<Vec<_>,_> = v.into_iter().collect();
+            match graph_result {
+                Ok(v) => {
+                    // TODO: (try to) build and add complete graph
+                }
+                Err(e) => {
+                    dots.push(Ok(Err(e)));
+                }
+            }
+        }
+        Err(e) => {
+            dots.push(Err(e));
+        }
+    }
+
     eprintln!("Dots have been generated and remarks have been added.");
-    let svgs = dots.map(|dot_result| {
+    let svgs = dots.into_iter().map(|dot_result| {
         dot_result.map(|dot_with_remarks| {
             dot_with_remarks.map(|(ref dot_src, remarks)| {
                 eprintln!("Dot syntax is:\n{}", dot_src);
