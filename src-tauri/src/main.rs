@@ -7,19 +7,19 @@ use serde::Deserialize;
 use std::{collections::HashMap, path::Path};
 
 /* Maybe more use of references would be more idiomatic here. */
-#[derive(Deserialize)]
+#[derive(Deserialize, Clone)]
 struct Node {
     id: String,
     title: String,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Clone)]
 struct Edge {
     start_id: String,
     end_id: String,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Clone)]
 struct Cluster {
     namespace_prefix: String,
     nodes: Vec<Node>,
@@ -41,10 +41,10 @@ enum StructuralError {
                                                      // explicit namespace
 }
 
-enum Dependency {
+/*enum Dependency {
     Requirement(Directed),
     Motivation(Directed),
-}
+}*/
 
 fn get_node_attributes(graph: &Graph<String, &str>, node_ref: (NodeIndex, &String)) -> String {
     // label specified last is used, so this overrides the auto-generated one
@@ -71,155 +71,171 @@ fn read_contents(
         })
         .collect();
     eprintln!("Graphs have been deserialized.");
-    let deserialized_graphs = deserialized_graphs.into_iter().map(|r| {
-        r.map(|c| {
-            let mut map = std::collections::HashMap::new();
-            let mut graph = Graph::new();
-            let mut structural_errors: Vec<StructuralError> = vec![];
-            // these should only be internal nodes
-            for node in c.nodes {
-                let maybe_namespaced_key = node.id.clone();
-                if maybe_namespaced_key.contains("__") {
-                    structural_errors
-                        .push(StructuralError::NodeMultipleNamespace(maybe_namespaced_key));
-                } else {
-                    let definitely_namespaced_key =
-                        format!("{}__{maybe_namespaced_key}", c.namespace_prefix);
-                    if !map.contains_key(&definitely_namespaced_key) {
-                        let idx = graph.add_node(node.title);
-                        map.insert(definitely_namespaced_key, idx);
-                    } else {
+    let deserialized_graphs: Vec<_> = deserialized_graphs
+        .into_iter()
+        .map(|r| {
+            r.map(|c| {
+                let mut map = std::collections::HashMap::new();
+                let mut graph = Graph::new();
+                let mut structural_errors: Vec<StructuralError> = vec![];
+                // these should only be internal nodes
+                for node in &c.nodes {
+                    let maybe_namespaced_key = node.id.clone();
+                    if maybe_namespaced_key.contains("__") {
                         structural_errors
-                            .push(StructuralError::DoubleNode(definitely_namespaced_key));
+                            .push(StructuralError::NodeMultipleNamespace(maybe_namespaced_key));
+                    } else {
+                        let definitely_namespaced_key =
+                            format!("{}__{maybe_namespaced_key}", c.namespace_prefix);
+                        if !map.contains_key(&definitely_namespaced_key) {
+                            let idx = graph.add_node(node.title.to_owned());
+                            map.insert(definitely_namespaced_key, idx);
+                        } else {
+                            structural_errors
+                                .push(StructuralError::DoubleNode(definitely_namespaced_key));
+                        }
                     }
                 }
-            }
 
-            for Edge { start_id, end_id } in &c.edges {
-                let mut can_add = true;
-                if start_id.starts_with(&format!("{}__", &c.namespace_prefix)) {
-                    structural_errors.push(StructuralError::EdgeMultipleNamespace(
-                        start_id.to_owned(),
-                        end_id.to_owned(),
-                        start_id.to_owned(),
-                    ));
-                    can_add = false;
-                }
-                if end_id.starts_with(&format!("{}__", &c.namespace_prefix)) {
-                    structural_errors.push(StructuralError::EdgeMultipleNamespace(
-                        start_id.to_owned(),
-                        end_id.to_owned(),
-                        start_id.to_owned(),
-                    ));
-                    can_add = false;
-                }
-                if can_add {
-                    let mut start_id = start_id.to_owned();
-                    let mut end_id = end_id.to_owned();
-                    if start_id.contains("__") {
-                        if !map.contains_key(&start_id) {
-                            let idx = graph.add_node(start_id.clone());
-                            map.insert(start_id.clone(), idx);
-                        }
-                    } else {
-                        start_id = format!("{}__{start_id}", c.namespace_prefix);
+                for Edge { start_id, end_id } in &c.edges {
+                    let mut can_add = true;
+                    if start_id.starts_with(&format!("{}__", &c.namespace_prefix)) {
+                        structural_errors.push(StructuralError::EdgeMultipleNamespace(
+                            start_id.to_owned(),
+                            end_id.to_owned(),
+                            start_id.to_owned(),
+                        ));
+                        can_add = false;
                     }
-                    if end_id.contains("__") {
-                        if !map.contains_key(&end_id) {
-                            let idx = graph.add_node(end_id.clone());
-                            map.insert(end_id.clone(), idx);
-                        }
-                    } else {
-                        end_id = format!("{}__{end_id}", c.namespace_prefix);
+                    if end_id.starts_with(&format!("{}__", &c.namespace_prefix)) {
+                        structural_errors.push(StructuralError::EdgeMultipleNamespace(
+                            start_id.to_owned(),
+                            end_id.to_owned(),
+                            start_id.to_owned(),
+                        ));
+                        can_add = false;
                     }
-                    match (map.get(&start_id), map.get(&end_id)) {
-                        (Some(idx1), Some(idx2)) => {
-                            // don't need edge labels, so just using ""
-                            graph.add_edge(*idx1, *idx2, "");
+                    if can_add {
+                        let mut start_id = start_id.to_owned();
+                        let mut end_id = end_id.to_owned();
+                        if start_id.contains("__") {
+                            if !map.contains_key(&start_id) {
+                                let idx = graph.add_node(start_id.clone());
+                                map.insert(start_id.clone(), idx);
+                            }
+                        } else {
+                            start_id = format!("{}__{start_id}", c.namespace_prefix);
                         }
-                        (Some(_), None) => {
-                            structural_errors.push(StructuralError::MissingInternalEndpoint(
-                                start_id.to_owned(),
-                                end_id.to_owned(),
-                                end_id.to_owned(),
-                            ));
+                        if end_id.contains("__") {
+                            if !map.contains_key(&end_id) {
+                                let idx = graph.add_node(end_id.clone());
+                                map.insert(end_id.clone(), idx);
+                            }
+                        } else {
+                            end_id = format!("{}__{end_id}", c.namespace_prefix);
                         }
-                        (None, Some(_)) => {
-                            structural_errors.push(StructuralError::MissingInternalEndpoint(
-                                start_id.to_owned(),
-                                end_id.to_owned(),
-                                start_id.to_owned(),
-                            ));
-                        }
-                        (None, None) => {
-                            structural_errors.push(StructuralError::MissingInternalEndpoint(
-                                start_id.to_owned(),
-                                end_id.to_owned(),
-                                start_id.to_owned(),
-                            ));
-                            structural_errors.push(StructuralError::MissingInternalEndpoint(
-                                start_id.to_owned(),
-                                end_id.to_owned(),
-                                end_id.to_owned(),
-                            ));
+                        match (map.get(&start_id), map.get(&end_id)) {
+                            (Some(idx1), Some(idx2)) => {
+                                // don't need edge labels, so just using ""
+                                graph.add_edge(*idx1, *idx2, "");
+                            }
+                            (Some(_), None) => {
+                                structural_errors.push(StructuralError::MissingInternalEndpoint(
+                                    start_id.to_owned(),
+                                    end_id.to_owned(),
+                                    end_id.to_owned(),
+                                ));
+                            }
+                            (None, Some(_)) => {
+                                structural_errors.push(StructuralError::MissingInternalEndpoint(
+                                    start_id.to_owned(),
+                                    end_id.to_owned(),
+                                    start_id.to_owned(),
+                                ));
+                            }
+                            (None, None) => {
+                                structural_errors.push(StructuralError::MissingInternalEndpoint(
+                                    start_id.to_owned(),
+                                    end_id.to_owned(),
+                                    start_id.to_owned(),
+                                ));
+                                structural_errors.push(StructuralError::MissingInternalEndpoint(
+                                    start_id.to_owned(),
+                                    end_id.to_owned(),
+                                    end_id.to_owned(),
+                                ));
+                            }
                         }
                     }
                 }
-            }
-            if structural_errors.is_empty() {
-                Ok(graph)
-            } else {
-                Err(structural_errors)
-            }
+                if structural_errors.is_empty() {
+                    Ok((c, graph))
+                } else {
+                    Err(structural_errors)
+                }
+            })
         })
-    });
+        .collect();
 
     // to enable serialization and cloning
-    let serializable: Vec<Result<Result<petgraph::Graph<_, _>, String>, String>> =
+    let serializable: Vec<Result<Result<&(Cluster, petgraph::Graph<_, _>), Vec<String>>, String>> =
         deserialized_graphs
-            .map(|graph_with_remarks| {
-                graph_with_remarks
-                    .map(|ok| {
-                        ok.map_err(|ses| ses.into_iter().map(|se| format!("{:#?}", se)).collect())
-                    })
-                    .map_err(|re| format!("{:#?}", re))
+            .iter()
+            .map(|graph_with_remarks| match graph_with_remarks {
+                Ok(readable) => match readable {
+                    Ok(structurally_sound) => Ok(Ok(structurally_sound)),
+                    Err(structural_errors) => Ok(Err(structural_errors
+                        .into_iter()
+                        .map(|se| format!("{:#?}", se))
+                        .collect())),
+                },
+                Err(read_error) => Err(format!("{:#?}", read_error)),
             })
             .collect();
     eprintln!("Errors have been converted into strings.");
 
-    let mut dots: Vec<_> = serializable.clone().into_iter().map(|lvl1res| {
-        lvl1res.map(|lvl2res| {
-            lvl2res.map(|cluster| {
-                let mut remarks: Vec<String> = vec![];
-                if check_redundant_edges {
-                    remarks.push("Can't check for redundant edges yet.".to_owned());
+    // problem does not occur if we disable next block
+
+    let mut dots: Vec<_> = serializable
+        .iter()
+        .map(|lvl1res| match lvl1res {
+            Ok(lvl2res) => Ok(match lvl2res {
+                Ok((cluster, graph)) => {
+                    let mut remarks: Vec<String> = vec![];
+                    if check_redundant_edges {
+                        remarks.push("Can't check for redundant edges yet.".to_owned());
+                    }
+                    if check_cluster_boundaries {
+                        remarks.push("Can't check cluster boundaries yet.".to_owned());
+                    }
+                    if check_missing_files {
+                        remarks.push("Can't check for missing files yet.".to_owned());
+                    }
+                    Ok((
+                        format!(
+                            "{:?}",
+                            Dot::with_attr_getters(
+                                graph,
+                                &[Config::EdgeNoLabel],
+                                &|_g, _g_edge_ref| "".to_owned(),
+                                &get_node_attributes
+                            )
+                        ),
+                        remarks,
+                    ))
                 }
-                if check_cluster_boundaries {
-                    remarks.push("Can't check cluster boundaries yet.".to_owned());
-                }
-                if check_missing_files {
-                    remarks.push("Can't check for missing files yet.".to_owned());
-                }
-                (
-                    format!(
-                        "{:?}",
-                        Dot::with_attr_getters(
-                            &cluster,
-                            &[Config::EdgeNoLabel],
-                            &|_g, _g_edge_ref| "".to_owned(),
-                            &get_node_attributes
-                        )
-                    ),
-                    remarks,
-                )
-            })
+                Err(e) => Err(e),
+            }),
+            Err(e) => Err(e),
         })
-    }).collect();
+        .collect();
     eprintln!("Dots have been generated and remarks have been added.");
 
     let graph_result: Result<Vec<_>, _> = dots.clone().into_iter().collect();
     let mut paths: Vec<&str> = paths.collect();
     paths.push("complete graph");
+
+    let complete_graph_result;
     match graph_result {
         Ok(v) => {
             let graph_result: Result<Vec<_>, _> = v.into_iter().collect();
@@ -227,14 +243,45 @@ fn read_contents(
                 Ok(v) => {
                     // TODO: (try to) build and add complete graph
                     // need to traverse deserialized_graphs again
+                    let mut complete_graph: Graph<String, &str> = Graph::new();
+                    let mut complete_graph_map = HashMap::new();
+                    // wait, I don't get this
+                    // why does it look like I can get at cluster / graph?
+                    // deserialized is a reference...
+                    deserialized_graphs.iter().for_each(|deserialized| {
+                        let (cluster, graph) = deserialized.unwrap().unwrap();
+                        for weight in graph.node_weights() {
+                            // only add the internal ones
+                            if !weight.contains("__") {
+                                let node_idx = complete_graph
+                                    .add_node(format!("{}__{weight}", cluster.namespace_prefix));
+                                complete_graph_map.insert(format!("{}__{weight}", cluster.namespace_prefix), node_idx);
+                            }
+                        }
+                    });
+                    deserialized_graphs.iter().for_each(|deserialized| {
+                        let (cluster, graph) = deserialized.unwrap().unwrap();
+                        for edge in cluster.edges {
+                            // add the dependencies
+                            // need to namespace both endpoints
+                            // need to get their indices using the map
+                            // if either one can't be found, there's a boundary issue
+                            // otherwise, add the edge
+                            // can then go on to compute transitive reduction
+                            todo!();
+                        }
+                    });
+                    complete_graph_result = Ok(Ok(complete_graph));
                 }
                 Err(e) => {
                     dots.push(Ok(Err(e)));
+                    complete_graph_result = Ok(Err(e));
                 }
             }
         }
         Err(e) => {
             dots.push(Err(e));
+            complete_graph_result = Err(e);
         }
     }
     eprintln!("Global graph has been represented.");
