@@ -2,7 +2,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 use graphviz_rust::{cmd::Format, exec, printer::PrinterContext};
-use petgraph::{dot::Config, dot::Dot, graph::NodeIndex, Directed, Graph};
+use petgraph::{dot::Config, dot::Dot, graph::NodeIndex,  Graph};
 use serde::Deserialize;
 use std::{collections::HashMap, path::Path};
 
@@ -225,17 +225,17 @@ fn read_contents(
                         remarks,
                     ))
                 }
-                Err(e) => Err(e),
+                Err(e) => Err(e.clone()),
             }),
-            Err(e) => Err(e),
+            Err(e) => Err(e.to_owned()),
         })
         .collect();
     eprintln!("Dots have been generated and remarks have been added.");
 
     let graph_result: Result<Vec<_>, _> = dots.clone().into_iter().collect();
     let mut paths: Vec<&str> = paths.collect();
-    let boundary_errors = vec![];
-    let mut complete_graph_result;
+    let mut boundary_errors = vec![];
+    let complete_graph_result;
     match graph_result {
         Ok(v) => {
             let graph_result: Result<Vec<_>, _> = v.into_iter().collect();
@@ -247,44 +247,52 @@ fn read_contents(
                     // why does it look like I can get at cluster / graph?
                     // deserialized is a reference...
                     deserialized_graphs.iter().for_each(|deserialized| {
-                        let (cluster, graph) = deserialized.unwrap().unwrap();
-                        for weight in graph.node_weights() {
-                            // only add the internal ones
-                            if !weight.contains("__") {
-                                let node_idx = complete_graph
-                                    .add_node(format!("{}__{weight}", cluster.namespace_prefix));
-                                complete_graph_map.insert(format!("{}__{weight}", cluster.namespace_prefix), node_idx);
-                            }
-                        }
+                        match deserialized {
+                            Ok(Ok((cluster,graph))) => {
+                                for weight in graph.node_weights() {
+                                    // only add the internal ones
+                                    if !weight.contains("__") {
+                                        let node_idx = complete_graph
+                                            .add_node(format!("{}__{weight}", cluster.namespace_prefix));
+                                        complete_graph_map.insert(format!("{}__{weight}", cluster.namespace_prefix), node_idx);
+                                    }
+                                }
+                            },
+                            _ => panic!("Coding error.")
+                        }                        
                     });
                     deserialized_graphs.iter().for_each(|deserialized| {
-                        let (cluster, graph) = deserialized.unwrap().unwrap();
-                        for Edge {start_id, end_id} in cluster.edges {
-                            // add the dependencies
-                            let namespaced_start_id = if start_id.contains("__") { start_id } else {format!("{}__{start_id}",cluster.namespace_prefix)};
-                            let namespaced_end_id = if end_id.contains("__") { end_id } else {format!("{}__{end_id}",cluster.namespace_prefix)};
-                            match (complete_graph_map.get(&namespaced_start_id), complete_graph_map.get(&namespaced_end_id)) {
-                                (Some(start_idx),Some(end_idx)) => {
-                                    complete_graph.add_edge(*start_idx,*end_idx,"");
-                                },
-                                (Some(_),None) => {
-                                    boundary_errors.push(format!("Cluster {} refers to missing external node {}", cluster.namespace_prefix, namespaced_end_id));
-                                },
-                                (None,Some(_)) => {
-                                    boundary_errors.push(format!("Cluster {} refers to missing external node {}", cluster.namespace_prefix, namespaced_start_id));
-                                },
-                                (None,None) => {
-                                    boundary_errors.push(format!("Cluster {} refers to missing external node {}", cluster.namespace_prefix, namespaced_end_id));
-                                    boundary_errors.push(format!("Cluster {} refers to missing external node {}", cluster.namespace_prefix, namespaced_start_id));
+                        match deserialized {
+                            Ok(Ok((cluster,graph))) => {
+                                for Edge {start_id, end_id} in cluster.edges.iter() {
+                                    // add the dependencies
+                                    let namespaced_start_id = if start_id.contains("__") { start_id.to_owned() } else {format!("{}__{start_id}",cluster.namespace_prefix)};
+                                    let namespaced_end_id = if end_id.contains("__") { end_id.to_owned() } else {format!("{}__{end_id}",cluster.namespace_prefix)};
+                                    match (complete_graph_map.get(&namespaced_start_id), complete_graph_map.get(&namespaced_end_id)) {
+                                        (Some(start_idx),Some(end_idx)) => {
+                                            complete_graph.add_edge(*start_idx,*end_idx,"");
+                                        },
+                                        (Some(_),None) => {
+                                            boundary_errors.push(format!("Cluster {} refers to missing external node {}", cluster.namespace_prefix, namespaced_end_id));
+                                        },
+                                        (None,Some(_)) => {
+                                            boundary_errors.push(format!("Cluster {} refers to missing external node {}", cluster.namespace_prefix, namespaced_start_id));
+                                        },
+                                        (None,None) => {
+                                            boundary_errors.push(format!("Cluster {} refers to missing external node {}", cluster.namespace_prefix, namespaced_end_id));
+                                            boundary_errors.push(format!("Cluster {} refers to missing external node {}", cluster.namespace_prefix, namespaced_start_id));
+                                        }
+                                    }
                                 }
-                            }
+                            },
+                            _ => panic!("Coding error.")
                         }
                     });
                     if boundary_errors.is_empty() {
                         complete_graph_result = Ok(Ok(complete_graph));
                     }
                     else {
-                        complete_graph_result = Ok(Err(&boundary_errors));
+                        complete_graph_result = Ok(Err(boundary_errors));
                     }
                 }
                 Err(e) => {
