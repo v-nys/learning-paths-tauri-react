@@ -56,7 +56,7 @@ fn read_contents(
     paths: &str,
     check_redundant_edges: bool,
     check_cluster_boundaries: bool,
-    check_missing_files: bool
+    check_missing_files: bool,
 ) -> Vec<(
     &str,
     Result<Result<(String, Vec<String>), Vec<String>>, String>,
@@ -71,7 +71,7 @@ fn read_contents(
         })
         .collect();
     eprintln!("Graphs have been deserialized.");
-    let dots = deserialized_graphs.into_iter().map(|r| {
+    let deserialized_graphs = deserialized_graphs.into_iter().map(|r| {
         r.map(|c| {
             let mut map = std::collections::HashMap::new();
             let mut graph = Graph::new();
@@ -172,8 +172,24 @@ fn read_contents(
                 Err(structural_errors)
             }
         })
-        .map(|g| {
-            g.map(|cluster| {
+    });
+
+    // to enable serialization and cloning
+    let serializable: Vec<Result<Result<petgraph::Graph<_, _>, String>, String>> =
+        deserialized_graphs
+            .map(|graph_with_remarks| {
+                graph_with_remarks
+                    .map(|ok| {
+                        ok.map_err(|ses| ses.into_iter().map(|se| format!("{:#?}", se)).collect())
+                    })
+                    .map_err(|re| format!("{:#?}", re))
+            })
+            .collect();
+    eprintln!("Errors have been converted into strings.");
+
+    let mut dots: Vec<_> = serializable.clone().into_iter().map(|lvl1res| {
+        lvl1res.map(|lvl2res| {
+            lvl2res.map(|cluster| {
                 let mut remarks: Vec<String> = vec![];
                 if check_redundant_edges {
                     remarks.push("Can't check for redundant edges yet.".to_owned());
@@ -198,27 +214,19 @@ fn read_contents(
                 )
             })
         })
-    });
+    }).collect();
+    eprintln!("Dots have been generated and remarks have been added.");
 
-    // to enable serialization and cloning
-    let serializable = dots.map(|dot_with_remarks| {
-        dot_with_remarks
-            .map(|ok| ok.map_err(|ses| ses.into_iter().map(|se| format!("{:#?}", se)).collect()))
-            .map_err(|re| format!("{:#?}", re))
-    });
-    eprintln!("Errors have been converted into strings.");
-
-
-    let mut dots: Vec<_> = serializable.collect();
-    let graph_result: Result<Vec<_>,_> = dots.clone().into_iter().collect();
+    let graph_result: Result<Vec<_>, _> = dots.clone().into_iter().collect();
     let mut paths: Vec<&str> = paths.collect();
     paths.push("complete graph");
     match graph_result {
         Ok(v) => {
-            let graph_result: Result<Vec<_>,_> = v.into_iter().collect();
+            let graph_result: Result<Vec<_>, _> = v.into_iter().collect();
             match graph_result {
                 Ok(v) => {
                     // TODO: (try to) build and add complete graph
+                    // need to traverse deserialized_graphs again
                 }
                 Err(e) => {
                     dots.push(Ok(Err(e)));
@@ -229,8 +237,8 @@ fn read_contents(
             dots.push(Err(e));
         }
     }
+    eprintln!("Global graph has been represented.");
 
-    eprintln!("Dots have been generated and remarks have been added.");
     let svgs = dots.into_iter().map(|dot_result| {
         dot_result.map(|dot_with_remarks| {
             dot_with_remarks.map(|(ref dot_src, remarks)| {
