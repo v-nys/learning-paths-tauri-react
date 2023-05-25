@@ -2,7 +2,17 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 use graphviz_rust::{cmd::Format, exec, printer::PrinterContext};
-use petgraph::{dot::Config, dot::Dot, graph::NodeIndex,  Graph};
+use petgraph::{
+    algo::{
+        toposort,
+        tred::{dag_to_toposorted_adjacency_list, dag_transitive_reduction_closure},
+    },
+    dot::Config,
+    dot::Dot,
+    graph::NodeIndex,
+    visit::{EdgeRef, IntoEdgeReferences},
+    Graph,
+};
 use serde::Deserialize;
 use std::{collections::HashMap, path::Path};
 
@@ -47,9 +57,12 @@ enum StructuralError {
     Motivation(Directed),
 }*/
 
-fn get_node_attributes(graph: &Graph<(String,String), &str>, node_ref: (NodeIndex, &(String,String))) -> String {
+fn get_node_attributes(
+    graph: &Graph<(String, String), &str>,
+    node_ref: (NodeIndex, &(String, String)),
+) -> String {
     // label specified last is used, so this overrides the auto-generated one
-    format!("label=\"{}\"", node_ref.1.1)
+    format!("label=\"{}\"", node_ref.1 .1)
 }
 
 #[tauri::command]
@@ -121,7 +134,7 @@ fn read_contents(
                         let mut end_id = end_id.to_owned();
                         if start_id.contains("__") {
                             if !map.contains_key(&start_id) {
-                                let idx = graph.add_node((start_id.clone(),start_id.clone()));
+                                let idx = graph.add_node((start_id.clone(), start_id.clone()));
                                 map.insert(start_id.clone(), idx);
                             }
                         } else {
@@ -129,7 +142,7 @@ fn read_contents(
                         }
                         if end_id.contains("__") {
                             if !map.contains_key(&end_id) {
-                                let idx = graph.add_node((end_id.clone(),end_id.clone()));
+                                let idx = graph.add_node((end_id.clone(), end_id.clone()));
                                 map.insert(end_id.clone(), idx);
                             }
                         } else {
@@ -178,9 +191,6 @@ fn read_contents(
         })
         .collect();
 
-    
-
-    
     // to enable serialization and cloning
     let serializable: Vec<Result<Result<&(Cluster, petgraph::Graph<_, _>), Vec<String>>, String>> =
         deserialized_graphs
@@ -239,60 +249,87 @@ fn read_contents(
             let graph_result: Result<Vec<_>, _> = v.into_iter().collect();
             match graph_result {
                 Ok(v) => {
-                    let mut complete_graph: Graph<(String,String), &str> = Graph::new();
+                    let mut complete_graph: Graph<(String, String), &str> = Graph::new();
                     let mut complete_graph_map = HashMap::new();
                     // wait, I don't get this
                     // why does it look like I can get at cluster / graph?
                     // deserialized is a reference...
                     deserialized_graphs.iter().for_each(|deserialized| {
                         match deserialized {
-                            Ok(Ok((cluster,graph))) => {
-                                for (id,title) in graph.node_weights() {
+                            Ok(Ok((cluster, graph))) => {
+                                for (id, title) in graph.node_weights() {
                                     // only add the internal ones to the map
                                     if !id.contains("__") {
-                                        let node_idx = complete_graph
-                                            .add_node((format!("{}__{id}", cluster.namespace_prefix),title.to_owned()));
-                                        complete_graph_map.insert(format!("{}__{id}", cluster.namespace_prefix), node_idx);
+                                        let node_idx = complete_graph.add_node((
+                                            format!("{}__{id}", cluster.namespace_prefix),
+                                            title.to_owned(),
+                                        ));
+                                        complete_graph_map.insert(
+                                            format!("{}__{id}", cluster.namespace_prefix),
+                                            node_idx,
+                                        );
                                     }
                                 }
-                            },
-                            _ => panic!("Coding error.")
-                        }                        
+                            }
+                            _ => panic!("Coding error."),
+                        }
                     });
                     for key in complete_graph_map.keys() {
                         eprintln!("Key: {}", key);
                     }
                     deserialized_graphs.iter().for_each(|deserialized| {
                         match deserialized {
-                            Ok(Ok((cluster,_graph))) => {
-                                for Edge {start_id, end_id} in cluster.edges.iter() {
+                            Ok(Ok((cluster, _graph))) => {
+                                for Edge { start_id, end_id } in cluster.edges.iter() {
                                     // add the dependencies
-                                    let namespaced_start_id = if start_id.contains("__") { start_id.to_owned() } else {format!("{}__{start_id}",cluster.namespace_prefix)};
-                                    let namespaced_end_id = if end_id.contains("__") { end_id.to_owned() } else {format!("{}__{end_id}",cluster.namespace_prefix)};
-                                    match (complete_graph_map.get(&namespaced_start_id), complete_graph_map.get(&namespaced_end_id)) {
-                                        (Some(start_idx),Some(end_idx)) => {
-                                            complete_graph.add_edge(*start_idx,*end_idx,"");
-                                        },
-                                        (Some(_),None) => {
-                                            boundary_errors.push(format!("Cluster {} refers to missing external node {}", cluster.namespace_prefix, namespaced_end_id));
-                                        },
-                                        (None,Some(_)) => {
-                                            boundary_errors.push(format!("Cluster {} refers to missing external node {}", cluster.namespace_prefix, namespaced_start_id));
-                                        },
-                                        (None,None) => {
-                                            boundary_errors.push(format!("Cluster {} refers to missing external node {}", cluster.namespace_prefix, namespaced_end_id));
-                                            boundary_errors.push(format!("Cluster {} refers to missing external node {}", cluster.namespace_prefix, namespaced_start_id));
+                                    let namespaced_start_id = if start_id.contains("__") {
+                                        start_id.to_owned()
+                                    } else {
+                                        format!("{}__{start_id}", cluster.namespace_prefix)
+                                    };
+                                    let namespaced_end_id = if end_id.contains("__") {
+                                        end_id.to_owned()
+                                    } else {
+                                        format!("{}__{end_id}", cluster.namespace_prefix)
+                                    };
+                                    match (
+                                        complete_graph_map.get(&namespaced_start_id),
+                                        complete_graph_map.get(&namespaced_end_id),
+                                    ) {
+                                        (Some(start_idx), Some(end_idx)) => {
+                                            complete_graph.add_edge(*start_idx, *end_idx, "");
+                                        }
+                                        (Some(_), None) => {
+                                            boundary_errors.push(format!(
+                                                "Cluster {} refers to missing external node {}",
+                                                cluster.namespace_prefix, namespaced_end_id
+                                            ));
+                                        }
+                                        (None, Some(_)) => {
+                                            boundary_errors.push(format!(
+                                                "Cluster {} refers to missing external node {}",
+                                                cluster.namespace_prefix, namespaced_start_id
+                                            ));
+                                        }
+                                        (None, None) => {
+                                            boundary_errors.push(format!(
+                                                "Cluster {} refers to missing external node {}",
+                                                cluster.namespace_prefix, namespaced_end_id
+                                            ));
+                                            boundary_errors.push(format!(
+                                                "Cluster {} refers to missing external node {}",
+                                                cluster.namespace_prefix, namespaced_start_id
+                                            ));
                                         }
                                     }
                                 }
-                            },
-                            _ => panic!("Coding error.")
+                            }
+                            _ => panic!("Coding error."),
                         }
                     });
                     if boundary_errors.is_empty() {
                         complete_graph_result = Ok(Ok(complete_graph));
-                    }
-                    else {
+                    } else {
                         complete_graph_result = Ok(Err(boundary_errors));
                     }
                 }
@@ -308,25 +345,51 @@ fn read_contents(
 
     eprintln!("Global graph has been represented.");
     // issue: structural issues are represented as a &Vec<String>, rather than a Vec<String>
-    let mut svgs: Vec<_> = dots.into_iter().map(|dot_result| {
-        dot_result.map(|dot_with_remarks| {
-            dot_with_remarks.map(|(ref dot_src, remarks)| {
-                let g = graphviz_rust::parse(dot_src)
-                    .expect("Assuming petgraph generated valid dot syntax.");
-                (
-                    exec(g, &mut PrinterContext::default(), vec![Format::Svg.into()])
-                        .expect("Assuming valid graph can be rendered into SVG."),
-                    remarks,
-                )
+    let mut svgs: Vec<_> = dots
+        .into_iter()
+        .map(|dot_result| {
+            dot_result.map(|dot_with_remarks| {
+                dot_with_remarks.map(|(ref dot_src, remarks)| {
+                    let g = graphviz_rust::parse(dot_src)
+                        .expect("Assuming petgraph generated valid dot syntax.");
+                    (
+                        exec(g, &mut PrinterContext::default(), vec![Format::Svg.into()])
+                            .expect("Assuming valid graph can be rendered into SVG."),
+                        remarks,
+                    )
+                })
             })
         })
-    }).collect();
+        .collect();
 
     eprintln!("SVGs have been rendered.");
     paths.push("complete graph");
+    let mut comments = vec![];
     svgs.push(complete_graph_result.map(|lvl1| {
         lvl1.map(|lvl2| {
-            todo!("Compute transitive reduction...");
+            let toposort_result = toposort(&lvl2, None)
+                .expect("Currently just assuming cycle-free graph. Could take this into account.");
+            let (res, _revmap): (_, Vec<NodeIndex>) =
+                dag_to_toposorted_adjacency_list(&lvl2, &toposort_result);
+            let (tr, _tc) = dag_transitive_reduction_closure(&res);
+            eprintln!("{:#?}", tr);
+            // need to get all the edges from lvl2 as node index pairs and check whether tr contains them...
+            // can use tr.contains_edge
+            for edge in lvl2.edge_references() {
+                let source = edge.source();
+                let target = edge.target();
+                if !tr.contains_edge(source, target) {
+                    comments.push(format!(
+                        "Redundant edge! {} -> {}",
+                        lvl2.node_weight(source)
+                            .expect("Edge exists, so node does too.")
+                            .0,
+                        lvl2.node_weight(target)
+                            .expect("Edge exists, so node does too.")
+                            .0
+                    ));
+                }
+            }
             let dot = format!(
                 "{:?}",
                 Dot::with_attr_getters(
@@ -336,15 +399,20 @@ fn read_contents(
                     &get_node_attributes
                 )
             );
-            (exec(graphviz_rust::parse(&dot)
-            .expect("Assuming petgraph generated valid dot syntax."), &mut PrinterContext::default(), vec![Format::Svg.into()])
-            .expect("Assuming valid graph can be rendered into SVG."), vec![])
+            (
+                exec(
+                    graphviz_rust::parse(&dot)
+                        .expect("Assuming petgraph generated valid dot syntax."),
+                    &mut PrinterContext::default(),
+                    vec![Format::Svg.into()],
+                )
+                .expect("Assuming valid graph can be rendered into SVG."),
+                comments,
+            )
         })
     }));
 
     std::iter::zip(paths, svgs).collect()
-     
-    
 }
 
 #[tauri::command]
