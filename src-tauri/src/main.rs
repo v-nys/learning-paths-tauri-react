@@ -370,9 +370,7 @@ fn read_contents(
                 dag_to_toposorted_adjacency_list(&lvl2, &toposort_result);
             let (tr, _tc) = dag_transitive_reduction_closure(&res);
             eprintln!("{:#?}", tr);
-            // need to get all the edges from lvl2 as node index pairs and check whether tr contains them...
-            // can use tr.contains_edge
-            for edge in lvl2.edge_references() {
+            for edge in res.edge_references() {
                 let source = edge.source();
                 let target = edge.target();
                 if !tr.contains_edge(source, target) {
