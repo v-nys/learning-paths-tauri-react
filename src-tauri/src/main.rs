@@ -47,9 +47,9 @@ enum StructuralError {
     Motivation(Directed),
 }*/
 
-fn get_node_attributes(graph: &Graph<String, &str>, node_ref: (NodeIndex, &String)) -> String {
+fn get_node_attributes(graph: &Graph<(String,String), &str>, node_ref: (NodeIndex, &(String,String))) -> String {
     // label specified last is used, so this overrides the auto-generated one
-    format!("label=\"{}\"", node_ref.1)
+    format!("label=\"{}\"", node_ref.1.1)
 }
 
 #[tauri::command]
@@ -89,7 +89,7 @@ fn read_contents(
                         let definitely_namespaced_key =
                             format!("{}__{maybe_namespaced_key}", c.namespace_prefix);
                         if !map.contains_key(&definitely_namespaced_key) {
-                            let idx = graph.add_node(node.title.to_owned());
+                            let idx = graph.add_node((node.id.to_owned(), node.title.to_owned()));
                             map.insert(definitely_namespaced_key, idx);
                         } else {
                             structural_errors
@@ -121,7 +121,7 @@ fn read_contents(
                         let mut end_id = end_id.to_owned();
                         if start_id.contains("__") {
                             if !map.contains_key(&start_id) {
-                                let idx = graph.add_node(start_id.clone());
+                                let idx = graph.add_node((start_id.clone(),start_id.clone()));
                                 map.insert(start_id.clone(), idx);
                             }
                         } else {
@@ -129,7 +129,7 @@ fn read_contents(
                         }
                         if end_id.contains("__") {
                             if !map.contains_key(&end_id) {
-                                let idx = graph.add_node(end_id.clone());
+                                let idx = graph.add_node((end_id.clone(),end_id.clone()));
                                 map.insert(end_id.clone(), idx);
                             }
                         } else {
@@ -178,6 +178,9 @@ fn read_contents(
         })
         .collect();
 
+    
+
+    
     // to enable serialization and cloning
     let serializable: Vec<Result<Result<&(Cluster, petgraph::Graph<_, _>), Vec<String>>, String>> =
         deserialized_graphs
@@ -195,9 +198,7 @@ fn read_contents(
             .collect();
     eprintln!("Errors have been converted into strings.");
 
-    // problem does not occur if we disable next block
-
-    let mut dots: Vec<_> = serializable
+    let dots: Vec<_> = serializable
         .iter()
         .map(|lvl1res| match lvl1res {
             Ok(lvl2res) => Ok(match lvl2res {
@@ -205,9 +206,6 @@ fn read_contents(
                     let mut remarks: Vec<String> = vec![];
                     if check_redundant_edges {
                         remarks.push("Can't check for redundant edges yet.".to_owned());
-                    }
-                    if check_cluster_boundaries {
-                        remarks.push("Can't check cluster boundaries yet.".to_owned());
                     }
                     if check_missing_files {
                         remarks.push("Can't check for missing files yet.".to_owned());
@@ -241,7 +239,7 @@ fn read_contents(
             let graph_result: Result<Vec<_>, _> = v.into_iter().collect();
             match graph_result {
                 Ok(v) => {
-                    let mut complete_graph: Graph<String, &str> = Graph::new();
+                    let mut complete_graph: Graph<(String,String), &str> = Graph::new();
                     let mut complete_graph_map = HashMap::new();
                     // wait, I don't get this
                     // why does it look like I can get at cluster / graph?
@@ -249,21 +247,24 @@ fn read_contents(
                     deserialized_graphs.iter().for_each(|deserialized| {
                         match deserialized {
                             Ok(Ok((cluster,graph))) => {
-                                for weight in graph.node_weights() {
-                                    // only add the internal ones
-                                    if !weight.contains("__") {
+                                for (id,title) in graph.node_weights() {
+                                    // only add the internal ones to the map
+                                    if !id.contains("__") {
                                         let node_idx = complete_graph
-                                            .add_node(format!("{}__{weight}", cluster.namespace_prefix));
-                                        complete_graph_map.insert(format!("{}__{weight}", cluster.namespace_prefix), node_idx);
+                                            .add_node((format!("{}__{id}", cluster.namespace_prefix),title.to_owned()));
+                                        complete_graph_map.insert(format!("{}__{id}", cluster.namespace_prefix), node_idx);
                                     }
                                 }
                             },
                             _ => panic!("Coding error.")
                         }                        
                     });
+                    for key in complete_graph_map.keys() {
+                        eprintln!("Key: {}", key);
+                    }
                     deserialized_graphs.iter().for_each(|deserialized| {
                         match deserialized {
-                            Ok(Ok((cluster,graph))) => {
+                            Ok(Ok((cluster,_graph))) => {
                                 for Edge {start_id, end_id} in cluster.edges.iter() {
                                     // add the dependencies
                                     let namespaced_start_id = if start_id.contains("__") { start_id.to_owned() } else {format!("{}__{start_id}",cluster.namespace_prefix)};
@@ -304,8 +305,8 @@ fn read_contents(
             complete_graph_result = Err(e);
         }
     }
-    eprintln!("Global graph has been represented.");
 
+    eprintln!("Global graph has been represented.");
     // issue: structural issues are represented as a &Vec<String>, rather than a Vec<String>
     let mut svgs: Vec<_> = dots.into_iter().map(|dot_result| {
         dot_result.map(|dot_with_remarks| {
@@ -320,10 +321,12 @@ fn read_contents(
             })
         })
     }).collect();
+
     eprintln!("SVGs have been rendered.");
     paths.push("complete graph");
     svgs.push(complete_graph_result.map(|lvl1| {
         lvl1.map(|lvl2| {
+            todo!("Compute transitive reduction...");
             let dot = format!(
                 "{:?}",
                 Dot::with_attr_getters(
@@ -340,6 +343,8 @@ fn read_contents(
     }));
 
     std::iter::zip(paths, svgs).collect()
+     
+    
 }
 
 #[tauri::command]
