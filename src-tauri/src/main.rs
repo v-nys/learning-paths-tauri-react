@@ -214,9 +214,6 @@ fn read_contents(
             Ok(lvl2res) => Ok(match lvl2res {
                 Ok((cluster, graph)) => {
                     let mut remarks: Vec<String> = vec![];
-                    if check_redundant_edges {
-                        remarks.push("Can't check for redundant edges yet.".to_owned());
-                    }
                     if check_missing_files {
                         remarks.push("Can't check for missing files yet.".to_owned());
                     }
@@ -411,7 +408,7 @@ fn read_contents(
             )
         })
     }));
-
+    // /home/vincent/Projects/tauritest/src-tauri/test/git.yaml
     std::iter::zip(paths, svgs).collect()
 }
 
