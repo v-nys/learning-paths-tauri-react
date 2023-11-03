@@ -35,7 +35,6 @@ struct Cluster {
     nodes: Vec<Node>,
     edges: Vec<Edge>,
 }
-
 #[derive(Debug)]
 enum ReadError {
     Deserialization(serde_yaml::Error),
@@ -360,7 +359,7 @@ fn read_contents(
         .collect();
 
     eprintln!("SVGs have been rendered.");
-    paths.push("complete graph");
+    paths.push("complete graph (currently only hard dependencies)");
     let mut comments = vec![];
     svgs.push(complete_graph_result.map(|lvl1| {
         lvl1.map(|lvl2| {
