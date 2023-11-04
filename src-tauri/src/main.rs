@@ -17,38 +17,61 @@ use serde::Deserialize;
 use std::{collections::HashMap, path::Path};
 
 /* Maybe more use of references would be more idiomatic here. */
+
+/// A single unit of learning material.
+///
+/// A `Node` represents knowledge that can be processed as one whole.
+/// It does not need to be entirely standalone, as it can have dependencies in the form of `Edge` values.
 #[derive(Deserialize, Clone)]
 struct Node {
+    /// An ID should be unique and is used to refer to it inside its `Cluster`.
+    ///
+    /// The ID also be used to refer to the node from outside its `Cluster` if namespacing is applied.
     id: String,
+    /// Human-readable title for this unit of knowledge.
+    ///
+    /// This is not required to be unique at any level.
     title: String,
 }
 
+// TODO: check this
+// is there currently no distinction between push and pull edges?
 #[derive(Deserialize, Clone)]
 struct Edge {
     start_id: String,
     end_id: String,
 }
 
+/// An namespaced collection of `Node`s which may link to `Node`s in different namespaces.
+///
+/// A `Cluster` can represent a thematic clustering (nodes are related to the same topic such as a common technology).
+/// It can also represent a practical clustering (nodes make up a single project).
+/// A `Cluster` has a (non-nested) namespace prefix, which can be used to refer to nodes in the `Cluster`.
+/// E.g. if a `Cluster's` namespace prefix is `"foo"` and the `Cluster` contains a `Node` whose ID is `bar`, this node can be referred to as `foo__bar`.
+/// The namespace and node ID are always separated by `"__"`.
 #[derive(Deserialize, Clone)]
 struct Cluster {
     namespace_prefix: String,
     nodes: Vec<Node>,
     edges: Vec<Edge>,
 }
+
+/// An error related to reading a `cluster` from a file.
 #[derive(Debug)]
 enum ReadError {
     Deserialization(serde_yaml::Error),
     IO(std::io::Error),
 }
 
-// TODO: consider making making edges whose sink is an external node structural errors, as well
+/// An error related to the internal structure of a (syntactically valid, semantically invalid) `Cluster`.
 #[derive(Debug)]
 enum StructuralError {
-    DoubleNode(String),                              // creating two nodes with same ID
+    // TODO: consider making making edges whose sink is an external node structural errors, as well
+    DoubleNode(String), // creating two nodes with same ID
     MissingInternalEndpoint(String, String, String), // referring to non-existent node
-    NodeMultipleNamespace(String),                   // creating a node with explicit namespace
-    EdgeMultipleNamespace(String, String, String),   // edge from / to internal node with
-                                                     // explicit namespace
+    NodeMultipleNamespace(String), // creating a node with explicit namespace
+    EdgeMultipleNamespace(String, String, String), // edge from / to internal node with
+                        // explicit namespace
 }
 
 /*enum Dependency {
@@ -56,7 +79,7 @@ enum StructuralError {
     Motivation(Directed),
 }*/
 
-fn get_node_attributes(
+fn node_dot_attributes(
     graph: &Graph<(String, String), &str>,
     node_ref: (NodeIndex, &(String, String)),
 ) -> String {
@@ -223,7 +246,7 @@ fn read_contents(
                                 graph,
                                 &[Config::EdgeNoLabel],
                                 &|_g, _g_edge_ref| "".to_owned(),
-                                &get_node_attributes
+                                &node_dot_attributes
                             )
                         ),
                         remarks,
@@ -390,7 +413,7 @@ fn read_contents(
                     &lvl2,
                     &[Config::EdgeNoLabel],
                     &|_g, _g_edge_ref| "".to_owned(),
-                    &get_node_attributes
+                    &node_dot_attributes
                 )
             );
             (
@@ -409,6 +432,23 @@ fn read_contents(
     std::iter::zip(paths, svgs).collect()
 }
 
+/// Associates the parent path of each supplied path with the path itself.
+///
+/// # Parameters
+///
+/// - `paths`: the paths to be included in the produced `Vec<&Path>` values, specified as a single semicolon-separated string.
+///
+/// # Returns
+///
+/// A hash map from parent paths to child paths.
+/// 
+/// # Errors
+/// If any path lacks a parent, the first such path is returned as the error value.
+///
+/// # Notes
+/// This function is useful for filesystem watching.
+/// In addition to changes *inside* a watched folder, changes *to* the watched folder should be signaled as well.
+/// This can be achieved by watching a watched folder's parent rather than the folder itself.
 #[tauri::command]
 fn associate(paths: &str) -> Result<HashMap<&Path, Vec<&Path>>, &Path> {
     let paths = paths.split(";").map(|p| Path::new(p));
