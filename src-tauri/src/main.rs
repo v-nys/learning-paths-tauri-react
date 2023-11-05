@@ -441,9 +441,10 @@ fn read_contents(
 /// # Returns
 ///
 /// A hash map from parent paths to child paths.
-/// 
+///
 /// # Errors
 /// If any path lacks a parent, the first such path is returned as the error value.
+/// This includes the case in which the input is empty.
 ///
 /// # Notes
 /// This function is useful for filesystem watching.
@@ -451,19 +452,75 @@ fn read_contents(
 /// This can be achieved by watching a watched folder's parent rather than the folder itself.
 #[tauri::command]
 fn associate(paths: &str) -> Result<HashMap<&Path, Vec<&Path>>, &Path> {
-    let paths = paths.split(";").map(|p| Path::new(p));
-    let mut map = HashMap::new();
-    for path in paths {
-        let parent = path.parent();
-        match parent {
-            None => return Err(path),
-            Some(parent) => {
-                let value = map.entry(parent).or_insert(vec![]);
-                value.push(path);
-            }
-        }
+    paths
+        .split(";")
+        .map(Path::new)
+        .try_fold(HashMap::new(), |mut map, path| {
+            let parent = path.parent().ok_or(path).and_then(|parent| { if parent.is_relative() { Err(path) } else { Ok(parent)} })?;
+            map.entry(parent).or_insert_with(Vec::new).push(path);
+            Ok(map)
+        })
+}
+
+#[cfg(test)]
+mod tests {
+    use std::{collections::HashMap, path::Path};
+
+    use crate::associate;
+
+    #[test]
+    fn associate_empty_string() {
+        let result = associate("");
+        assert_eq!(result, Err(Path::new("")));
     }
-    Ok(map)
+
+    #[test]
+    fn associate_empty_strings() {
+        let result = associate(";;");
+        assert_eq!(result, Err(Path::new("")));
+    }
+
+    #[test]
+    fn associate_root() {
+        let result = associate("/");
+        assert_eq!(result, Err(Path::new("/")));
+    }
+
+    #[test]
+    fn associate_bad_path() {
+        let result = associate("/home/user/folder1;folder2");
+        assert_eq!(result, Err(Path::new("folder2")));
+    }
+
+    #[test]
+    fn associate_valid_paths() {
+        let result = associate("/home/user/folder1;/var/folder2");
+        assert_eq!(
+            result,
+            Ok(HashMap::from([
+                (
+                    Path::new("/home/user"),
+                    vec![Path::new("/home/user/folder1")]
+                ),
+                (Path::new("/var"), vec![Path::new("/var/folder2")])
+            ]))
+        );
+    }
+
+    #[test]
+    fn associate_parent_multiple_children() {
+        let result = associate("/home/user/folder1;/home/user/folder2");
+        assert_eq!(
+            result,
+            Ok(HashMap::from([(
+                Path::new("/home/user"),
+                vec![
+                    Path::new("/home/user/folder1"),
+                    Path::new("/home/user/folder2")
+                ]
+            )]))
+        );
+    }
 }
 
 fn main() {
