@@ -128,6 +128,12 @@ fn read_contents(
     // so we get a vector of results
     // for every element, we could get a read error or a structural error,
     // in which case there is no association
+    // REFACTOR: type of deserialized_graphs is:
+    // Vec<Result<Result<(Cluster, Graph<(String, String), &str>), Vec<StructuralError>>, ReadError>>
+    // Would probably be nicer if it was:
+    // Vec<Result<(Cluster, Graph<(String, String), &str>), CombinedError>>
+    // and nicer still if it was something like
+    // Vec<Result<(Cluster, Graph<NodeData, EdgeData>), CombinedError>>
     let deserialized_graphs: Vec<_> = deserialized_graphs
         .into_iter()
         .map(|r| {
@@ -236,7 +242,8 @@ fn read_contents(
 
     // to enable serialization and cloning: error types are converted to owned strings
     // also, references to the associations are introduced rather than clones
-    let serializable: Vec<Result<Result<&(Cluster, petgraph::Graph<_, _>), Vec<String>>, String>> =
+    // REFACTOR: serializable is only used in the next step, so make one long chain instead?
+    let serializable =
         deserialized_graphs
             .iter()
             .map(|graph_with_remarks| match graph_with_remarks {
@@ -245,17 +252,15 @@ fn read_contents(
                     Err(structural_errors) => Ok(Err(structural_errors
                         .into_iter()
                         .map(|se| format!("{:#?}", se))
-                        .collect())),
+                        .collect::<Vec<String>>())),
                 },
                 Err(read_error) => Err(format!("{:#?}", read_error)),
-            })
-            .collect();
+            });
     eprintln!("Errors have been converted into strings.");
 
     // cluster-graph pairs are converted into dot source code + additional comments
     // i.e. the first owned String in the Ok-values is dot source code, the accompanying vector contains remarks
     let dots: Vec<_> = serializable
-        .iter()
         .map(|lvl1res| match lvl1res {
             Ok(lvl2res) => Ok(match lvl2res {
                 Ok((_cluster, graph)) => {
