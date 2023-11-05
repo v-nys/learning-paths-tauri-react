@@ -57,31 +57,6 @@ struct Cluster {
     edges: Vec<Edge>,
 }
 
-/// An error related to reading a `cluster` from a file.
-#[derive(Debug)]
-enum ReadError {
-    Deserialization(serde_yaml::Error),
-    IO(std::io::Error),
-}
-
-impl fmt::Display for ReadError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            ReadError::Deserialization(e) => write!(f, "Deserialization error: {}", e),
-            ReadError::IO(e) => write!(f, "IO error: {}", e),
-        }
-    }
-}
-
-impl Error for ReadError {
-    fn source(&self) -> Option<&(dyn Error + 'static)> {
-        match self {
-            ReadError::Deserialization(e) => Some(e),
-            ReadError::IO(e) => Some(e),
-        }
-    }
-}
-
 /// An error related to the internal structure of a (syntactically valid, semantically invalid) `Cluster`.
 #[derive(Debug)]
 enum StructuralError {
@@ -140,11 +115,10 @@ fn read_contents(
     eprintln!("read_contents was invoked!");
     let paths = paths.split(";");
     let read_results = paths.clone().map(std::fs::read_to_string);
-    // should probably switch to anyhow::Error here already
     let deserialized_graphs: Vec<Result<Cluster, anyhow::Error>> = read_results
         .map(|r| match r {
-            Ok(ref text) => serde_yaml::from_str(text).map_err(|e| anyhow::Error::new(ReadError::Deserialization(e))),
-            Err(e) => Err(anyhow::Error::new(ReadError::IO(e))),
+            Ok(ref text) => serde_yaml::from_str(text).map_err(anyhow::Error::new),
+            Err(e) => Err(anyhow::Error::new(e)),
         })
         .collect();
     eprintln!("Graphs have been deserialized.");
