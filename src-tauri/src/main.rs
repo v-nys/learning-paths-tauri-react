@@ -1,6 +1,7 @@
 // Prevents additional console window on Windows in release, DO NOT REMOVE!!
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+use anyhow;
 use graphviz_rust::{cmd::Format, exec, printer::PrinterContext};
 use petgraph::{
     algo::{
@@ -14,8 +15,7 @@ use petgraph::{
     Graph,
 };
 use serde::Deserialize;
-use std::{collections::HashMap, path::Path};
-use anyhow;
+use std::{collections::HashMap, fmt, path::Path};
 
 /* Maybe more use of references would be more idiomatic here. */
 
@@ -68,35 +68,73 @@ enum StructuralError {
                         // explicit namespace
 }
 
+impl fmt::Display for StructuralError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            StructuralError::DoubleNode(id) => write!(f, "Node defined multiple times: {id}"),
+            StructuralError::MissingInternalEndpoint(start_id, end_id, missing_id) => write!(f, "Node {missing_id} mentioned in edge {start_id} → {end_id} does not exist"),
+            StructuralError::NodeMultipleNamespace(id) => write!(f, "Node is explicitly namespaced (which is not allowed) in its definition: {id}"),
+            StructuralError::EdgeMultipleNamespace(start_id, end_id, namespaced_id) => write!(f, "Node {namespaced_id} mentioned in edge {start_id} → {end_id} is explicitly namespaced (which is not allowed if the namespace is that of the current cluster).")
+        }
+    }
+}
+
+#[derive(Debug)]
+struct StructuralErrorGrouping {
+    components: Vec<StructuralError>,
+}
+
+impl fmt::Display for StructuralErrorGrouping {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "{}",
+            self.components
+                .iter()
+                .map(|c| { c.to_string() })
+                // this is necessary because join is not directly available on Iterator
+                .collect::<Vec<String>>()
+                .join("\n")
+        )
+    }
+}
+
+impl std::error::Error for StructuralErrorGrouping {
+    // source is not mandatory and would be odd here
+}
+
 /*enum Dependency {
     Requirement(Directed),
     Motivation(Directed),
 }*/
 
+type NodeData = (String, String);
+type EdgeData<'a> = &'a str;
+
 fn node_dot_attributes(
-    graph: &Graph<(String, String), &str>,
-    node_ref: (NodeIndex, &(String, String)),
+    graph: &Graph<NodeData, EdgeData>,
+    node_ref: (NodeIndex, &NodeData),
 ) -> String {
     // label specified last is used, so this overrides the auto-generated one
     format!("label=\"{}\"", node_ref.1 .1)
 }
 
 /// Given a sequence of filesystem paths, deserialize the cluster represented by each path and optionally run additional validation.
-/// 
+///
 /// # Parameters
 /// - `paths`: A sequence of filesystem paths, represented as a single string.
 /// - `check_redundant_edges`: Whether to consider redundant, i.e. implied, edges as an error.
 /// - `check_cluster_boundaries`: Whether to consider unresolvable references to other clusters as an error.
 /// - `check_missing_files`: Whether to consider files (associated with nodes) which are not acessible as an error.
-/// 
+///
 /// # Returns
-/// 
+///
 /// An association list from each component path to ...?
-/// 
+///
 /// # Errors
-/// 
+///
 /// The function always produces an association list, but the associated values may be errors. This is because each cluster can be analyzed in isolation.
-/// 
+///
 #[tauri::command]
 fn read_contents(
     paths: &str,
@@ -110,7 +148,6 @@ fn read_contents(
     // the "middle" Vec<String> is a sequence of structural errors
     // the "inner" Vec<String> is e sequence of comments
     Result<Result<(String, Vec<String>), Vec<String>>, String>,
-    
 )> {
     eprintln!("read_contents was invoked!");
     let paths = paths.split(";");
@@ -124,121 +161,134 @@ fn read_contents(
     eprintln!("Graphs have been deserialized.");
     // each cluster is associated with a petgraph Graph
     // so we get a vector of results
-    // for every element, we could get a read error or a structural error,
-    // in which case there is no association
-    // REFACTOR: type of deserialized_graphs is:
-    // Vec<Result<Result<(Cluster, Graph<(String, String), &str>), Vec<StructuralError>>, ReadError>>
-    // Would probably be nicer if it was:
-    // Vec<Result<(Cluster, Graph<(String, String), &str>), CombinedError>>
-    // and nicer still if it was something like
-    // Vec<Result<(Cluster, Graph<NodeData, EdgeData>), CombinedError>>
+    let deserialized_graphs_2: Vec<_> =
+        deserialized_graphs
+            .into_iter()
+            .map(|result| {
+                result.and_then(|cluster| {
+                    let mut identifier_to_index_map = std::collections::HashMap::new();
+                    let mut single_cluster_graph = Graph::new();
+                    let mut structural_errors: Vec<StructuralError> = vec![];
 
-    
-    let deserialized_graphs: Vec<_> = deserialized_graphs
-        .into_iter()
-        .map(|r| {
-            r.map(|c| {
-                let mut map = std::collections::HashMap::new();
-                let mut graph = Graph::new();
-                let mut structural_errors: Vec<StructuralError> = vec![];
-                // these should only be internal nodes
-                for node in &c.nodes {
-                    let maybe_namespaced_key = node.id.clone();
-                    if maybe_namespaced_key.contains("__") {
-                        structural_errors
-                            .push(StructuralError::NodeMultipleNamespace(maybe_namespaced_key));
-                    } else {
-                        let definitely_namespaced_key =
-                            format!("{}__{maybe_namespaced_key}", c.namespace_prefix);
-                        if !map.contains_key(&definitely_namespaced_key) {
-                            let idx = graph.add_node((node.id.to_owned(), node.title.to_owned()));
-                            map.insert(definitely_namespaced_key, idx);
-                        } else {
+                    // check that nodes are not explicitly namespaced (because only internal ones are mentioned)
+                    // also check whether nodes are mentioned only once
+                    for node in &cluster.nodes {
+                        let maybe_namespaced_key = node.id.clone();
+                        if maybe_namespaced_key.contains("__") {
                             structural_errors
-                                .push(StructuralError::DoubleNode(definitely_namespaced_key));
+                                .push(StructuralError::NodeMultipleNamespace(maybe_namespaced_key));
+                        } else {
+                            let definitely_namespaced_key = format!(
+                                "{prefix}__{maybe_namespaced_key}",
+                                prefix = cluster.namespace_prefix
+                            );
+                            if !identifier_to_index_map.contains_key(&definitely_namespaced_key) {
+                                let idx = single_cluster_graph
+                                    .add_node((node.id.to_owned(), node.title.to_owned()));
+                                identifier_to_index_map.insert(definitely_namespaced_key, idx);
+                            } else {
+                                structural_errors
+                                    .push(StructuralError::DoubleNode(definitely_namespaced_key));
+                            }
                         }
                     }
-                }
 
-                for Edge { start_id, end_id } in &c.edges {
-                    let mut can_add = true;
-                    if start_id.starts_with(&format!("{}__", &c.namespace_prefix)) {
-                        structural_errors.push(StructuralError::EdgeMultipleNamespace(
-                            start_id.to_owned(),
-                            end_id.to_owned(),
-                            start_id.to_owned(),
-                        ));
-                        can_add = false;
-                    }
-                    if end_id.starts_with(&format!("{}__", &c.namespace_prefix)) {
-                        structural_errors.push(StructuralError::EdgeMultipleNamespace(
-                            start_id.to_owned(),
-                            end_id.to_owned(),
-                            start_id.to_owned(),
-                        ));
-                        can_add = false;
-                    }
-                    if can_add {
-                        let mut start_id = start_id.to_owned();
-                        let mut end_id = end_id.to_owned();
-                        if start_id.contains("__") {
-                            if !map.contains_key(&start_id) {
-                                let idx = graph.add_node((start_id.clone(), start_id.clone()));
-                                map.insert(start_id.clone(), idx);
-                            }
-                        } else {
-                            start_id = format!("{}__{start_id}", c.namespace_prefix);
+                    // build the single-cluster graph and check for structural errors at the same time
+                    for Edge { start_id, end_id } in &cluster.edges {
+                        let mut can_add = true;
+                        if start_id.starts_with(&format!("{}__", &cluster.namespace_prefix)) {
+                            structural_errors.push(StructuralError::EdgeMultipleNamespace(
+                                start_id.to_owned(),
+                                end_id.to_owned(),
+                                start_id.to_owned(),
+                            ));
+                            can_add = false;
                         }
-                        if end_id.contains("__") {
-                            if !map.contains_key(&end_id) {
-                                let idx = graph.add_node((end_id.clone(), end_id.clone()));
-                                map.insert(end_id.clone(), idx);
-                            }
-                        } else {
-                            end_id = format!("{}__{end_id}", c.namespace_prefix);
+                        if end_id.starts_with(&format!("{}__", &cluster.namespace_prefix)) {
+                            structural_errors.push(StructuralError::EdgeMultipleNamespace(
+                                start_id.to_owned(),
+                                end_id.to_owned(),
+                                start_id.to_owned(),
+                            ));
+                            can_add = false;
                         }
-                        match (map.get(&start_id), map.get(&end_id)) {
-                            (Some(idx1), Some(idx2)) => {
-                                // don't need edge labels, so just using ""
-                                graph.add_edge(*idx1, *idx2, "");
+                        if can_add {
+                            let mut start_id = start_id.to_owned();
+                            let mut end_id = end_id.to_owned();
+                            if start_id.contains("__") {
+                                if !identifier_to_index_map.contains_key(&start_id) {
+                                    let idx = single_cluster_graph
+                                        .add_node((start_id.clone(), start_id.clone()));
+                                    identifier_to_index_map.insert(start_id.clone(), idx);
+                                }
+                            } else {
+                                start_id = format!("{}__{start_id}", cluster.namespace_prefix);
                             }
-                            (Some(_), None) => {
-                                structural_errors.push(StructuralError::MissingInternalEndpoint(
-                                    start_id.to_owned(),
-                                    end_id.to_owned(),
-                                    end_id.to_owned(),
-                                ));
+                            if end_id.contains("__") {
+                                if !identifier_to_index_map.contains_key(&end_id) {
+                                    let idx = single_cluster_graph
+                                        .add_node((end_id.clone(), end_id.clone()));
+                                    identifier_to_index_map.insert(end_id.clone(), idx);
+                                }
+                            } else {
+                                end_id = format!("{}__{end_id}", cluster.namespace_prefix);
                             }
-                            (None, Some(_)) => {
-                                structural_errors.push(StructuralError::MissingInternalEndpoint(
-                                    start_id.to_owned(),
-                                    end_id.to_owned(),
-                                    start_id.to_owned(),
-                                ));
-                            }
-                            (None, None) => {
-                                structural_errors.push(StructuralError::MissingInternalEndpoint(
-                                    start_id.to_owned(),
-                                    end_id.to_owned(),
-                                    start_id.to_owned(),
-                                ));
-                                structural_errors.push(StructuralError::MissingInternalEndpoint(
-                                    start_id.to_owned(),
-                                    end_id.to_owned(),
-                                    end_id.to_owned(),
-                                ));
+                            match (
+                                identifier_to_index_map.get(&start_id),
+                                identifier_to_index_map.get(&end_id),
+                            ) {
+                                (Some(idx1), Some(idx2)) => {
+                                    // don't need edge labels, so just using ""
+                                    single_cluster_graph.add_edge(*idx1, *idx2, "");
+                                }
+                                (Some(_), None) => {
+                                    structural_errors.push(
+                                        StructuralError::MissingInternalEndpoint(
+                                            start_id.to_owned(),
+                                            end_id.to_owned(),
+                                            end_id.to_owned(),
+                                        ),
+                                    );
+                                }
+                                (None, Some(_)) => {
+                                    structural_errors.push(
+                                        StructuralError::MissingInternalEndpoint(
+                                            start_id.to_owned(),
+                                            end_id.to_owned(),
+                                            start_id.to_owned(),
+                                        ),
+                                    );
+                                }
+                                (None, None) => {
+                                    structural_errors.push(
+                                        StructuralError::MissingInternalEndpoint(
+                                            start_id.to_owned(),
+                                            end_id.to_owned(),
+                                            start_id.to_owned(),
+                                        ),
+                                    );
+                                    structural_errors.push(
+                                        StructuralError::MissingInternalEndpoint(
+                                            start_id.to_owned(),
+                                            end_id.to_owned(),
+                                            end_id.to_owned(),
+                                        ),
+                                    );
+                                }
                             }
                         }
                     }
-                }
-                if structural_errors.is_empty() {
-                    Ok((c, graph))
-                } else {
-                    Err(structural_errors)
-                }
+                    if structural_errors.is_empty() {
+                        Ok((cluster, single_cluster_graph))
+                    } else {
+                        Err(anyhow::Error::new(StructuralErrorGrouping { components: structural_errors}))
+                    }
+                })
             })
-        })
-        .collect();
+            .collect();
+
+    // TODO: build on deserialized_graphs_2 here
+    // that has type: Vec<Result<(Cluster, Graph<(String, String), &str>), Error>>
 
     // to enable serialization and cloning: error types are converted to owned strings
     // also, references to the associations are introduced rather than clones
@@ -482,7 +532,9 @@ fn read_contents(
 /// In addition to changes *inside* a watched folder, changes *to* the watched folder should be signaled as well.
 /// This can be achieved by watching a watched folder's parent rather than the folder itself.
 #[tauri::command]
-fn associate_parents_children(paths: &'_ str) -> Result<HashMap<&'_ Path, Vec<&'_ Path>>, &'_ Path> {
+fn associate_parents_children(
+    paths: &'_ str,
+) -> Result<HashMap<&'_ Path, Vec<&'_ Path>>, &'_ Path> {
     paths
         .split(";")
         .map(Path::new)
@@ -560,7 +612,10 @@ mod tests {
 fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_fs_watch::init())
-        .invoke_handler(tauri::generate_handler![read_contents, associate_parents_children])
+        .invoke_handler(tauri::generate_handler![
+            read_contents,
+            associate_parents_children
+        ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
