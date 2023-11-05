@@ -444,19 +444,23 @@ fn read_contents(
 ///
 /// # Errors
 /// If any path lacks a parent, the first such path is returned as the error value.
-/// This includes the case in which the input is empty.
+/// This is the case for the root path and relative paths.
+/// This also includes the case in which the input is empty.
 ///
 /// # Notes
 /// This function is useful for filesystem watching.
 /// In addition to changes *inside* a watched folder, changes *to* the watched folder should be signaled as well.
 /// This can be achieved by watching a watched folder's parent rather than the folder itself.
 #[tauri::command]
-fn associate(paths: &str) -> Result<HashMap<&Path, Vec<&Path>>, &Path> {
+fn associate_parents_children(paths: &'_ str) -> Result<HashMap<&'_ Path, Vec<&'_ Path>>, &'_ Path> {
     paths
         .split(";")
         .map(Path::new)
         .try_fold(HashMap::new(), |mut map, path| {
-            let parent = path.parent().ok_or(path).and_then(|parent| { if parent.is_relative() { Err(path) } else { Ok(parent)} })?;
+            if path.is_relative() {
+                return Err(path);
+            }
+            let parent = path.parent().ok_or(path)?;
             map.entry(parent).or_insert_with(Vec::new).push(path);
             Ok(map)
         })
@@ -466,35 +470,35 @@ fn associate(paths: &str) -> Result<HashMap<&Path, Vec<&Path>>, &Path> {
 mod tests {
     use std::{collections::HashMap, path::Path};
 
-    use crate::associate;
+    use crate::associate_parents_children;
 
     #[test]
     fn associate_empty_string() {
-        let result = associate("");
+        let result = associate_parents_children("");
         assert_eq!(result, Err(Path::new("")));
     }
 
     #[test]
     fn associate_empty_strings() {
-        let result = associate(";;");
+        let result = associate_parents_children(";;");
         assert_eq!(result, Err(Path::new("")));
     }
 
     #[test]
     fn associate_root() {
-        let result = associate("/");
+        let result = associate_parents_children("/");
         assert_eq!(result, Err(Path::new("/")));
     }
 
     #[test]
     fn associate_bad_path() {
-        let result = associate("/home/user/folder1;folder2");
+        let result = associate_parents_children("/home/user/folder1;folder2");
         assert_eq!(result, Err(Path::new("folder2")));
     }
 
     #[test]
     fn associate_valid_paths() {
-        let result = associate("/home/user/folder1;/var/folder2");
+        let result = associate_parents_children("/home/user/folder1;/var/folder2");
         assert_eq!(
             result,
             Ok(HashMap::from([
@@ -509,7 +513,7 @@ mod tests {
 
     #[test]
     fn associate_parent_multiple_children() {
-        let result = associate("/home/user/folder1;/home/user/folder2");
+        let result = associate_parents_children("/home/user/folder1;/home/user/folder2");
         assert_eq!(
             result,
             Ok(HashMap::from([(
@@ -526,7 +530,7 @@ mod tests {
 fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_fs_watch::init())
-        .invoke_handler(tauri::generate_handler![read_contents, associate])
+        .invoke_handler(tauri::generate_handler![read_contents, associate_parents_children])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
