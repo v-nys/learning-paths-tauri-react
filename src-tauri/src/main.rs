@@ -14,7 +14,8 @@ use petgraph::{
     Graph,
 };
 use serde::Deserialize;
-use std::{collections::HashMap, path::Path};
+use std::{fmt, collections::HashMap, path::Path, error::Error};
+use anyhow;
 
 /* Maybe more use of references would be more idiomatic here. */
 
@@ -61,6 +62,24 @@ struct Cluster {
 enum ReadError {
     Deserialization(serde_yaml::Error),
     IO(std::io::Error),
+}
+
+impl fmt::Display for ReadError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            ReadError::Deserialization(e) => write!(f, "Deserialization error: {}", e),
+            ReadError::IO(e) => write!(f, "IO error: {}", e),
+        }
+    }
+}
+
+impl Error for ReadError {
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
+        match self {
+            ReadError::Deserialization(e) => Some(e),
+            ReadError::IO(e) => Some(e),
+        }
+    }
 }
 
 /// An error related to the internal structure of a (syntactically valid, semantically invalid) `Cluster`.
@@ -110,17 +129,22 @@ fn read_contents(
     check_cluster_boundaries: bool,
     check_missing_files: bool,
 ) -> Vec<(
-    &str,
+    &str, // these are paths
     // the following is the type of svgs
+    // the "outer" String is a serialized representation of a ReadError
+    // the "middle" Vec<String> is a sequence of structural errors
+    // the "inner" Vec<String> is e sequence of comments
     Result<Result<(String, Vec<String>), Vec<String>>, String>,
+    
 )> {
     eprintln!("read_contents was invoked!");
     let paths = paths.split(";");
     let read_results = paths.clone().map(std::fs::read_to_string);
-    let deserialized_graphs: Vec<Result<Cluster, ReadError>> = read_results
+    // should probably switch to anyhow::Error here already
+    let deserialized_graphs: Vec<Result<Cluster, anyhow::Error>> = read_results
         .map(|r| match r {
-            Ok(ref text) => serde_yaml::from_str(text).map_err(|e| ReadError::Deserialization(e)),
-            Err(e) => Err(ReadError::IO(e)),
+            Ok(ref text) => serde_yaml::from_str(text).map_err(|e| anyhow::Error::new(ReadError::Deserialization(e))),
+            Err(e) => Err(anyhow::Error::new(ReadError::IO(e))),
         })
         .collect();
     eprintln!("Graphs have been deserialized.");
