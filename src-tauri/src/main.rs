@@ -87,6 +87,22 @@ fn node_dot_attributes(
     format!("label=\"{}\"", node_ref.1 .1)
 }
 
+/// Given a sequence of filesystem paths, deserialize the cluster represented by each path and optionally run additional validation.
+/// 
+/// # Parameters
+/// - `paths`: A sequence of filesystem paths, represented as a single string.
+/// - `check_redundant_edges`: Whether to consider redundant, i.e. implied, edges as an error.
+/// - `check_cluster_boundaries`: Whether to consider unresolvable references to other clusters as an error.
+/// - `check_missing_files`: Whether to consider files (associated with nodes) which are not acessible as an error.
+/// 
+/// # Returns
+/// 
+/// An association list from each component path to ...?
+/// 
+/// # Errors
+/// 
+/// The function always produces an association list, but the associated values may be errors. This is because each cluster can be analyzed in isolation.
+/// 
 #[tauri::command]
 fn read_contents(
     paths: &str,
@@ -95,6 +111,7 @@ fn read_contents(
     check_missing_files: bool,
 ) -> Vec<(
     &str,
+    // the following is the type of svgs
     Result<Result<(String, Vec<String>), Vec<String>>, String>,
 )> {
     eprintln!("read_contents was invoked!");
@@ -107,6 +124,10 @@ fn read_contents(
         })
         .collect();
     eprintln!("Graphs have been deserialized.");
+    // each cluster is associated with a petgraph Graph
+    // so we get a vector of results
+    // for every element, we could get a read error or a structural error,
+    // in which case there is no association
     let deserialized_graphs: Vec<_> = deserialized_graphs
         .into_iter()
         .map(|r| {
@@ -213,7 +234,8 @@ fn read_contents(
         })
         .collect();
 
-    // to enable serialization and cloning
+    // to enable serialization and cloning: error types are converted to owned strings
+    // also, references to the associations are introduced rather than clones
     let serializable: Vec<Result<Result<&(Cluster, petgraph::Graph<_, _>), Vec<String>>, String>> =
         deserialized_graphs
             .iter()
@@ -230,11 +252,13 @@ fn read_contents(
             .collect();
     eprintln!("Errors have been converted into strings.");
 
+    // cluster-graph pairs are converted into dot source code + additional comments
+    // i.e. the first owned String in the Ok-values is dot source code, the accompanying vector contains remarks
     let dots: Vec<_> = serializable
         .iter()
         .map(|lvl1res| match lvl1res {
             Ok(lvl2res) => Ok(match lvl2res {
-                Ok((cluster, graph)) => {
+                Ok((_cluster, graph)) => {
                     let mut remarks: Vec<String> = vec![];
                     if check_missing_files {
                         remarks.push("Can't check for missing files yet.".to_owned());
@@ -429,7 +453,8 @@ fn read_contents(
         })
     }));
     // /home/vincent/Projects/tauritest/src-tauri/test/git.yaml
-    std::iter::zip(paths, svgs).collect()
+    let final_result = std::iter::zip(paths, svgs).collect();
+    final_result
 }
 
 /// Associates the parent path of each supplied path with the path itself.
