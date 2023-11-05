@@ -14,7 +14,7 @@ use petgraph::{
     Graph,
 };
 use serde::Deserialize;
-use std::{fmt, collections::HashMap, path::Path, error::Error};
+use std::{collections::HashMap, path::Path};
 use anyhow;
 
 /* Maybe more use of references would be more idiomatic here. */
@@ -115,7 +115,7 @@ fn read_contents(
     eprintln!("read_contents was invoked!");
     let paths = paths.split(";");
     let read_results = paths.clone().map(std::fs::read_to_string);
-    let deserialized_graphs: Vec<Result<Cluster, anyhow::Error>> = read_results
+    let deserialized_graphs: Vec<anyhow::Result<Cluster>> = read_results
         .map(|r| match r {
             Ok(ref text) => serde_yaml::from_str(text).map_err(anyhow::Error::new),
             Err(e) => Err(anyhow::Error::new(e)),
@@ -132,6 +132,8 @@ fn read_contents(
     // Vec<Result<(Cluster, Graph<(String, String), &str>), CombinedError>>
     // and nicer still if it was something like
     // Vec<Result<(Cluster, Graph<NodeData, EdgeData>), CombinedError>>
+
+    
     let deserialized_graphs: Vec<_> = deserialized_graphs
         .into_iter()
         .map(|r| {
