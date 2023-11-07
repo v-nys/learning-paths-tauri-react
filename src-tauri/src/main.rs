@@ -111,6 +111,21 @@ impl std::error::Error for StructuralErrorGrouping {
 type NodeData = (String, String);
 type EdgeData<'a> = &'a str;
 
+struct ClusterGraphPair<'a>(Cluster, Graph<NodeData, EdgeData<'a>>);
+struct ClusterGraphCommentsTriple<'a>(Cluster, Graph<NodeData, EdgeData<'a>>, Vec<String>);
+struct ClusterGraphCommentsDotQuadruple<'a>(
+    Cluster,
+    Graph<NodeData, EdgeData<'a>>,
+    Vec<String>,
+    String,
+);
+struct ClusterGraphCommentsSvgQuadruple<'a>(
+    Cluster,
+    Graph<NodeData, EdgeData<'a>>,
+    Vec<String>,
+    String,
+);
+
 fn node_dot_attributes(
     graph: &Graph<NodeData, EdgeData>,
     node_ref: (NodeIndex, &NodeData),
@@ -141,375 +156,333 @@ fn read_contents(
     check_redundant_edges: bool,
     check_cluster_boundaries: bool,
     check_missing_files: bool,
-) -> Vec<(
-    &str, // these are paths
-    // the following is the type of svgs
-    // the "outer" String is a serialized representation of a ReadError
-    // the "middle" Vec<String> is a sequence of structural errors
-    // the "inner" Vec<String> is e sequence of comments
-    Result<Result<(String, Vec<String>), Vec<String>>, String>,
-)> {
+) -> Vec<(&str, Result<(String, Vec<String>), String>)> {
     eprintln!("read_contents was invoked!");
     let paths = paths.split(";");
     let read_results = paths.clone().map(std::fs::read_to_string);
-    let deserialized_graphs: Vec<anyhow::Result<Cluster>> = read_results
+    let clusters: Vec<anyhow::Result<Cluster>> = read_results
         .map(|r| match r {
             Ok(ref text) => serde_yaml::from_str(text).map_err(anyhow::Error::new),
             Err(e) => Err(anyhow::Error::new(e)),
         })
         .collect();
-    eprintln!("Graphs have been deserialized.");
+    eprintln!("Clusters have been deserialized.");
     // each cluster is associated with a petgraph Graph
     // so we get a vector of results
-    let deserialized_graphs_2: Vec<_> =
-        deserialized_graphs
-            .into_iter()
-            .map(|result| {
-                result.and_then(|cluster| {
-                    let mut identifier_to_index_map = std::collections::HashMap::new();
-                    let mut single_cluster_graph = Graph::new();
-                    let mut structural_errors: Vec<StructuralError> = vec![];
-
-                    // check that nodes are not explicitly namespaced (because only internal ones are mentioned)
-                    // also check whether nodes are mentioned only once
-                    for node in &cluster.nodes {
-                        let maybe_namespaced_key = node.id.clone();
-                        if maybe_namespaced_key.contains("__") {
-                            structural_errors
-                                .push(StructuralError::NodeMultipleNamespace(maybe_namespaced_key));
-                        } else {
-                            let definitely_namespaced_key = format!(
-                                "{prefix}__{maybe_namespaced_key}",
-                                prefix = cluster.namespace_prefix
-                            );
-                            if !identifier_to_index_map.contains_key(&definitely_namespaced_key) {
-                                let idx = single_cluster_graph
-                                    .add_node((node.id.to_owned(), node.title.to_owned()));
-                                identifier_to_index_map.insert(definitely_namespaced_key, idx);
-                            } else {
-                                structural_errors
-                                    .push(StructuralError::DoubleNode(definitely_namespaced_key));
-                            }
-                        }
-                    }
-
-                    // build the single-cluster graph and check for structural errors at the same time
-                    for Edge { start_id, end_id } in &cluster.edges {
-                        let mut can_add = true;
-                        if start_id.starts_with(&format!("{}__", &cluster.namespace_prefix)) {
-                            structural_errors.push(StructuralError::EdgeMultipleNamespace(
-                                start_id.to_owned(),
-                                end_id.to_owned(),
-                                start_id.to_owned(),
-                            ));
-                            can_add = false;
-                        }
-                        if end_id.starts_with(&format!("{}__", &cluster.namespace_prefix)) {
-                            structural_errors.push(StructuralError::EdgeMultipleNamespace(
-                                start_id.to_owned(),
-                                end_id.to_owned(),
-                                start_id.to_owned(),
-                            ));
-                            can_add = false;
-                        }
-                        if can_add {
-                            let mut start_id = start_id.to_owned();
-                            let mut end_id = end_id.to_owned();
-                            if start_id.contains("__") {
-                                if !identifier_to_index_map.contains_key(&start_id) {
-                                    let idx = single_cluster_graph
-                                        .add_node((start_id.clone(), start_id.clone()));
-                                    identifier_to_index_map.insert(start_id.clone(), idx);
-                                }
-                            } else {
-                                start_id = format!("{}__{start_id}", cluster.namespace_prefix);
-                            }
-                            if end_id.contains("__") {
-                                if !identifier_to_index_map.contains_key(&end_id) {
-                                    let idx = single_cluster_graph
-                                        .add_node((end_id.clone(), end_id.clone()));
-                                    identifier_to_index_map.insert(end_id.clone(), idx);
-                                }
-                            } else {
-                                end_id = format!("{}__{end_id}", cluster.namespace_prefix);
-                            }
-                            match (
-                                identifier_to_index_map.get(&start_id),
-                                identifier_to_index_map.get(&end_id),
-                            ) {
-                                (Some(idx1), Some(idx2)) => {
-                                    // don't need edge labels, so just using ""
-                                    single_cluster_graph.add_edge(*idx1, *idx2, "");
-                                }
-                                (Some(_), None) => {
-                                    structural_errors.push(
-                                        StructuralError::MissingInternalEndpoint(
-                                            start_id.to_owned(),
-                                            end_id.to_owned(),
-                                            end_id.to_owned(),
-                                        ),
-                                    );
-                                }
-                                (None, Some(_)) => {
-                                    structural_errors.push(
-                                        StructuralError::MissingInternalEndpoint(
-                                            start_id.to_owned(),
-                                            end_id.to_owned(),
-                                            start_id.to_owned(),
-                                        ),
-                                    );
-                                }
-                                (None, None) => {
-                                    structural_errors.push(
-                                        StructuralError::MissingInternalEndpoint(
-                                            start_id.to_owned(),
-                                            end_id.to_owned(),
-                                            start_id.to_owned(),
-                                        ),
-                                    );
-                                    structural_errors.push(
-                                        StructuralError::MissingInternalEndpoint(
-                                            start_id.to_owned(),
-                                            end_id.to_owned(),
-                                            end_id.to_owned(),
-                                        ),
-                                    );
-                                }
-                            }
-                        }
-                    }
-                    if structural_errors.is_empty() {
-                        Ok((cluster, single_cluster_graph))
-                    } else {
-                        Err(anyhow::Error::new(StructuralErrorGrouping { components: structural_errors}))
-                    }
-                })
-            })
-            .collect();
-
-    // TODO: build on deserialized_graphs_2 here
-    // that has type: Vec<Result<(Cluster, Graph<(String, String), &str>), Error>>
-
-    // to enable serialization and cloning: error types are converted to owned strings
-    // also, references to the associations are introduced rather than clones
-    // REFACTOR: serializable is only used in the next step, so make one long chain instead?
-    let serializable =
-        deserialized_graphs
-            .iter()
-            .map(|graph_with_remarks| match graph_with_remarks {
-                Ok(readable) => match readable {
-                    Ok(structurally_sound) => Ok(Ok(structurally_sound)),
-                    Err(structural_errors) => Ok(Err(structural_errors
-                        .into_iter()
-                        .map(|se| format!("{:#?}", se))
-                        .collect::<Vec<String>>())),
-                },
-                Err(read_error) => Err(format!("{:#?}", read_error)),
-            });
-    eprintln!("Errors have been converted into strings.");
-
-    // cluster-graph pairs are converted into dot source code + additional comments
-    // i.e. the first owned String in the Ok-values is dot source code, the accompanying vector contains remarks
-    let dots: Vec<_> = serializable
-        .map(|lvl1res| match lvl1res {
-            Ok(lvl2res) => Ok(match lvl2res {
-                Ok((_cluster, graph)) => {
-                    let mut remarks: Vec<String> = vec![];
-                    if check_missing_files {
-                        remarks.push("Can't check for missing files yet.".to_owned());
-                    }
-                    Ok((
-                        format!(
-                            "{:?}",
-                            Dot::with_attr_getters(
-                                graph,
-                                &[Config::EdgeNoLabel],
-                                &|_g, _g_edge_ref| "".to_owned(),
-                                &node_dot_attributes
-                            )
-                        ),
-                        remarks,
-                    ))
-                }
-                Err(e) => Err(e.clone()),
-            }),
-            Err(e) => Err(e.to_owned()),
-        })
-        .collect();
-    eprintln!("Dots have been generated and remarks have been added.");
-
-    let graph_result: Result<Vec<_>, _> = dots.clone().into_iter().collect();
-    let mut paths: Vec<&str> = paths.collect();
-    let mut boundary_errors = vec![];
-    let complete_graph_result;
-    match graph_result {
-        Ok(v) => {
-            let graph_result: Result<Vec<_>, _> = v.into_iter().collect();
-            match graph_result {
-                Ok(v) => {
-                    let mut complete_graph: Graph<(String, String), &str> = Graph::new();
-                    let mut complete_graph_map = HashMap::new();
-                    // wait, I don't get this
-                    // why does it look like I can get at cluster / graph?
-                    // deserialized is a reference...
-                    deserialized_graphs.iter().for_each(|deserialized| {
-                        match deserialized {
-                            Ok(Ok((cluster, graph))) => {
-                                for (id, title) in graph.node_weights() {
-                                    // only add the internal ones to the map
-                                    if !id.contains("__") {
-                                        let node_idx = complete_graph.add_node((
-                                            format!("{}__{id}", cluster.namespace_prefix),
-                                            title.to_owned(),
-                                        ));
-                                        complete_graph_map.insert(
-                                            format!("{}__{id}", cluster.namespace_prefix),
-                                            node_idx,
-                                        );
-                                    }
-                                }
-                            }
-                            _ => panic!("Coding error."),
-                        }
-                    });
-                    for key in complete_graph_map.keys() {
-                        eprintln!("Key: {}", key);
-                    }
-                    deserialized_graphs.iter().for_each(|deserialized| {
-                        match deserialized {
-                            Ok(Ok((cluster, _graph))) => {
-                                for Edge { start_id, end_id } in cluster.edges.iter() {
-                                    // add the dependencies
-                                    let namespaced_start_id = if start_id.contains("__") {
-                                        start_id.to_owned()
-                                    } else {
-                                        format!("{}__{start_id}", cluster.namespace_prefix)
-                                    };
-                                    let namespaced_end_id = if end_id.contains("__") {
-                                        end_id.to_owned()
-                                    } else {
-                                        format!("{}__{end_id}", cluster.namespace_prefix)
-                                    };
-                                    match (
-                                        complete_graph_map.get(&namespaced_start_id),
-                                        complete_graph_map.get(&namespaced_end_id),
-                                    ) {
-                                        (Some(start_idx), Some(end_idx)) => {
-                                            complete_graph.add_edge(*start_idx, *end_idx, "");
-                                        }
-                                        (Some(_), None) => {
-                                            boundary_errors.push(format!(
-                                                "Cluster {} refers to missing external node {}",
-                                                cluster.namespace_prefix, namespaced_end_id
-                                            ));
-                                        }
-                                        (None, Some(_)) => {
-                                            boundary_errors.push(format!(
-                                                "Cluster {} refers to missing external node {}",
-                                                cluster.namespace_prefix, namespaced_start_id
-                                            ));
-                                        }
-                                        (None, None) => {
-                                            boundary_errors.push(format!(
-                                                "Cluster {} refers to missing external node {}",
-                                                cluster.namespace_prefix, namespaced_end_id
-                                            ));
-                                            boundary_errors.push(format!(
-                                                "Cluster {} refers to missing external node {}",
-                                                cluster.namespace_prefix, namespaced_start_id
-                                            ));
-                                        }
-                                    }
-                                }
-                            }
-                            _ => panic!("Coding error."),
-                        }
-                    });
-                    if boundary_errors.is_empty() {
-                        complete_graph_result = Ok(Ok(complete_graph));
-                    } else {
-                        complete_graph_result = Ok(Err(boundary_errors));
-                    }
-                }
-                Err(e) => {
-                    complete_graph_result = Ok(Err(e));
-                }
-            }
-        }
-        Err(e) => {
-            complete_graph_result = Err(e);
-        }
-    }
-
-    eprintln!("Global graph has been represented.");
-    // issue: structural issues are represented as a &Vec<String>, rather than a Vec<String>
-    let mut svgs: Vec<_> = dots
+    let cluster_graph_pairs: Vec<_> = clusters
         .into_iter()
-        .map(|dot_result| {
-            dot_result.map(|dot_with_remarks| {
-                dot_with_remarks.map(|(ref dot_src, remarks)| {
-                    let g = graphviz_rust::parse(dot_src)
-                        .expect("Assuming petgraph generated valid dot syntax.");
-                    (
-                        exec(g, &mut PrinterContext::default(), vec![Format::Svg.into()])
-                            .expect("Assuming valid graph can be rendered into SVG."),
-                        remarks,
-                    )
-                })
+        .map(|result| {
+            result.and_then(|cluster| {
+                let mut identifier_to_index_map = std::collections::HashMap::new();
+                let mut single_cluster_graph = Graph::new();
+                let mut structural_errors: Vec<StructuralError> = vec![];
+
+                // check that nodes are not explicitly namespaced (because only internal ones are mentioned)
+                // also check whether nodes are mentioned only once
+                for node in &cluster.nodes {
+                    let maybe_namespaced_key = node.id.clone();
+                    if maybe_namespaced_key.contains("__") {
+                        structural_errors
+                            .push(StructuralError::NodeMultipleNamespace(maybe_namespaced_key));
+                    } else {
+                        let definitely_namespaced_key = format!(
+                            "{prefix}__{maybe_namespaced_key}",
+                            prefix = cluster.namespace_prefix
+                        );
+                        if !identifier_to_index_map.contains_key(&definitely_namespaced_key) {
+                            let idx = single_cluster_graph
+                                .add_node((node.id.to_owned(), node.title.to_owned()));
+                            identifier_to_index_map.insert(definitely_namespaced_key, idx);
+                        } else {
+                            structural_errors
+                                .push(StructuralError::DoubleNode(definitely_namespaced_key));
+                        }
+                    }
+                }
+
+                // build the single-cluster graph and check for structural errors at the same time
+                for Edge { start_id, end_id } in &cluster.edges {
+                    let mut can_add = true;
+                    if start_id.starts_with(&format!("{}__", &cluster.namespace_prefix)) {
+                        structural_errors.push(StructuralError::EdgeMultipleNamespace(
+                            start_id.to_owned(),
+                            end_id.to_owned(),
+                            start_id.to_owned(),
+                        ));
+                        can_add = false;
+                    }
+                    if end_id.starts_with(&format!("{}__", &cluster.namespace_prefix)) {
+                        structural_errors.push(StructuralError::EdgeMultipleNamespace(
+                            start_id.to_owned(),
+                            end_id.to_owned(),
+                            start_id.to_owned(),
+                        ));
+                        can_add = false;
+                    }
+                    if can_add {
+                        let mut start_id = start_id.to_owned();
+                        let mut end_id = end_id.to_owned();
+                        if start_id.contains("__") {
+                            if !identifier_to_index_map.contains_key(&start_id) {
+                                let idx = single_cluster_graph
+                                    .add_node((start_id.clone(), start_id.clone()));
+                                identifier_to_index_map.insert(start_id.clone(), idx);
+                            }
+                        } else {
+                            start_id = format!("{}__{start_id}", cluster.namespace_prefix);
+                        }
+                        if end_id.contains("__") {
+                            if !identifier_to_index_map.contains_key(&end_id) {
+                                let idx =
+                                    single_cluster_graph.add_node((end_id.clone(), end_id.clone()));
+                                identifier_to_index_map.insert(end_id.clone(), idx);
+                            }
+                        } else {
+                            end_id = format!("{}__{end_id}", cluster.namespace_prefix);
+                        }
+                        match (
+                            identifier_to_index_map.get(&start_id),
+                            identifier_to_index_map.get(&end_id),
+                        ) {
+                            (Some(idx1), Some(idx2)) => {
+                                // don't need edge labels, so just using ""
+                                single_cluster_graph.add_edge(*idx1, *idx2, "");
+                            }
+                            (Some(_), None) => {
+                                structural_errors.push(StructuralError::MissingInternalEndpoint(
+                                    start_id.to_owned(),
+                                    end_id.to_owned(),
+                                    end_id.to_owned(),
+                                ));
+                            }
+                            (None, Some(_)) => {
+                                structural_errors.push(StructuralError::MissingInternalEndpoint(
+                                    start_id.to_owned(),
+                                    end_id.to_owned(),
+                                    start_id.to_owned(),
+                                ));
+                            }
+                            (None, None) => {
+                                structural_errors.push(StructuralError::MissingInternalEndpoint(
+                                    start_id.to_owned(),
+                                    end_id.to_owned(),
+                                    start_id.to_owned(),
+                                ));
+                                structural_errors.push(StructuralError::MissingInternalEndpoint(
+                                    start_id.to_owned(),
+                                    end_id.to_owned(),
+                                    end_id.to_owned(),
+                                ));
+                            }
+                        }
+                    }
+                }
+                if structural_errors.is_empty() {
+                    Ok(ClusterGraphPair(cluster, single_cluster_graph))
+                } else {
+                    Err(anyhow::Error::new(StructuralErrorGrouping {
+                        components: structural_errors,
+                    }))
+                }
             })
         })
         .collect();
-
-    eprintln!("SVGs have been rendered.");
-    paths.push("complete graph (currently only hard dependencies)");
-    let mut comments = vec![];
-    svgs.push(complete_graph_result.map(|lvl1| {
-        lvl1.map(|lvl2| {
-            let toposort_result = toposort(&lvl2, None)
-                .expect("Currently just assuming cycle-free graph. Could take this into account.");
-            let (res, _revmap): (_, Vec<NodeIndex>) =
-                dag_to_toposorted_adjacency_list(&lvl2, &toposort_result);
-            let (tr, _tc) = dag_transitive_reduction_closure(&res);
-            eprintln!("{:#?}", tr);
-            for edge in res.edge_references() {
-                let source = edge.source();
-                let target = edge.target();
-                if !tr.contains_edge(source, target) {
-                    comments.push(format!(
-                        "Redundant edge! {} -> {}",
-                        lvl2.node_weight(source)
-                            .expect("Edge exists, so node does too.")
-                            .0,
-                        lvl2.node_weight(target)
-                            .expect("Edge exists, so node does too.")
-                            .0
-                    ));
-                }
+    eprintln!("Graphs have been computed from clusters.");
+    let cluster_graph_comments_triples = cluster_graph_pairs.into_iter().map(|result| {
+        result.map(|ClusterGraphPair(cluster, graph)| {
+            let mut remarks: Vec<String> = vec![];
+            if check_missing_files {
+                remarks.push("Can't check for missing files yet.".to_owned());
             }
-            let dot = format!(
-                "{:?}",
-                Dot::with_attr_getters(
-                    &lvl2,
-                    &[Config::EdgeNoLabel],
-                    &|_g, _g_edge_ref| "".to_owned(),
-                    &node_dot_attributes
-                )
-            );
-            (
-                exec(
-                    graphviz_rust::parse(&dot)
-                        .expect("Assuming petgraph generated valid dot syntax."),
-                    &mut PrinterContext::default(),
-                    vec![Format::Svg.into()],
-                )
-                .expect("Assuming valid graph can be rendered into SVG."),
+            ClusterGraphCommentsTriple(cluster, graph, remarks)
+        })
+    });
+    let cluster_graph_comments_dot_quadruples = cluster_graph_comments_triples.map(|result| {
+        result.map(|ClusterGraphCommentsTriple(cluster, graph, comments)| {
+            ClusterGraphCommentsDotQuadruple(
+                cluster,
+                graph,
                 comments,
+                format!(
+                    "{:?}",
+                    Dot::with_attr_getters(
+                        &graph,
+                        &[Config::EdgeNoLabel],
+                        &|_g, _g_edge_ref| "".to_owned(),
+                        &node_dot_attributes
+                    )
+                ),
             )
         })
+    });
+    eprintln!("Dots have been generated and remarks have been added.");
+
+    let cluster_graph_comments_svg_quadruples = cluster_graph_comments_dot_quadruples.map(|r| {
+        r.map(
+            |ClusterGraphCommentsDotQuadruple(cluster, graph, comments, dot_src)| {
+                let g = graphviz_rust::parse(&dot_src)
+                    .expect("Assuming petgraph generated valid dot syntax.");
+                ClusterGraphCommentsSvgQuadruple(
+                    cluster,
+                    graph,
+                    comments,
+                    exec(g, &mut PrinterContext::default(), vec![Format::Svg.into()])
+                        .expect("Assuming valid graph can be rendered into SVG."),
+                )
+            },
+        )
+    });
+    // TODO: rest pipeline in orde brengen...
+    // heb nu eigenlijk alles voor de component graphs, inclusief SVG's en comments
+    // voor de complete graph heb ik 
+
+    // complete graph result can be generated only if all individual graphs work
+    let result_dots_with_comments: Result<Vec<_>, _> =
+        results_dots_with_comments.clone().into_iter().collect();
+    let mut paths: Vec<&str> = paths.collect();
+    let mut boundary_errors = vec![];
+    let complete_graph_result = result_dots_with_comments.and_then(|dots_with_comments| {
+        let mut complete_graph: Graph<NodeData, EdgeData> = Graph::new();
+        let mut complete_graph_map = HashMap::new();
+        // first: insert all internal nodes in their namespaced form
+        // also map each namespaced ID to a graph index
+        deserialized_graphs_2.iter().for_each(|deserialized| {
+            let (cluster, graph) =
+                deserialized.expect("Already collected an OK result over all component graphs.");
+            for (id, title) in graph.node_weights() {
+                // only add the internal ones to the map
+                if !id.contains("__") {
+                    let node_idx = complete_graph.add_node((
+                        format!("{}__{id}", cluster.namespace_prefix),
+                        title.to_owned(),
+                    ));
+                    complete_graph_map
+                        .insert(format!("{}__{id}", cluster.namespace_prefix), node_idx);
+                }
+            }
+        });
+        for key in complete_graph_map.keys() {
+            eprintln!("Key: {}", key);
+        }
+        // now insert the edges
+        deserialized_graphs_2.iter().for_each(|deserialized| {
+            let (cluster, graph) =
+                deserialized.expect("Already collected an OK result over all component graphs.");
+            for Edge { start_id, end_id } in cluster.edges.iter() {
+                // add the dependencies
+                let namespaced_start_id = if start_id.contains("__") {
+                    start_id.to_owned()
+                } else {
+                    format!("{}__{start_id}", cluster.namespace_prefix)
+                };
+                let namespaced_end_id = if end_id.contains("__") {
+                    end_id.to_owned()
+                } else {
+                    format!("{}__{end_id}", cluster.namespace_prefix)
+                };
+                match (
+                    complete_graph_map.get(&namespaced_start_id),
+                    complete_graph_map.get(&namespaced_end_id),
+                ) {
+                    (Some(start_idx), Some(end_idx)) => {
+                        complete_graph.add_edge(*start_idx, *end_idx, "");
+                    }
+                    (Some(_), None) => {
+                        boundary_errors.push(format!(
+                            "Cluster {} refers to missing external node {}",
+                            cluster.namespace_prefix, namespaced_end_id
+                        ));
+                    }
+                    (None, Some(_)) => {
+                        boundary_errors.push(format!(
+                            "Cluster {} refers to missing external node {}",
+                            cluster.namespace_prefix, namespaced_start_id
+                        ));
+                    }
+                    (None, None) => {
+                        boundary_errors.push(format!(
+                            "Cluster {} refers to missing external node {}",
+                            cluster.namespace_prefix, namespaced_end_id
+                        ));
+                        boundary_errors.push(format!(
+                            "Cluster {} refers to missing external node {}",
+                            cluster.namespace_prefix, namespaced_start_id
+                        ));
+                    }
+                }
+            }
+        });
+        if boundary_errors.is_empty() {
+            Ok(complete_graph)
+        } else {
+            Err(boundary_errors.join("\n"))
+        }
+    });
+    eprintln!("Global graph has been represented.");
+
+    let mut svgs: Vec<_> = results_dots_with_comments
+        .iter()
+        .map(|r| {
+            r.map(|(ref dot_src, comments)| {
+                let g = graphviz_rust::parse(dot_src)
+                    .expect("Assuming petgraph generated valid dot syntax.");
+                (
+                    exec(g, &mut PrinterContext::default(), vec![Format::Svg.into()])
+                        .expect("Assuming valid graph can be rendered into SVG."),
+                    comments,
+                )
+            })
+        })
+        .collect();
+    eprintln!("SVGs have been rendered.");
+
+    paths.push("complete graph (currently only shows hard dependencies)");
+
+    let mut comments = vec![];
+    svgs.push(complete_graph_result.map(|graph| {
+        let toposort_result = toposort(&graph, None)
+            .expect("Currently just assuming cycle-free graph. Could take this into account.");
+        let (res, _revmap): (_, Vec<NodeIndex>) =
+            dag_to_toposorted_adjacency_list(&graph, &toposort_result);
+        let (tr, _tc) = dag_transitive_reduction_closure(&res);
+        for edge in res.edge_references() {
+            let source = edge.source();
+            let target = edge.target();
+            if !tr.contains_edge(source, target) {
+                comments.push(format!(
+                    "Redundant edge! {} -> {}",
+                    graph
+                        .node_weight(source)
+                        .expect("Edge exists, so node does too.")
+                        .0,
+                    graph
+                        .node_weight(target)
+                        .expect("Edge exists, so node does too.")
+                        .0
+                ));
+            }
+        }
+        let dot = format!(
+            "{:?}",
+            Dot::with_attr_getters(
+                &graph,
+                &[Config::EdgeNoLabel],
+                &|_g, _g_edge_ref| "".to_owned(),
+                &node_dot_attributes
+            )
+        );
+        (
+            exec(
+                graphviz_rust::parse(&dot).expect("Assuming petgraph generated valid dot syntax."),
+                &mut PrinterContext::default(),
+                vec![Format::Svg.into()],
+            )
+            .expect("Assuming valid graph can be rendered into SVG."),
+            comments,
+        )
     }));
-    // /home/vincent/Projects/tauritest/src-tauri/test/git.yaml
-    let final_result = std::iter::zip(paths, svgs).collect();
-    final_result
+
+    std::iter::zip(paths, svgs).collect()
 }
 
 /// Associates the parent path of each supplied path with the path itself.
