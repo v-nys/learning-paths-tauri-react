@@ -164,17 +164,18 @@ fn read_contents(
     check_missing_files: bool,
 ) -> Vec<(&str, Result<(Vec<String>, String), String>)> {
     let mut reader = RealFileReader {};
-    read_contents_with_reader::<RealFileReader>(
+    read_contents_with_dependencies::<RealFileReader>(
         paths,
         check_redundant_edges,
         check_cluster_boundaries,
         check_missing_files,
         &mut reader,
+        file_is_readable
     )
 }
 
 fn file_is_readable(file_path: &Path) -> bool {
-    File::open(file_path).is_ok()
+    file_path.is_file() && File::open(file_path).is_ok()
 }
 
 trait FileReader {
@@ -189,12 +190,13 @@ impl FileReader for RealFileReader {
     }
 }
 
-fn read_contents_with_reader<'a, T: FileReader>(
+fn read_contents_with_dependencies<'a, T: FileReader>(
     paths: &'a str,
     check_redundant_edges: bool,
     check_cluster_boundaries: bool,
     check_missing_files: bool,
     reader: &mut T,
+    file_is_readable: fn(&Path) -> bool
 ) -> Vec<(&'a str, Result<(Vec<String>, String), String>)> {
     eprintln!("read_contents was invoked!");
     let paths = paths.split(";");
@@ -349,11 +351,8 @@ fn read_contents_with_reader<'a, T: FileReader>(
                                 if file_path.is_absolute() {
                                     remarks.push(format!("File associated with node {} is absolute. Paths should always be relative to the location of the cluster file.", n.title));
                                 }
-                                else if !joined_path.is_file() {
-                                    remarks.push(format!("File associated with node {} is not a regular file.", n.title));
-                                }
                                 else if !file_is_readable(&joined_path) {
-                                    remarks.push(format!("File associated with node {} is not readable.", n.title));
+                                    remarks.push(format!("File associated with node {} is not a regular, readable file.", n.title));
                                 }
                             })
                         }
@@ -609,7 +608,7 @@ fn associate_parents_children(
 mod tests {
     use std::{collections::HashMap, path::Path};
 
-    use crate::{associate_parents_children, read_contents_with_reader};
+    use crate::{associate_parents_children, read_contents_with_dependencies};
 
     struct MockFileReader<'a> {
         paths: Vec<&'a Path>,
@@ -639,7 +638,7 @@ mod tests {
     #[test]
     fn read_trivial_cluster() {
         let mut reader = MockFileReader::new(vec![&Path::new("tests/git.yaml")]);
-        let analysis = read_contents_with_reader("_", true, true, true, &mut reader);
+        let analysis = read_contents_with_dependencies("_", true, true, true, &mut reader, |_| true);
         assert_eq!(analysis.len(), 2);
         assert_eq!(analysis[0].0, "_");
         assert!(
