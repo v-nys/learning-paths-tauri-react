@@ -329,6 +329,10 @@ fn read_contents_with_reader<'a, T: FileReader>(
     let cluster_graph_comments_triples = cluster_graph_pairs.into_iter().map(|result| {
         result.map(|ClusterGraphPair(cluster, graph)| {
             let mut remarks: Vec<String> = vec![];
+            // TODO: check whether files can be accessed
+            // will need to traverse cluster.nodes
+            // each node could have associated files
+            // also, files should always be specified relative to the cluster path
             if check_missing_files {
                 remarks.push("Can't check for missing files yet.".to_owned());
             }
