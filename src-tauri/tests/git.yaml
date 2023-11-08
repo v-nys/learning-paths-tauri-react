@@ -7,9 +7,9 @@ nodes:
   - id: what_is_local_version_control
     title: "What is local version control?"
 edges:
+  - start_id: what_is_version_control
+    end_id: installation_prerequisites
   - start_id: installation_prerequisites
     end_id: what_is_local_version_control
-  - start_id: what_is_local_version_control
-    end_id: installation_prerequisites
 # should remain empty, this is a knowledge cluster
 motivations: []

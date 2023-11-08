@@ -161,7 +161,14 @@ fn read_contents(
     check_cluster_boundaries: bool,
     check_missing_files: bool,
 ) -> Vec<(&str, Result<(Vec<String>, String), String>)> {
-    read_contents_with_reader::<RealFileReader>(paths,check_redundant_edges, check_cluster_boundaries, check_missing_files, RealFileReader {})
+    let mut reader = RealFileReader {};
+    read_contents_with_reader::<RealFileReader>(
+        paths,
+        check_redundant_edges,
+        check_cluster_boundaries,
+        check_missing_files,
+        &mut reader,
+    )
 }
 
 trait FileReader {
@@ -176,16 +183,16 @@ impl FileReader for RealFileReader {
     }
 }
 
-fn read_contents_with_reader<T: FileReader>(
-    paths: &str,
+fn read_contents_with_reader<'a, T: FileReader>(
+    paths: &'a str,
     check_redundant_edges: bool,
     check_cluster_boundaries: bool,
     check_missing_files: bool,
-    mut reader: T,
-) -> Vec<(&str, Result<(Vec<String>, String), String>)> {
+    reader: &mut T,
+) -> Vec<(&'a str, Result<(Vec<String>, String), String>)> {
     eprintln!("read_contents was invoked!");
     let paths = paths.split(";");
-    let read_results = paths.clone().map(|p| { reader.read_to_string(p)});
+    let read_results = paths.clone().map(|p| reader.read_to_string(p));
     let clusters = read_results.map(|r| match r {
         Ok(ref text) => serde_yaml::from_str(text).map_err(anyhow::Error::new),
         Err(e) => Err(anyhow::Error::new(e)),
@@ -546,7 +553,10 @@ fn associate_parents_children(
 
 #[cfg(test)]
 mod tests {
-    use std::{collections::HashMap, path::{Path, PathBuf}};
+    use std::{
+        collections::HashMap,
+        path::{Path},
+    };
 
     use crate::{associate_parents_children, read_contents_with_reader};
 
@@ -554,7 +564,7 @@ mod tests {
         paths: Vec<&'a Path>,
         calls_made: usize,
     }
-    
+
     impl<'a> super::FileReader for MockFileReader<'a> {
         fn read_to_string(&mut self, _path: &str) -> std::io::Result<String> {
             let path_option = self.paths.get(self.calls_made);
@@ -570,16 +580,38 @@ mod tests {
         fn new(paths: Vec<&'a Path>) -> Self {
             Self {
                 paths,
-                calls_made: 0
+                calls_made: 0,
             }
         }
     }
 
     #[test]
     fn read_trivial_cluster() {
-        let reader = MockFileReader::new(vec![&Path::new("tests/git.yaml")]);
-        let analysis = read_contents_with_reader("_", true, true, true, reader);
-        assert_eq!(reader.calls_made,1);
+        let mut reader = MockFileReader::new(vec![&Path::new("tests/git.yaml")]);
+        let analysis = read_contents_with_reader("_", true, true, true, &mut reader);
+        assert_eq!(analysis.len(), 2);
+        assert_eq!(analysis[0].0, "_");
+        assert!(
+            analysis[0].1.as_ref().is_ok_and(|(comments, svg)| {
+                comments == &vec!["Can't check for missing files yet.".to_string()]
+                    && !svg.is_empty()
+            }),
+            "Comments was not empty or SVG was empty. Analysis: {:#?}",
+            analysis[0].1
+        );
+        assert_eq!(
+            analysis[1].0,
+            "complete graph (currently only shows hard dependencies)"
+        );
+        assert!(
+            analysis[1]
+                .1
+                .as_ref()
+                .is_ok_and(|(comments, svg)| { comments.is_empty() && !svg.is_empty() }),
+            "Comments was not empty or SVG was empty. Analysis: {:#?}",
+            analysis[1].1
+        );
+        assert_eq!(reader.calls_made, 1);
     }
 
     #[test]
