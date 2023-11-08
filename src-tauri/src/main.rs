@@ -165,13 +165,13 @@ fn read_contents(
 }
 
 trait FileReader {
-    fn read_to_string(&self, path: &str) -> std::io::Result<String>;
+    fn read_to_string(&mut self, path: &str) -> std::io::Result<String>;
 }
 
 struct RealFileReader;
 
 impl FileReader for RealFileReader {
-    fn read_to_string(&self, path: &str) -> std::io::Result<String> {
+    fn read_to_string(&mut self, path: &str) -> std::io::Result<String> {
         std::fs::read_to_string(path)
     }
 }
@@ -181,7 +181,7 @@ fn read_contents_with_reader<T: FileReader>(
     check_redundant_edges: bool,
     check_cluster_boundaries: bool,
     check_missing_files: bool,
-    reader: T,
+    mut reader: T,
 ) -> Vec<(&str, Result<(Vec<String>, String), String>)> {
     eprintln!("read_contents was invoked!");
     let paths = paths.split(";");
@@ -546,21 +546,41 @@ fn associate_parents_children(
 
 #[cfg(test)]
 mod tests {
-    use std::{collections::HashMap, path::Path};
+    use std::{collections::HashMap, path::{Path, PathBuf}};
 
-    use crate::associate_parents_children;
+    use crate::{associate_parents_children, read_contents_with_reader};
 
-    struct MockFileReader {
-        contents: String,
+    struct MockFileReader<'a> {
+        paths: Vec<&'a Path>,
+        calls_made: usize,
     }
     
-    impl super::FileReader for MockFileReader {
-        fn read_to_string(&self, _path: &str) -> std::io::Result<String> {
-            Ok(self.contents.clone())
+    impl<'a> super::FileReader for MockFileReader<'a> {
+        fn read_to_string(&mut self, _path: &str) -> std::io::Result<String> {
+            let path_option = self.paths.get(self.calls_made);
+            self.calls_made += 1;
+            match path_option {
+                Some(p) => std::fs::read_to_string(p),
+                None => panic!("Incorrect use of mock object"),
+            }
         }
     }
 
-    // TODO: add tests for the paths -> commented SVG's function
+    impl<'a> MockFileReader<'a> {
+        fn new(paths: Vec<&'a Path>) -> Self {
+            Self {
+                paths,
+                calls_made: 0
+            }
+        }
+    }
+
+    #[test]
+    fn read_trivial_cluster() {
+        let reader = MockFileReader::new(vec![&Path::new("tests/git.yaml")]);
+        let analysis = read_contents_with_reader("_", true, true, true, reader);
+        assert_eq!(reader.calls_made,1);
+    }
 
     #[test]
     fn associate_empty_string() {
