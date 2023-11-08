@@ -328,30 +328,28 @@ fn read_contents(
         )
     });
 
-    let (cluster_graph_pairs_result, mut svg_comment_pair_results) =
-        cluster_graph_comments_svg_quadruples.into_iter().fold(
-            (Ok(vec![]), vec![]),
-            |mut acc, current| {
-                match current {
-                    Ok(ClusterGraphCommentsSvgQuadruple(cluster, graph, comments, svg)) => {
-                        match acc.0.as_mut() {
-                            Ok(pairs) => {
-                                pairs.push(ClusterGraphPair(cluster, graph));
-                            }
-                            _ => {}
-                        }
-                        acc.1.push(Ok(CommentsSvgPair(comments, svg)))
-                    }
-                    Err(e) => {
-                        acc.0 = acc.0.and_then(|_| {
-                            Err(anyhow::Error::from(StructuralError::InvalidComponentGraph))
-                        });
-                        acc.1.push(Err(e))
-                    }
+    let (mut cluster_graph_pairs, mut svg_comment_pair_results) = (vec![], vec![]);
+    let mut error_occurred = false;
+    cluster_graph_comments_svg_quadruples
+        .into_iter()
+        .for_each(|result| match result {
+            Ok(ClusterGraphCommentsSvgQuadruple(cluster, graph, comments, svg)) => {
+                if !error_occurred {
+                    cluster_graph_pairs.push(ClusterGraphPair(cluster, graph));
                 }
-                acc
-            },
-        );
+                svg_comment_pair_results.push(Ok(CommentsSvgPair(comments, svg)));
+            }
+            Err(e) => {
+                error_occurred = true;
+                svg_comment_pair_results.push(Err(e));
+            }
+        });
+
+    let cluster_graph_pairs_result = if error_occurred {
+        Err(anyhow::Error::from(StructuralError::InvalidComponentGraph))
+    } else {
+        Ok(cluster_graph_pairs)
+    };
 
     // compute the big graph
     let mut paths: Vec<&str> = paths.collect();
