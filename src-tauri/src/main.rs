@@ -118,17 +118,16 @@ impl std::error::Error for StructuralErrorGrouping {
 type NodeData = (String, String);
 type EdgeData<'a> = &'a str;
 
-struct ClusterGraphPair<'a>(Cluster, Graph<NodeData, EdgeData<'a>>);
-struct ClusterGraphCommentsTriple<'a>(Cluster, Graph<NodeData, EdgeData<'a>>, Vec<String>);
-struct ClusterGraphCommentsDotQuadruple<'a>(
+struct ClusterGraphTuple<'a>(Cluster, Graph<NodeData, EdgeData<'a>>);
+struct ClusterGraphCommentsTuple<'a>(Cluster, Graph<NodeData, EdgeData<'a>>, Vec<String>);
+struct ClusterGraphCommentsDotTuple<'a>(
     Cluster,
     Graph<NodeData, EdgeData<'a>>,
     Vec<String>,
     String,
 );
-struct CommentsSvgPair(Vec<String>, String);
-
-struct ClusterGraphCommentsSvgQuadruple<'a>(
+struct CommentsSvgTuple(Vec<String>, String);
+struct ClusterGraphCommentsSvgTuple<'a>(
     Cluster,
     Graph<NodeData, EdgeData<'a>>,
     Vec<String>,
@@ -194,15 +193,16 @@ fn read_contents_with_reader<'a, T: FileReader>(
 ) -> Vec<(&'a str, Result<(Vec<String>, String), String>)> {
     eprintln!("read_contents was invoked!");
     let paths = paths.split(";");
-    let read_results = paths.clone().map(|p| reader.read_to_string(p));
+    let read_results = paths.clone().map(|p| (p,reader.read_to_string(p)));
     let clusters = read_results.map(|r| match r {
-        Ok(ref text) => serde_yaml::from_str(text).map_err(anyhow::Error::new),
-        Err(e) => Err(anyhow::Error::new(e)),
+        (p,Ok(ref text)) => (p,serde_yaml::from_str(text).map_err(anyhow::Error::new)),
+        (p,Err(e)) => (p,Err(anyhow::Error::new(e))),
     });
     eprintln!("Clusters have been deserialized.");
     // each cluster is associated with a petgraph Graph
     // so we get a vector of results
-    let cluster_graph_pairs = clusters.map(|result| {
+    let cluster_graph_pairs = clusters.map(|(p,result)| {
+        (p,
         result.and_then(|cluster: Cluster| {
             // ??? why do I need to annotate this?
             let mut identifier_to_index_map = std::collections::HashMap::new();
@@ -317,17 +317,17 @@ fn read_contents_with_reader<'a, T: FileReader>(
                 _ => {}
             }
             if structural_errors.is_empty() {
-                Ok(ClusterGraphPair(cluster, single_cluster_graph))
+                Ok(ClusterGraphTuple(cluster, single_cluster_graph))
             } else {
                 Err(anyhow::Error::from(StructuralErrorGrouping {
                     components: structural_errors,
                 }))
             }
-        })
+        }))
     });
     eprintln!("Graphs have been computed from clusters.");
-    let cluster_graph_comments_triples = cluster_graph_pairs.into_iter().map(|result| {
-        result.map(|ClusterGraphPair(cluster, graph)| {
+    let cluster_graph_comments_triples = cluster_graph_pairs.into_iter().map(|(p,result)| {
+        (p,result.map(|ClusterGraphTuple(cluster, graph)| {
             let mut remarks: Vec<String> = vec![];
             // TODO: check whether files can be accessed
             // will need to traverse cluster.nodes
@@ -336,11 +336,12 @@ fn read_contents_with_reader<'a, T: FileReader>(
             if check_missing_files {
                 remarks.push("Can't check for missing files yet.".to_owned());
             }
-            ClusterGraphCommentsTriple(cluster, graph, remarks)
-        })
+            ClusterGraphCommentsTuple(cluster, graph, remarks)
+        }))
     });
-    let cluster_graph_comments_dot_quadruples = cluster_graph_comments_triples.map(|result| {
-        result.map(|ClusterGraphCommentsTriple(cluster, graph, comments)| {
+    let cluster_graph_comments_dot_quadruples = cluster_graph_comments_triples.map(|(p,result)| {
+        (p,
+            result.map(|ClusterGraphCommentsTuple(cluster, graph, comments)| {
             let dot = format!(
                 "{:?}",
                 Dot::with_attr_getters(
@@ -350,17 +351,18 @@ fn read_contents_with_reader<'a, T: FileReader>(
                     &node_dot_attributes
                 )
             );
-            ClusterGraphCommentsDotQuadruple(cluster, graph, comments, dot)
-        })
+            ClusterGraphCommentsDotTuple(cluster, graph, comments, dot)
+        }))
     });
     eprintln!("Dots have been generated and remarks have been added.");
 
-    let cluster_graph_comments_svg_quadruples = cluster_graph_comments_dot_quadruples.map(|r| {
+    let cluster_graph_comments_svg_quadruples = cluster_graph_comments_dot_quadruples.map(|(p,r)| {
+        (p,
         r.map(
-            |ClusterGraphCommentsDotQuadruple(cluster, graph, comments, dot_src)| {
+            |ClusterGraphCommentsDotTuple(cluster, graph, comments, dot_src)| {
                 let g = graphviz_rust::parse(&dot_src)
                     .expect("Assuming petgraph generated valid dot syntax.");
-                ClusterGraphCommentsSvgQuadruple(
+                ClusterGraphCommentsSvgTuple(
                     cluster,
                     graph,
                     comments,
@@ -368,23 +370,23 @@ fn read_contents_with_reader<'a, T: FileReader>(
                         .expect("Assuming valid graph can be rendered into SVG."),
                 )
             },
-        )
+        ))
     });
 
     let (mut cluster_graph_pairs, mut svg_comment_pair_results) = (vec![], vec![]);
     let mut error_occurred = false;
     cluster_graph_comments_svg_quadruples
         .into_iter()
-        .for_each(|result| match result {
-            Ok(ClusterGraphCommentsSvgQuadruple(cluster, graph, comments, svg)) => {
+        .for_each(|(p,result)| match result {
+            Ok(ClusterGraphCommentsSvgTuple(cluster, graph, comments, svg)) => {
                 if !error_occurred {
-                    cluster_graph_pairs.push(ClusterGraphPair(cluster, graph));
+                    cluster_graph_pairs.push(ClusterGraphTuple(cluster, graph));
                 }
-                svg_comment_pair_results.push(Ok(CommentsSvgPair(comments, svg)));
+                svg_comment_pair_results.push((p,Ok(CommentsSvgTuple(comments, svg))));
             }
             Err(e) => {
                 error_occurred = true;
-                svg_comment_pair_results.push(Err(e));
+                svg_comment_pair_results.push((p,Err(e)));
             }
         });
 
@@ -395,7 +397,7 @@ fn read_contents_with_reader<'a, T: FileReader>(
     };
 
     // compute the big graph
-    let mut paths: Vec<&str> = paths.collect();
+    // let mut paths: Vec<&str> = paths.collect();
     let mut boundary_errors = vec![];
     let complete_graph_result = cluster_graph_pairs_result.and_then(|cluster_graph_pairs| {
         let mut complete_graph: Graph<NodeData, EdgeData> = Graph::new();
@@ -404,7 +406,7 @@ fn read_contents_with_reader<'a, T: FileReader>(
         // also map each namespaced ID to a graph index
         cluster_graph_pairs
             .iter()
-            .for_each(|ClusterGraphPair(cluster, graph)| {
+            .for_each(|ClusterGraphTuple(cluster, graph)| {
                 for (id, title) in graph.node_weights() {
                     // only add the internal ones to the map
                     if !id.contains("__") {
@@ -420,7 +422,7 @@ fn read_contents_with_reader<'a, T: FileReader>(
         // now insert the edges
         cluster_graph_pairs
             .iter()
-            .for_each(|ClusterGraphPair(cluster, _)| {
+            .for_each(|ClusterGraphTuple(cluster, _)| {
                 for Edge { start_id, end_id } in cluster.edges.iter() {
                     // add the dependencies
                     let namespaced_start_id = if start_id.contains("__") {
@@ -510,7 +512,7 @@ fn read_contents_with_reader<'a, T: FileReader>(
                 &node_dot_attributes
             )
         );
-        Ok(CommentsSvgPair(
+        Ok(CommentsSvgTuple(
             comments,
             exec(
                 graphviz_rust::parse(&dot).expect("Assuming petgraph generated valid dot syntax."),
@@ -520,16 +522,11 @@ fn read_contents_with_reader<'a, T: FileReader>(
             .expect("Assuming valid graph can be rendered into SVG."),
         ))
     });
-    paths.push("complete graph (currently only shows hard dependencies)");
-    svg_comment_pair_results.push(complete_graph_svg_and_comments);
-    std::iter::zip(
-        paths,
-        svg_comment_pair_results.into_iter().map(|r| {
-            r.map(|CommentsSvgPair(comments, svg)| (comments, svg))
-                .map_err(|e| e.to_string())
-        }),
-    )
-    .collect()
+    svg_comment_pair_results.push(("complete graph (currently only shows hard dependencies)",complete_graph_svg_and_comments));
+    svg_comment_pair_results.into_iter().map(|(p,r)| {
+        (p, r.map(|CommentsSvgTuple(comments, svg)| (comments, svg))
+        .map_err(|e| e.to_string()))
+    }).collect()
 }
 
 /// Associates the parent path of each supplied path with the path itself.
