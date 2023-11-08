@@ -15,7 +15,7 @@ use petgraph::{
     Graph,
 };
 use serde::Deserialize;
-use std::{collections::HashMap, fmt, path::Path};
+use std::{collections::HashMap, fmt, ops::Index, path::Path};
 
 /* Maybe more use of references would be more idiomatic here. */
 
@@ -67,6 +67,7 @@ enum StructuralError {
     EdgeMultipleNamespace(String, String, String), // edge from / to internal node with
     ClusterBoundary(String, String), // cluster, reference
     InvalidComponentGraph,
+    Cycle(String),
 }
 
 impl fmt::Display for StructuralError {
@@ -77,7 +78,8 @@ impl fmt::Display for StructuralError {
             StructuralError::NodeMultipleNamespace(id) => write!(f, "Node is explicitly namespaced (which is not allowed) in its definition: {id}"),
             StructuralError::EdgeMultipleNamespace(start_id, end_id, namespaced_id) => write!(f, "Node {namespaced_id} mentioned in edge {start_id} → {end_id} is explicitly namespaced (which is not allowed if the namespace is that of the current cluster)."),
             StructuralError::ClusterBoundary(cluster,reference) => write!(f, "Cluster {} refers to non-existent external node {}", cluster, reference),
-            StructuralError::InvalidComponentGraph => write!(f, "At least one component graph is invalid")
+            StructuralError::InvalidComponentGraph => write!(f, "At least one component graph is invalid"),
+            StructuralError::Cycle(String) => write!(f, "Node is involved in a cycle")
         }
     }
 }
@@ -306,6 +308,14 @@ fn read_contents_with_reader<'a, T: FileReader>(
                     }
                 }
             }
+            let toposort_result = toposort(&single_cluster_graph, None);
+            match toposort_result {
+                Err(cycle) => {
+                    structural_errors.push(StructuralError::Cycle(
+                        single_cluster_graph.index(cycle.node_id()).0.clone()));
+                },
+                _ => {}
+            }
             if structural_errors.is_empty() {
                 Ok(ClusterGraphPair(cluster, single_cluster_graph))
             } else {
@@ -461,9 +471,12 @@ fn read_contents_with_reader<'a, T: FileReader>(
     });
     eprintln!("Global graph has been represented.");
     let mut comments = vec![];
-    let complete_graph_svg_and_comments = complete_graph_result.map(|graph| {
-        let toposort_result = toposort(&graph, None)
-            .expect("Currently just assuming cycle-free graph. Could take this into account.");
+    let complete_graph_svg_and_comments = complete_graph_result.and_then(|graph| {
+        let toposort_result = toposort(&graph, None).map_err(|cycle| {
+            anyhow::Error::from(StructuralError::Cycle(
+                graph.index(cycle.node_id()).0.clone(),
+            ))
+        })?;
         let (res, _revmap): (_, Vec<NodeIndex>) =
             dag_to_toposorted_adjacency_list(&graph, &toposort_result);
         let (tr, _tc) = dag_transitive_reduction_closure(&res);
@@ -493,7 +506,7 @@ fn read_contents_with_reader<'a, T: FileReader>(
                 &node_dot_attributes
             )
         );
-        CommentsSvgPair(
+        Ok(CommentsSvgPair(
             comments,
             exec(
                 graphviz_rust::parse(&dot).expect("Assuming petgraph generated valid dot syntax."),
@@ -501,7 +514,7 @@ fn read_contents_with_reader<'a, T: FileReader>(
                 vec![Format::Svg.into()],
             )
             .expect("Assuming valid graph can be rendered into SVG."),
-        )
+        ))
     });
     paths.push("complete graph (currently only shows hard dependencies)");
     svg_comment_pair_results.push(complete_graph_svg_and_comments);
@@ -553,10 +566,7 @@ fn associate_parents_children(
 
 #[cfg(test)]
 mod tests {
-    use std::{
-        collections::HashMap,
-        path::{Path},
-    };
+    use std::{collections::HashMap, path::Path};
 
     use crate::{associate_parents_children, read_contents_with_reader};
 
@@ -613,6 +623,11 @@ mod tests {
         );
         assert_eq!(reader.calls_made, 1);
     }
+
+    // TODO: multi-cluster test
+    // TODO: cycle test
+    // TODO: mix of correctly read and incorrectly read results
+    // TODO: test for various structural errors
 
     #[test]
     fn associate_empty_string() {
