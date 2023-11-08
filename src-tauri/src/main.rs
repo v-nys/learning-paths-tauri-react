@@ -161,9 +161,31 @@ fn read_contents(
     check_cluster_boundaries: bool,
     check_missing_files: bool,
 ) -> Vec<(&str, Result<(Vec<String>, String), String>)> {
+    read_contents_with_reader::<RealFileReader>(paths,check_redundant_edges, check_cluster_boundaries, check_missing_files, RealFileReader {})
+}
+
+trait FileReader {
+    fn read_to_string(&self, path: &str) -> std::io::Result<String>;
+}
+
+struct RealFileReader;
+
+impl FileReader for RealFileReader {
+    fn read_to_string(&self, path: &str) -> std::io::Result<String> {
+        std::fs::read_to_string(path)
+    }
+}
+
+fn read_contents_with_reader<T: FileReader>(
+    paths: &str,
+    check_redundant_edges: bool,
+    check_cluster_boundaries: bool,
+    check_missing_files: bool,
+    reader: T,
+) -> Vec<(&str, Result<(Vec<String>, String), String>)> {
     eprintln!("read_contents was invoked!");
     let paths = paths.split(";");
-    let read_results = paths.clone().map(std::fs::read_to_string);
+    let read_results = paths.clone().map(|p| { reader.read_to_string(p)});
     let clusters = read_results.map(|r| match r {
         Ok(ref text) => serde_yaml::from_str(text).map_err(anyhow::Error::new),
         Err(e) => Err(anyhow::Error::new(e)),
@@ -527,6 +549,18 @@ mod tests {
     use std::{collections::HashMap, path::Path};
 
     use crate::associate_parents_children;
+
+    struct MockFileReader {
+        contents: String,
+    }
+    
+    impl super::FileReader for MockFileReader {
+        fn read_to_string(&self, _path: &str) -> std::io::Result<String> {
+            Ok(self.contents.clone())
+        }
+    }
+
+    // TODO: add tests for the paths -> commented SVG's function
 
     #[test]
     fn associate_empty_string() {
