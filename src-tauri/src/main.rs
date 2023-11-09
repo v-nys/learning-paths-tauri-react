@@ -43,7 +43,7 @@ struct Edge {
 }
 
 
-#[derive(Clone)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 enum EdgeType {
     All,
     AtLeastOne,
@@ -94,7 +94,6 @@ impl ClusterForSerialization {
 /// An error related to the internal structure of a (syntactically valid, semantically invalid) `Cluster`.
 #[derive(Debug)]
 enum StructuralError {
-    // TODO: consider making making edges whose sink is an external node structural errors, as well
     DoubleNode(String), // creating two nodes with same ID
     MissingInternalEndpoint(String, String, String), // referring to non-existent node
     NodeMultipleNamespace(String), // creating a node with explicit namespace
@@ -104,6 +103,8 @@ enum StructuralError {
     Cycle(String),
     DependentRootNode(String),
     UndeclaredRoot(String),
+    IncomingAnyEdge(String,String),
+    OutgoingAllEdge(String,String),
 }
 
 impl fmt::Display for StructuralError {
@@ -118,6 +119,8 @@ impl fmt::Display for StructuralError {
             Self::Cycle(id) => write!(f, "Node {} is involved in a cycle", id),
             Self::DependentRootNode(id) => write!(f, "Node {} is declared as a root and has at least one incoming edge. Roots should not have incoming edges.", id),
             Self::UndeclaredRoot(id) => write!(f, "Root {} is not declared as a node in the cluster.", id),
+            Self::IncomingAnyEdge(start_id,end_id) => write!(f, "\"At least one\" type edge from {} to {}. These edges can only connect to other clusters in the \"out\" direction.", start_id, end_id),
+            Self::OutgoingAllEdge(start_id,end_id) => write!(f, "\"All\" type edge from {} to {}. These edges can only connect to other clusters in the \"in\" direction.", start_id, end_id),
         }
     }
 }
@@ -154,20 +157,20 @@ impl std::error::Error for StructuralErrorGrouping {
 }*/
 
 type NodeData = (String, String);
-type EdgeData<'a> = &'a str;
+type EdgeData = EdgeType;
 
-struct ClusterGraphTuple<'a>(Cluster, Graph<NodeData, EdgeData<'a>>);
-struct ClusterGraphCommentsTuple<'a>(Cluster, Graph<NodeData, EdgeData<'a>>, Vec<String>);
-struct ClusterGraphCommentsDotTuple<'a>(
+struct ClusterGraphTuple(Cluster, Graph<NodeData, EdgeData>);
+struct ClusterGraphCommentsTuple(Cluster, Graph<NodeData, EdgeData>, Vec<String>);
+struct ClusterGraphCommentsDotTuple(
     Cluster,
-    Graph<NodeData, EdgeData<'a>>,
+    Graph<NodeData, EdgeData>,
     Vec<String>,
     String,
 );
 struct CommentsSvgTuple(Vec<String>, String);
-struct ClusterGraphCommentsSvgTuple<'a>(
+struct ClusterGraphCommentsSvgTuple(
     Cluster,
-    Graph<NodeData, EdgeData<'a>>,
+    Graph<NodeData, EdgeData>,
     Vec<String>,
     String,
 );
@@ -279,8 +282,9 @@ fn read_contents_with_dependencies<'a, T: FileReader>(
                     _ => {}
                 }
                 // build the single-cluster graph and check for structural errors at the same time
-                for TypedEdge { start_id, end_id } in &cluster.edges {
+                for TypedEdge { start_id, end_id, kind } in &cluster.edges {
                     let mut can_add = true;
+                    // current cluster's namespace should not be mentioned
                     if start_id.starts_with(&format!("{}__", &cluster.namespace_prefix)) {
                         structural_errors.push(StructuralError::EdgeMultipleNamespace(
                             start_id.to_owned(),
@@ -299,6 +303,14 @@ fn read_contents_with_dependencies<'a, T: FileReader>(
                     }
                     if can_add && cluster.roots.as_ref().is_some_and(|roots| roots.contains(end_id)) {
                         structural_errors.push(StructuralError::DependentRootNode(end_id.to_owned()));
+                        can_add = false;
+                    }
+                    if start_id.contains("__") && *kind == EdgeType::AtLeastOne {
+                        structural_errors.push(StructuralError::IncomingAnyEdge(start_id.to_owned(), end_id.to_owned()));
+                        can_add = false;
+                    }
+                    else if end_id.contains("__") && *kind == EdgeType::All {
+                        structural_errors.push(StructuralError::OutgoingAllEdge(start_id.to_owned(), end_id.to_owned()));
                         can_add = false;
                     }
                     if can_add {
@@ -327,8 +339,7 @@ fn read_contents_with_dependencies<'a, T: FileReader>(
                             identifier_to_index_map.get(&end_id),
                         ) {
                             (Some(idx1), Some(idx2)) => {
-                                // don't need edge labels, so just using ""
-                                single_cluster_graph.add_edge(*idx1, *idx2, "");
+                                single_cluster_graph.add_edge(*idx1, *idx2, kind.clone());
                             }
                             (Some(_), None) => {
                                 structural_errors.push(StructuralError::MissingInternalEndpoint(
@@ -513,7 +524,7 @@ fn read_contents_with_dependencies<'a, T: FileReader>(
         cluster_graph_pairs
             .iter()
             .for_each(|ClusterGraphTuple(cluster, _)| {
-                for Edge { start_id, end_id } in cluster.edges.iter() {
+                for TypedEdge { start_id, end_id, kind } in cluster.edges.iter() {
                     // add the dependencies
                     let namespaced_start_id = if start_id.contains("__") {
                         start_id.to_owned()
@@ -530,7 +541,7 @@ fn read_contents_with_dependencies<'a, T: FileReader>(
                         complete_graph_map.get(&namespaced_end_id),
                     ) {
                         (Some(start_idx), Some(end_idx)) => {
-                            complete_graph.add_edge(*start_idx, *end_idx, "");
+                            complete_graph.add_edge(*start_idx, *end_idx, kind.clone());
                         }
                         (Some(_), None) => {
                             boundary_errors.push(StructuralError::ClusterBoundary(
