@@ -36,8 +36,6 @@ struct Node {
     files: Option<Vec<String>>,
 }
 
-// TODO: check this
-// is there currently no distinction between push and pull edges?
 #[derive(Deserialize, Clone)]
 struct Edge {
     start_id: String,
@@ -56,6 +54,7 @@ struct Cluster {
     namespace_prefix: String,
     nodes: Vec<Node>,
     edges: Vec<Edge>,
+    roots: Option<Vec<String>>,
 }
 
 /// An error related to the internal structure of a (syntactically valid, semantically invalid) `Cluster`.
@@ -69,18 +68,22 @@ enum StructuralError {
     ClusterBoundary(String, String), // cluster, reference
     InvalidComponentGraph,
     Cycle(String),
+    DependentRootNode(String),
+    UndeclaredRoot(String),
 }
 
 impl fmt::Display for StructuralError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            StructuralError::DoubleNode(id) => write!(f, "Node defined multiple times: {id}"),
-            StructuralError::MissingInternalEndpoint(start_id, end_id, missing_id) => write!(f, "Node {missing_id} mentioned in edge {start_id} → {end_id} does not exist"),
-            StructuralError::NodeMultipleNamespace(id) => write!(f, "Node is explicitly namespaced (which is not allowed) in its definition: {id}"),
-            StructuralError::EdgeMultipleNamespace(start_id, end_id, namespaced_id) => write!(f, "Node {namespaced_id} mentioned in edge {start_id} → {end_id} is explicitly namespaced (which is not allowed if the namespace is that of the current cluster)."),
-            StructuralError::ClusterBoundary(cluster,reference) => write!(f, "Cluster {} refers to non-existent external node {}", cluster, reference),
-            StructuralError::InvalidComponentGraph => write!(f, "At least one component graph is invalid"),
-            StructuralError::Cycle(id) => write!(f, "Node {} is involved in a cycle", id)
+            Self::DoubleNode(id) => write!(f, "Node defined multiple times: {id}"),
+            Self::MissingInternalEndpoint(start_id, end_id, missing_id) => write!(f, "Node {missing_id} mentioned in edge {start_id} → {end_id} does not exist"),
+            Self::NodeMultipleNamespace(id) => write!(f, "Node is explicitly namespaced (which is not allowed) in its definition: {id}"),
+            Self::EdgeMultipleNamespace(start_id, end_id, namespaced_id) => write!(f, "Node {namespaced_id} mentioned in edge {start_id} → {end_id} is explicitly namespaced (which is not allowed if the namespace is that of the current cluster)."),
+            Self::ClusterBoundary(cluster,reference) => write!(f, "Cluster {} refers to non-existent external node {}", cluster, reference),
+            Self::InvalidComponentGraph => write!(f, "At least one component graph is invalid"),
+            Self::Cycle(id) => write!(f, "Node {} is involved in a cycle", id),
+            Self::DependentRootNode(id) => write!(f, "Node {} is declared as a root and has at least one incoming edge. Roots should not have incoming edges.", id),
+            Self::UndeclaredRoot(id) => write!(f, "Root {} is not declared as a node in the cluster.", id),
         }
     }
 }
@@ -145,8 +148,6 @@ fn node_dot_attributes(_: &Graph<NodeData, EdgeData>, node_ref: (NodeIndex, &Nod
 /// # Parameters
 /// - `paths`: A sequence of filesystem paths, represented as a single string.
 /// - `check_redundant_edges`: Whether to consider redundant, i.e. implied, edges as an error.
-/// - `check_cluster_boundaries`: Whether to consider unresolvable references to other clusters as an error.
-/// - `check_missing_files`: Whether to consider files (associated with nodes) which are not acessible as an error.
 ///
 /// # Returns
 ///
@@ -160,17 +161,13 @@ fn node_dot_attributes(_: &Graph<NodeData, EdgeData>, node_ref: (NodeIndex, &Nod
 fn read_contents(
     paths: &str,
     check_redundant_edges: bool,
-    check_cluster_boundaries: bool,
-    check_missing_files: bool,
 ) -> Vec<(&str, Result<(Vec<String>, String), String>)> {
     let mut reader = RealFileReader {};
     read_contents_with_dependencies::<RealFileReader>(
         paths,
         check_redundant_edges,
-        check_cluster_boundaries,
-        check_missing_files,
         &mut reader,
-        file_is_readable
+        file_is_readable,
     )
 }
 
@@ -193,10 +190,8 @@ impl FileReader for RealFileReader {
 fn read_contents_with_dependencies<'a, T: FileReader>(
     paths: &'a str,
     check_redundant_edges: bool,
-    check_cluster_boundaries: bool,
-    check_missing_files: bool,
     reader: &mut T,
-    file_is_readable: fn(&Path) -> bool
+    file_is_readable: fn(&Path) -> bool,
 ) -> Vec<(&'a str, Result<(Vec<String>, String), String>)> {
     eprintln!("read_contents was invoked!");
     let paths = paths.split(";");
@@ -208,7 +203,7 @@ fn read_contents_with_dependencies<'a, T: FileReader>(
     eprintln!("Clusters have been deserialized.");
     // each cluster is associated with a petgraph Graph
     // so we get a vector of results
-    let cluster_graph_pairs = clusters.map(|(p, result)| {
+    let cluster_graph_comments_triples = clusters.map(|(p, result)| {
         (
             p,
             result.and_then(|cluster: Cluster| {
@@ -217,7 +212,7 @@ fn read_contents_with_dependencies<'a, T: FileReader>(
                 let mut single_cluster_graph = Graph::new();
                 let mut structural_errors: Vec<StructuralError> = vec![];
 
-                // check that nodes are not explicitly namespaced (because only internal ones are mentioned)
+                // check that nodes are not explicitly namespaced (because only internal ones are mentioned, external ones should only appear in edges)
                 // also check whether nodes are mentioned only once
                 for node in &cluster.nodes {
                     let maybe_namespaced_key = node.id.clone();
@@ -239,6 +234,16 @@ fn read_contents_with_dependencies<'a, T: FileReader>(
                         }
                     }
                 }
+                match &cluster.roots {
+                    Some(roots) => {
+                        roots.iter().for_each(|root| {
+                            if !identifier_to_index_map.contains_key(root) {
+                                structural_errors.push(StructuralError::UndeclaredRoot(root.clone()));
+                            }
+                        })
+                    },
+                    _ => {}
+                }
                 // build the single-cluster graph and check for structural errors at the same time
                 for Edge { start_id, end_id } in &cluster.edges {
                     let mut can_add = true;
@@ -256,6 +261,10 @@ fn read_contents_with_dependencies<'a, T: FileReader>(
                             end_id.to_owned(),
                             start_id.to_owned(),
                         ));
+                        can_add = false;
+                    }
+                    if can_add && cluster.roots.as_ref().is_some_and(|roots| roots.contains(end_id)) {
+                        structural_errors.push(StructuralError::DependentRootNode(end_id.to_owned()));
                         can_add = false;
                     }
                     if can_add {
@@ -316,17 +325,62 @@ fn read_contents_with_dependencies<'a, T: FileReader>(
                         }
                     }
                 }
+                // TODO: cycle detection and implied edge detection is essentially the same for the complete graph
+                // should move this into a function
                 let toposort_result = toposort(&single_cluster_graph, None);
-                match toposort_result {
+                match toposort_result.as_ref() {
                     Err(cycle) => {
                         structural_errors.push(StructuralError::Cycle(
                             single_cluster_graph.index(cycle.node_id()).0.clone(),
                         ));
                     }
-                    _ => {}
-                }
+                    _ => {
+                    }
+                };
                 if structural_errors.is_empty() {
-                    Ok(ClusterGraphTuple(cluster, single_cluster_graph))
+                    let mut remarks: Vec<String> = vec![];
+                    let cluster_path = Path::new(p);
+                    {
+                        cluster.nodes.iter().for_each(|n| {
+                            match n.files {
+                                Some(ref file_paths) => {
+                                    file_paths.iter().for_each(|raw_file_path| {
+                                        let file_path = Path::new(raw_file_path);
+                                        let joined_path = cluster_path.join(file_path);
+                                        if file_path.is_absolute() {
+                                            remarks.push(format!("File associated with node {} is absolute. Paths should always be relative to the location of the cluster file.", n.title));
+                                        }
+                                        else if !file_is_readable(&joined_path) {
+                                            remarks.push(format!("File associated with node {} is not a regular, readable file.", n.title));
+                                        }
+                                    })
+                                }
+                                None => {}
+                            }
+                        });
+                    }
+                    let (res, _revmap): (_, Vec<NodeIndex>) =
+                    dag_to_toposorted_adjacency_list(&single_cluster_graph,
+                        &toposort_result.expect("List of errors was empty, so this is safe to unwrap."));
+                    let (tr, _tc) = dag_transitive_reduction_closure(&res);
+                    for edge in res.edge_references() {
+                        let source = edge.source();
+                        let target = edge.target();
+                        if !tr.contains_edge(source, target) {
+                            remarks.push(format!(
+                                "Redundant edge! {} -> {}",
+                                single_cluster_graph
+                                    .node_weight(source)
+                                    .expect("Edge exists, so node does too.")
+                                    .0,
+                                    single_cluster_graph
+                                    .node_weight(target)
+                                    .expect("Edge exists, so node does too.")
+                                    .0
+                            ));
+                        }
+                    }
+                    Ok(ClusterGraphCommentsTuple(cluster, single_cluster_graph, remarks))
                 } else {
                     Err(anyhow::Error::from(StructuralErrorGrouping {
                         components: structural_errors,
@@ -334,34 +388,6 @@ fn read_contents_with_dependencies<'a, T: FileReader>(
                 }
             }),
         )
-    });
-    eprintln!("Graphs have been computed from clusters.");
-    // TODO: mock file access
-    let cluster_graph_comments_triples = cluster_graph_pairs.into_iter().map(|(p,result)| {
-        (p,result.map(|ClusterGraphTuple(cluster, graph)| {
-            let mut remarks: Vec<String> = vec![];
-            let cluster_path = Path::new(p);
-            if check_missing_files {
-                cluster.nodes.iter().for_each(|n| {
-                    match n.files {
-                        Some(ref file_paths) => {
-                            file_paths.iter().for_each(|raw_file_path| {
-                                let file_path = Path::new(raw_file_path);
-                                let joined_path = cluster_path.join(file_path);
-                                if file_path.is_absolute() {
-                                    remarks.push(format!("File associated with node {} is absolute. Paths should always be relative to the location of the cluster file.", n.title));
-                                }
-                                else if !file_is_readable(&joined_path) {
-                                    remarks.push(format!("File associated with node {} is not a regular, readable file.", n.title));
-                                }
-                            })
-                        }
-                        None => {}
-                    }
-                });
-            }
-            ClusterGraphCommentsTuple(cluster, graph, remarks)
-        }))
     });
     let cluster_graph_comments_dot_quadruples =
         cluster_graph_comments_triples.map(|(p, result)| {
@@ -638,7 +664,7 @@ mod tests {
     #[test]
     fn read_trivial_cluster() {
         let mut reader = MockFileReader::new(vec![&Path::new("tests/git.yaml")]);
-        let analysis = read_contents_with_dependencies("_", true, true, true, &mut reader, |_| true);
+        let analysis = read_contents_with_dependencies("_", true, &mut reader, |_| true);
         assert_eq!(analysis.len(), 2);
         assert_eq!(analysis[0].0, "_");
         assert!(
