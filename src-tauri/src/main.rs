@@ -42,6 +42,20 @@ struct Edge {
     end_id: String,
 }
 
+
+#[derive(Clone)]
+enum EdgeType {
+    All,
+    AtLeastOne,
+}
+
+#[derive(Clone)]
+struct TypedEdge {
+    start_id: String,
+    end_id: String,
+    kind: EdgeType
+}
+
 /// An namespaced collection of `Node`s which may link to `Node`s in different namespaces.
 ///
 /// A `Cluster` can represent a thematic clustering (nodes are related to the same topic such as a common technology).
@@ -49,12 +63,32 @@ struct Edge {
 /// A `Cluster` has a (non-nested) namespace prefix, which can be used to refer to nodes in the `Cluster`.
 /// E.g. if a `Cluster's` namespace prefix is `"foo"` and the `Cluster` contains a `Node` whose ID is `bar`, this node can be referred to as `foo__bar`.
 /// The namespace and node ID are always separated by `"__"`.
-#[derive(Deserialize, Clone)]
+#[derive(Clone)]
 struct Cluster {
     namespace_prefix: String,
     nodes: Vec<Node>,
-    edges: Vec<Edge>,
+    edges: Vec<TypedEdge>,
     roots: Option<Vec<String>>,
+}
+
+#[derive(Deserialize, Clone)]
+struct ClusterForSerialization {
+    namespace_prefix: String,
+    nodes: Vec<Node>,
+    all_type_edges: Vec<Edge>,
+    one_type_edges: Vec<Edge>,
+    roots: Option<Vec<String>>,
+}
+
+impl ClusterForSerialization {
+    fn build(self) -> Cluster {
+        Cluster {
+            namespace_prefix: self.namespace_prefix,
+            nodes: self.nodes,
+            edges: self.all_type_edges.into_iter().map(|e| {TypedEdge { start_id: e.start_id, end_id: e.end_id, kind: EdgeType::All} }).chain(self.one_type_edges.into_iter().map(|e| {TypedEdge { start_id: e.start_id, end_id: e.end_id, kind: EdgeType::AtLeastOne} })).collect(),
+            roots: self.roots,
+        }
+    }
 }
 
 /// An error related to the internal structure of a (syntactically valid, semantically invalid) `Cluster`.
@@ -197,7 +231,7 @@ fn read_contents_with_dependencies<'a, T: FileReader>(
     let paths = paths.split(";");
     let read_results = paths.clone().map(|p| (p, reader.read_to_string(p)));
     let clusters = read_results.map(|r| match r {
-        (p, Ok(ref text)) => (p, serde_yaml::from_str(text).map_err(anyhow::Error::new)),
+        (p, Ok(ref text)) => (p, serde_yaml::from_str::<ClusterForSerialization>(text).map_err(anyhow::Error::new).map(|cfs| cfs.build())),
         (p, Err(e)) => (p, Err(anyhow::Error::new(e))),
     });
     eprintln!("Clusters have been deserialized.");
@@ -245,7 +279,7 @@ fn read_contents_with_dependencies<'a, T: FileReader>(
                     _ => {}
                 }
                 // build the single-cluster graph and check for structural errors at the same time
-                for Edge { start_id, end_id } in &cluster.edges {
+                for TypedEdge { start_id, end_id } in &cluster.edges {
                     let mut can_add = true;
                     if start_id.starts_with(&format!("{}__", &cluster.namespace_prefix)) {
                         structural_errors.push(StructuralError::EdgeMultipleNamespace(
