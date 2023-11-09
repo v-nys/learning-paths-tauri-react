@@ -42,7 +42,6 @@ struct Edge {
     end_id: String,
 }
 
-
 #[derive(Clone, Debug, PartialEq, Eq)]
 enum EdgeType {
     All,
@@ -53,7 +52,7 @@ enum EdgeType {
 struct TypedEdge {
     start_id: String,
     end_id: String,
-    kind: EdgeType
+    kind: EdgeType,
 }
 
 /// An namespaced collection of `Node`s which may link to `Node`s in different namespaces.
@@ -75,8 +74,8 @@ struct Cluster {
 struct ClusterForSerialization {
     namespace_prefix: String,
     nodes: Vec<Node>,
-    all_type_edges: Vec<Edge>,
-    one_type_edges: Vec<Edge>,
+    all_type_edges: Option<Vec<Edge>>,
+    one_type_edges: Option<Vec<Edge>>,
     roots: Option<Vec<String>>,
 }
 
@@ -85,7 +84,26 @@ impl ClusterForSerialization {
         Cluster {
             namespace_prefix: self.namespace_prefix,
             nodes: self.nodes,
-            edges: self.all_type_edges.into_iter().map(|e| {TypedEdge { start_id: e.start_id, end_id: e.end_id, kind: EdgeType::All} }).chain(self.one_type_edges.into_iter().map(|e| {TypedEdge { start_id: e.start_id, end_id: e.end_id, kind: EdgeType::AtLeastOne} })).collect(),
+            edges: self
+                .all_type_edges
+                .unwrap_or_default()
+                .into_iter()
+                .map(|e| TypedEdge {
+                    start_id: e.start_id,
+                    end_id: e.end_id,
+                    kind: EdgeType::All,
+                })
+                .chain(
+                    self.one_type_edges
+                        .unwrap_or_default()
+                        .into_iter()
+                        .map(|e| TypedEdge {
+                            start_id: e.start_id,
+                            end_id: e.end_id,
+                            kind: EdgeType::AtLeastOne,
+                        }),
+                )
+                .collect::<Vec<_>>(),
             roots: self.roots,
         }
     }
@@ -94,17 +112,17 @@ impl ClusterForSerialization {
 /// An error related to the internal structure of a (syntactically valid, semantically invalid) `Cluster`.
 #[derive(Debug)]
 enum StructuralError {
-    DoubleNode(String), // creating two nodes with same ID
+    DoubleNode(String),                              // creating two nodes with same ID
     MissingInternalEndpoint(String, String, String), // referring to non-existent node
-    NodeMultipleNamespace(String), // creating a node with explicit namespace
-    EdgeMultipleNamespace(String, String, String), // edge from / to internal node with
-    ClusterBoundary(String, String), // cluster, reference
+    NodeMultipleNamespace(String),                   // creating a node with explicit namespace
+    EdgeMultipleNamespace(String, String, String),   // edge from / to internal node with
+    ClusterBoundary(String, String),                 // cluster, reference
     InvalidComponentGraph,
     Cycle(String),
     DependentRootNode(String),
     UndeclaredRoot(String),
-    IncomingAnyEdge(String,String),
-    OutgoingAllEdge(String,String),
+    IncomingAnyEdge(String, String),
+    OutgoingAllEdge(String, String),
 }
 
 impl fmt::Display for StructuralError {
@@ -161,19 +179,9 @@ type EdgeData = EdgeType;
 
 struct ClusterGraphTuple(Cluster, Graph<NodeData, EdgeData>);
 struct ClusterGraphCommentsTuple(Cluster, Graph<NodeData, EdgeData>, Vec<String>);
-struct ClusterGraphCommentsDotTuple(
-    Cluster,
-    Graph<NodeData, EdgeData>,
-    Vec<String>,
-    String,
-);
+struct ClusterGraphCommentsDotTuple(Cluster, Graph<NodeData, EdgeData>, Vec<String>, String);
 struct CommentsSvgTuple(Vec<String>, String);
-struct ClusterGraphCommentsSvgTuple(
-    Cluster,
-    Graph<NodeData, EdgeData>,
-    Vec<String>,
-    String,
-);
+struct ClusterGraphCommentsSvgTuple(Cluster, Graph<NodeData, EdgeData>, Vec<String>, String);
 
 fn node_dot_attributes(_: &Graph<NodeData, EdgeData>, node_ref: (NodeIndex, &NodeData)) -> String {
     // label specified last is used, so this overrides the auto-generated one
@@ -234,7 +242,12 @@ fn read_contents_with_dependencies<'a, T: FileReader>(
     let paths = paths.split(";");
     let read_results = paths.clone().map(|p| (p, reader.read_to_string(p)));
     let clusters = read_results.map(|r| match r {
-        (p, Ok(ref text)) => (p, serde_yaml::from_str::<ClusterForSerialization>(text).map_err(anyhow::Error::new).map(|cfs| cfs.build())),
+        (p, Ok(ref text)) => (
+            p,
+            serde_yaml::from_str::<ClusterForSerialization>(text)
+                .map_err(anyhow::Error::new)
+                .map(|cfs| cfs.build()),
+        ),
         (p, Err(e)) => (p, Err(anyhow::Error::new(e))),
     });
     eprintln!("Clusters have been deserialized.");
@@ -443,8 +456,15 @@ fn read_contents_with_dependencies<'a, T: FileReader>(
                         "{:?}",
                         Dot::with_attr_getters(
                             &graph,
-                            &[Config::EdgeNoLabel],
-                            &|_g, _g_edge_ref| "".to_owned(),
+                            &[],
+                            &|_g, g_edge_ref| match g_edge_ref.weight() {
+                                EdgeType::All => {
+                                    "style=\"solid\"".to_owned()
+                                }
+                                EdgeType::AtLeastOne => {
+                                    "style=\"dashed\"".to_owned()
+                                }
+                            },
                             &node_dot_attributes
                         )
                     );
@@ -524,7 +544,12 @@ fn read_contents_with_dependencies<'a, T: FileReader>(
         cluster_graph_pairs
             .iter()
             .for_each(|ClusterGraphTuple(cluster, _)| {
-                for TypedEdge { start_id, end_id, kind } in cluster.edges.iter() {
+                for TypedEdge {
+                    start_id,
+                    end_id,
+                    kind,
+                } in cluster.edges.iter()
+                {
                     // add the dependencies
                     let namespaced_start_id = if start_id.contains("__") {
                         start_id.to_owned()
@@ -608,8 +633,15 @@ fn read_contents_with_dependencies<'a, T: FileReader>(
             "{:?}",
             Dot::with_attr_getters(
                 &graph,
-                &[Config::EdgeNoLabel],
-                &|_g, _g_edge_ref| "".to_owned(),
+                &[],
+                &|_g, g_edge_ref| match g_edge_ref.weight() {
+                    EdgeType::All => {
+                        "style=\"solid\"".to_owned()
+                    }
+                    EdgeType::AtLeastOne => {
+                        "style=\"dashed\"".to_owned()
+                    }
+                },
                 &node_dot_attributes
             )
         );
