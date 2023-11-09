@@ -8,11 +8,9 @@ use petgraph::{
         toposort,
         tred::{dag_to_toposorted_adjacency_list, dag_transitive_reduction_closure},
     },
-    dot::Config,
     dot::Dot,
     graph::NodeIndex,
     visit::{EdgeRef, IntoEdgeReferences},
-    Graph,
 };
 use serde::Deserialize;
 use std::{collections::HashMap, fmt, fs::File, ops::Index, path::Path};
@@ -176,14 +174,15 @@ impl std::error::Error for StructuralErrorGrouping {
 
 type NodeData = (String, String);
 type EdgeData = EdgeType;
+type Graph = petgraph::Graph<NodeData, EdgeData>;
 
-struct ClusterGraphTuple(Cluster, Graph<NodeData, EdgeData>);
-struct ClusterGraphCommentsTuple(Cluster, Graph<NodeData, EdgeData>, Vec<String>);
-struct ClusterGraphCommentsDotTuple(Cluster, Graph<NodeData, EdgeData>, Vec<String>, String);
+struct ClusterGraphTuple(Cluster, Graph);
+struct ClusterGraphCommentsTuple(Cluster, Graph, Vec<String>);
+struct ClusterGraphCommentsDotTuple(Cluster, Graph, Vec<String>, String);
 struct CommentsSvgTuple(Vec<String>, String);
-struct ClusterGraphCommentsSvgTuple(Cluster, Graph<NodeData, EdgeData>, Vec<String>, String);
+struct ClusterGraphCommentsSvgTuple(Cluster, Graph, Vec<String>, String);
 
-fn node_dot_attributes(_: &Graph<NodeData, EdgeData>, node_ref: (NodeIndex, &NodeData)) -> String {
+fn node_dot_attributes(_: &Graph, node_ref: (NodeIndex, &NodeData)) -> String {
     // label specified last is used, so this overrides the auto-generated one
     format!("label=\"{}\"", node_ref.1 .1)
 }
@@ -203,8 +202,54 @@ fn node_dot_attributes(_: &Graph<NodeData, EdgeData>, node_ref: (NodeIndex, &Nod
 ///
 #[tauri::command]
 fn read_contents(paths: &str) -> Vec<(&str, Result<(Vec<String>, String), String>)> {
+    // TODO: dependency injection for mocks
     let mut reader = RealFileReader {};
-    read_all_clusters_with_dependencies::<RealFileReader>(paths, &mut reader, file_is_readable)
+    read_contents_with_dependencies(paths, reader, file_is_readable)
+}
+
+fn read_contents_with_dependencies<R: FileReader>(paths: &str, mut reader: R, file_is_readable: fn(&Path) -> bool) -> Vec<(&str, Result<(Vec<String>, String), String>)> {
+    let mut reader = RealFileReader {};
+    let (components, voltron) =
+        read_all_clusters_with_dependencies::<RealFileReader>(paths, &mut reader, file_is_readable);
+    let components_svgs: Vec<_> = components
+        .iter()
+        .map(|result| result.ok().map(|component| svgify(&component.1)))
+        .collect();
+    let voltron_svg = voltron.ok().map(|voltron| svgify(&voltron));
+    let paths_and_components = paths.split(";").zip(components);
+    let components_comments: Vec<_> = paths_and_components
+        .map(|(path, result)| {
+            result
+                .ok()
+                .map(|component| comment_cluster(component.0, component.1, path, file_is_readable))
+        })
+        .collect();
+    let mut voltron_comments = vec![];
+    match voltron {
+        Ok(ref voltron) => {
+            comment_graph(voltron, &mut voltron_comments);
+        }
+        _ => {}
+    };
+    let expectation = "Should only be None if component_result is Err.";
+    let mut path_result_tuples: Vec<_> = paths.split(";").zip(components).zip(components_svgs).zip(components_comments).map(|(((path,component_result),svg),comments)| {
+        (path,component_result.map(|component| {
+            CommentsSvgTuple(comments.expect(expectation), svg.expect(expectation))
+        }))
+    }).collect();
+    let voltron_tuple = ("Complete graph", voltron.map(|_| {
+        CommentsSvgTuple(voltron_comments, voltron_svg.expect(expectation))
+    }));
+    path_result_tuples.push(voltron_tuple);
+    let outcome = path_result_tuples.into_iter().map(|(path,result)| {
+        (path,
+        match result {
+            Ok(CommentsSvgTuple(comments,svg)) => Ok((comments,svg)),
+            Err(e) => Err(e.to_string())
+        }
+        )
+    }).collect();
+    outcome
 }
 
 fn file_is_readable(file_path: &Path) -> bool {
@@ -229,23 +274,101 @@ fn read_all_clusters_with_dependencies<'a, T: FileReader>(
     file_is_readable: fn(&Path) -> bool,
 ) -> (
     Vec<Result<ClusterGraphTuple, anyhow::Error>>,
-    Result<Graph<NodeData, EdgeData>, anyhow::Error>,
+    Result<Graph, anyhow::Error>,
 ) {
     let paths = paths.split(";");
     let read_results = paths.clone().map(|p| reader.read_to_string(p)).collect();
     voltronize_clusters(read_results)
 }
 
+fn svgify(graph: &Graph) -> String {
+    let dot = format!(
+        "{:?}",
+        Dot::with_attr_getters(
+            graph,
+            &[],
+            &|_g, g_edge_ref| match g_edge_ref.weight() {
+                EdgeType::All => {
+                    "style=\"solid\"".to_owned()
+                }
+                EdgeType::AtLeastOne => {
+                    "style=\"dashed\"".to_owned()
+                }
+            },
+            &node_dot_attributes
+        )
+    );
+    let g = graphviz_rust::parse(&dot).expect("Assuming petgraph generated valid dot syntax.");
+    exec(g, &mut PrinterContext::default(), vec![Format::Svg.into()])
+        .expect("Assuming valid graph can be rendered into SVG.")
+}
+
+fn comment_graph(graph: &Graph, remarks: &mut Vec<String>) {
+    let toposort_order = toposort(&graph, None).expect(
+        "This function should only be called for graphs which have already been cycle-checked.",
+    );
+    let (res, _revmap): (_, Vec<NodeIndex>) =
+        dag_to_toposorted_adjacency_list(&graph, &toposort_order);
+    let (tr, _tc) = dag_transitive_reduction_closure(&res);
+    for edge in res.edge_references() {
+        let source = edge.source();
+        let target = edge.target();
+        if !tr.contains_edge(source, target) {
+            remarks.push(format!(
+                "Redundant edge! {} -> {}",
+                graph
+                    .node_weight(source)
+                    .expect("Edge exists, so node does too.")
+                    .0,
+                graph
+                    .node_weight(target)
+                    .expect("Edge exists, so node does too.")
+                    .0
+            ));
+        }
+    }
+}
+
+fn comment_cluster(
+    cluster: Cluster,
+    graph: Graph,
+    cluster_path: &str,
+    file_is_readable: fn(&Path) -> bool,
+) -> Vec<String> {
+    let mut remarks: Vec<String> = vec![];
+    let cluster_path = Path::new(cluster_path);
+    cluster.nodes
+        .iter()
+        .for_each(|n| {
+            match n.files {
+                                Some(ref file_paths) => {
+                                    file_paths.iter().for_each(|raw_file_path| {
+                                        let file_path = Path::new(raw_file_path);
+                                        let joined_path = cluster_path.join(file_path);
+                                        if file_path.is_absolute() {
+                                            remarks.push(format!("File associated with node {} is absolute. Paths should always be relative to the location of the cluster file.", n.title));
+                                        }
+                                        else if !file_is_readable(&joined_path) {
+                                            remarks.push(format!("File associated with node {} is not a regular, readable file.", n.title));
+                                        }
+                                    })
+                                }
+                                None => {}
+                            }
+                        });
+    comment_graph(&graph, &mut remarks);
+    remarks
+}
+
 // TODO: need something that will further process the voltronized tuple
 // specifically, need to add comments (missing files, implied edges,...)
-// also need something to render SVG's
 // also need something that will check a learning path (which does not require comments or SVG's)
 
 fn voltronize_clusters(
     read_results: Vec<std::io::Result<String>>,
 ) -> (
     Vec<Result<ClusterGraphTuple, anyhow::Error>>,
-    Result<Graph<NodeData, EdgeData>, anyhow::Error>,
+    Result<Graph, anyhow::Error>,
 ) {
     let clusters = read_results.into_iter().map(|r| match r {
         Ok(ref text) => serde_yaml::from_str::<ClusterForSerialization>(text)
@@ -428,7 +551,7 @@ fn voltronize_clusters(
         .and_then(|cluster_graph_pairs| {
             let mut boundary_errors = vec![];
 
-            let mut complete_graph: Graph<NodeData, EdgeData> = Graph::new();
+            let mut complete_graph: Graph = Graph::new();
             let mut complete_graph_map = HashMap::new();
             // first: insert all internal nodes in their namespaced form
             // also map each namespaced ID to a graph index
