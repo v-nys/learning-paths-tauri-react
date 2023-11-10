@@ -206,7 +206,11 @@ fn read_contents(paths: &str) -> Vec<(&str, Result<(Vec<String>, String), String
     read_contents_with_dependencies(paths, reader, file_is_readable)
 }
 
-fn read_contents_with_dependencies<R: FileReader>(paths: &str, mut reader: R, file_is_readable: fn(&Path) -> bool) -> Vec<(&str, Result<(Vec<String>, String), String>)> {
+fn read_contents_with_dependencies<R: FileReader>(
+    paths: &str,
+    mut reader: R,
+    file_is_readable: fn(&Path) -> bool,
+) -> Vec<(&str, Result<(Vec<String>, String), String>)> {
     let mut reader = RealFileReader {};
     let (components, voltron) =
         read_all_clusters_with_dependencies::<RealFileReader>(paths, &mut reader, file_is_readable);
@@ -218,10 +222,9 @@ fn read_contents_with_dependencies<R: FileReader>(paths: &str, mut reader: R, fi
     let paths_and_components = paths.split(";").zip(&components);
     let components_comments: Vec<_> = paths_and_components
         .map(|(path, result)| {
-            result
-                .as_ref()
-                .ok()
-                .map(|component| comment_cluster(&component.0, &component.1, path, file_is_readable))
+            result.as_ref().ok().map(|component| {
+                comment_cluster(&component.0, &component.1, path, file_is_readable)
+            })
         })
         .collect();
     let mut voltron_comments = vec![];
@@ -232,23 +235,37 @@ fn read_contents_with_dependencies<R: FileReader>(paths: &str, mut reader: R, fi
         _ => {}
     };
     let expectation = "Should only be None if component_result is Err.";
-    let mut path_result_tuples: Vec<_> = paths.split(";").zip(components).zip(components_svgs).zip(components_comments).map(|(((path,component_result),svg),comments)| {
-        (path,component_result.map(|component| {
-            CommentsSvgTuple(comments.expect(expectation), svg.expect(expectation))
-        }))
-    }).collect();
-    let voltron_tuple = ("Complete graph", voltron.map(|_| {
-        CommentsSvgTuple(voltron_comments, voltron_svg.expect(expectation))
-    }));
+    let mut path_result_tuples: Vec<_> = paths
+        .split(";")
+        .zip(components)
+        .zip(components_svgs)
+        .zip(components_comments)
+        .map(|(((path, component_result), svg), comments)| {
+            (
+                path,
+                component_result.map(|component| {
+                    CommentsSvgTuple(comments.expect(expectation), svg.expect(expectation))
+                }),
+            )
+        })
+        .collect();
+    let voltron_tuple = (
+        "Complete graph",
+        voltron.map(|_| CommentsSvgTuple(voltron_comments, voltron_svg.expect(expectation))),
+    );
     path_result_tuples.push(voltron_tuple);
-    let outcome = path_result_tuples.into_iter().map(|(path,result)| {
-        (path,
-        match result {
-            Ok(CommentsSvgTuple(comments,svg)) => Ok((comments,svg)),
-            Err(e) => Err(e.to_string())
-        }
-        )
-    }).collect();
+    let outcome = path_result_tuples
+        .into_iter()
+        .map(|(path, result)| {
+            (
+                path,
+                match result {
+                    Ok(CommentsSvgTuple(comments, svg)) => Ok((comments, svg)),
+                    Err(e) => Err(e.to_string()),
+                },
+            )
+        })
+        .collect();
     outcome
 }
 
@@ -543,10 +560,19 @@ fn voltronize_clusters(
         })
         .collect();
 
-    //let x: Vec<_> = cluster_graph_tuples.collect();
-    // will lead to StructuralError::InvalidComponentGraph
-    let cluster_graph_pairs_result: Result<Vec<ClusterGraphTuple>, _> =
-        cluster_graph_tuples.into_iter().collect();
+    let cluster_graph_pairs_result = cluster_graph_tuples.iter().try_fold(
+        Vec::new(),
+        |mut vec, elem| {
+            match elem {
+                Err(_) => Err(anyhow::Error::from(StructuralError::InvalidComponentGraph)),
+                Ok(cgt) => {
+                    vec.push(cgt);
+                    Ok(vec)
+                }
+            }
+        },
+    );
+
     let complete_graph_result = cluster_graph_pairs_result
         .and_then(|cluster_graph_pairs| {
             let mut boundary_errors = vec![];
@@ -683,7 +709,7 @@ fn associate_parents_children(
 mod tests {
     use std::{collections::HashMap, path::Path};
 
-    use crate::{associate_parents_children, read_all_clusters_with_dependencies};
+    use crate::{associate_parents_children, read_all_clusters_with_dependencies, ClusterGraphTuple, comment_cluster, svgify};
 
     struct MockFileReader<'a> {
         paths: Vec<&'a Path>,
@@ -713,30 +739,16 @@ mod tests {
     #[test]
     fn read_trivial_cluster() {
         let mut reader = MockFileReader::new(vec![&Path::new("tests/git.yaml")]);
-        let analysis = read_all_clusters_with_dependencies("_", &mut reader, |_| true);
-        assert_eq!(analysis.len(), 2);
-        assert_eq!(analysis[0].0, "_");
-        assert!(
-            analysis[0]
-                .1
-                .as_ref()
-                .is_ok_and(|(comments, svg)| { comments.is_empty() && !svg.is_empty() }),
-            "Comments was not empty or SVG was empty. Analysis: {:#?}",
-            analysis[0].1
-        );
-        assert_eq!(
-            analysis[1].0,
-            "complete graph (currently only shows hard dependencies)"
-        );
-        assert!(
-            analysis[1]
-                .1
-                .as_ref()
-                .is_ok_and(|(comments, svg)| { comments.is_empty() && !svg.is_empty() }),
-            "Comments was not empty or SVG was empty. Analysis: {:#?}",
-            analysis[1].1
-        );
-        assert_eq!(reader.calls_made, 1);
+        let (component_analysis, voltron_analysis) = read_all_clusters_with_dependencies("_", &mut reader, |_| true);
+        assert_eq!(component_analysis.len(), 1);
+        assert!(component_analysis.get(0).as_ref().is_some());
+        component_analysis.into_iter().for_each(|result| {
+            let ClusterGraphTuple(cluster, graph) = result.expect("There should be a result here.");
+            let comments = comment_cluster(&cluster, &graph, "_", |_| true);
+            assert!(comments.is_empty());
+            assert_eq!(reader.calls_made, 1);
+        });
+        todo!("Test Voltron")
     }
 
     // TODO: multi-cluster test
