@@ -3,6 +3,9 @@
 
 use anyhow;
 use graphviz_rust::{cmd::Format, exec, printer::PrinterContext};
+use petgraph::graph::DefaultIx;
+use petgraph::prelude::*;
+use petgraph::visit::IntoNeighbors;
 use petgraph::{
     algo::{
         toposort,
@@ -10,10 +13,16 @@ use petgraph::{
     },
     dot::Dot,
     graph::NodeIndex,
-    visit::{EdgeRef, IntoEdgeReferences},
+    visit::{EdgeRef, IntoEdgeReferences, IntoNodeReferences},
 };
 use serde::Deserialize;
-use std::{collections::HashMap, fmt, fs::File, ops::Index, path::Path};
+use std::{
+    collections::{HashMap, HashSet},
+    fmt,
+    fs::File,
+    ops::Index,
+    path::Path,
+};
 
 /* Maybe more use of references would be more idiomatic here. */
 
@@ -560,18 +569,16 @@ fn voltronize_clusters(
         })
         .collect();
 
-    let cluster_graph_pairs_result = cluster_graph_tuples.iter().try_fold(
-        Vec::new(),
-        |mut vec, elem| {
-            match elem {
+    let cluster_graph_pairs_result =
+        cluster_graph_tuples
+            .iter()
+            .try_fold(Vec::new(), |mut vec, elem| match elem {
                 Err(_) => Err(anyhow::Error::from(StructuralError::InvalidComponentGraph)),
                 Ok(cgt) => {
                     vec.push(cgt);
                     Ok(vec)
                 }
-            }
-        },
-    );
+            });
 
     let complete_graph_result = cluster_graph_pairs_result
         .and_then(|cluster_graph_pairs| {
@@ -705,11 +712,105 @@ fn associate_parents_children(
         })
 }
 
+fn subgraph_with_edges(parent: &Graph, predicate: impl Fn(&EdgeData) -> bool) -> Graph {
+    let mut subgraph = Graph::new();
+    let mut node_map = HashMap::new();
+    for edge in parent.edge_references() {
+        if predicate(edge.weight()) {
+            let (source, target) = (edge.source(), edge.target());
+            let new_source = *node_map
+                .entry(source)
+                .or_insert_with(|| subgraph.add_node(parent.node_weight(source).unwrap().clone()));
+            let new_target = *node_map
+                .entry(target)
+                .or_insert_with(|| subgraph.add_node(parent.node_weight(target).unwrap().clone()));
+            subgraph.add_edge(new_source, new_target, edge.weight().clone());
+        }
+    }
+    subgraph
+}
+
+fn check_learning_path(voltron: &Graph, node_ids: Vec<&str>, roots: Vec<&str>) -> Vec<String> {
+    let mut remarks = vec![];
+    let is_any_type = |edge: &EdgeData| edge == &EdgeType::AtLeastOne;
+    let is_all_type = |edge: &EdgeData| edge == &EdgeType::All;
+    // FIXME: pretty sure I am doing some redundant work here
+    let motivations_graph = subgraph_with_edges(voltron, is_any_type);
+    let dependency_to_dependent_graph = subgraph_with_edges(voltron, is_all_type);
+    let mut dependent_to_dependency_graph = dependency_to_dependent_graph.clone();
+    dependent_to_dependency_graph.reverse();
+    let toposort_order = toposort(&dependent_to_dependency_graph, None).expect(
+        "This function should only be called for graphs which have already been cycle-checked.",
+    );
+    let (res, dependent_to_dependency_revmap) =
+        dag_to_toposorted_adjacency_list(&dependent_to_dependency_graph, &toposort_order);
+    let (_, dependent_to_dependency_tc) = dag_transitive_reduction_closure(&res);
+    let mut seen_nodes = HashSet::new();
+    for (index, namespaced_id) in node_ids.iter().enumerate() {
+        // non-root: must have all its hard dependencies met
+        // must also be motivated, or have a motivated dependent
+        // no need to check root nodes:
+        // a Voltron can only be produced if roots are not dependent on anything
+        if !roots.contains(namespaced_id) {
+            match voltron
+                .node_references()
+                .filter(|(idx, weight)| &weight.0 == namespaced_id)
+                .collect::<Vec<_>>()
+                .get(0)
+            {
+                Some(matching_node) => {
+                    let hard_dependency_ids: HashSet<String> = dependent_to_dependency_tc
+                        .neighbors(dependent_to_dependency_revmap[matching_node.0.index()])
+                        .map(|ix: NodeIndex| toposort_order[ix.index()])
+                        .filter_map(|idx| {
+                            dependent_to_dependency_graph.node_weight(idx).map(|(id, _)| id.clone())
+                        })
+                        .collect();
+                    for dependency in hard_dependency_ids.difference(&seen_nodes) {
+                        remarks.push(format!(
+                            "Node {index} ({namespaced_id}) has unmet dependency {dependency}."
+                        ));
+                    }
+                    /*
+                    let mut dependent_ids: HashSet<String> = dependent_to_dependency_tc
+                        .neighbors(revmap[matching_node.0.index()])
+                        .map(|ix: NodeIndex| toposort_order[ix.index()])
+                        .filter_map(|idx| {
+                            dependent_to_dependency_graph.node_weight(idx).map(|(id, _)| id.clone())
+                        })
+                        .collect();
+                    dependent_ids.insert(matching_node.1.0.clone());
+
+                    let is_motivated = seen_nodes.iter().fold(false, |acc,elem| {
+                        acc || // seen_nodes.contains(elem) FOUT: willen checken dat een dependent id een neighbor is in de motivations graph
+                    });
+                    if !is_motivated {
+                        remarks.push(format!(
+                            "Node {index} ({namespaced_id}) has is not motivated by any predecessor, nor are any of its dependents."
+                        ));
+                    }*/
+                    seen_nodes.insert(matching_node.1 .0.clone());
+                }
+                None => {
+                    remarks.push(format!(
+                        "Node {index} ({namespaced_id}) does not occur in the graph."
+                    ));
+                }
+            }
+        }
+    }
+
+    remarks
+}
+
 #[cfg(test)]
 mod tests {
     use std::{collections::HashMap, path::Path};
 
-    use crate::{associate_parents_children, read_all_clusters_with_dependencies, ClusterGraphTuple, comment_cluster, svgify};
+    use crate::{
+        associate_parents_children, comment_cluster, read_all_clusters_with_dependencies, svgify,
+        ClusterGraphTuple,
+    };
 
     struct MockFileReader<'a> {
         paths: Vec<&'a Path>,
@@ -739,7 +840,8 @@ mod tests {
     #[test]
     fn read_trivial_cluster() {
         let mut reader = MockFileReader::new(vec![&Path::new("tests/git.yaml")]);
-        let (component_analysis, voltron_analysis) = read_all_clusters_with_dependencies("_", &mut reader, |_| true);
+        let (component_analysis, voltron_analysis) =
+            read_all_clusters_with_dependencies("_", &mut reader, |_| true);
         assert_eq!(component_analysis.len(), 1);
         assert!(component_analysis.get(0).as_ref().is_some());
         component_analysis.into_iter().for_each(|result| {
