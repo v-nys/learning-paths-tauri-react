@@ -740,22 +740,25 @@ fn check_learning_path(voltron: &Graph, node_ids: Vec<&str>, roots: Vec<&str>) -
     let dependency_to_dependent_graph = subgraph_with_edges(voltron, is_all_type);
     let mut dependent_to_dependency_graph = dependency_to_dependent_graph.clone();
     dependent_to_dependency_graph.reverse();
-    let dependent_to_dependency_toposort_order = toposort(&dependent_to_dependency_graph, None).expect(
-        "This function should only be called for graphs which have already been cycle-checked.",
+    let dependent_to_dependency_toposort_order = toposort(&dependent_to_dependency_graph, None)
+        .expect(
+            "This function should only be called for graphs which have already been cycle-checked.",
+        );
+    let dependency_to_dependent_toposort_order = toposort(&dependency_to_dependent_graph, None)
+        .expect(
+            "This function should only be called for graphs which have already been cycle-checked.",
+        );
+    let (res, dependent_to_dependency_revmap) = dag_to_toposorted_adjacency_list(
+        &dependent_to_dependency_graph,
+        &dependent_to_dependency_toposort_order,
     );
-    let dependency_to_dependent_toposort_order = toposort(&dependency_to_dependent_graph, None).expect(
-        "This function should only be called for graphs which have already been cycle-checked.",
-    );
-    let (res, dependent_to_dependency_revmap) =
-        dag_to_toposorted_adjacency_list(&dependent_to_dependency_graph, &dependent_to_dependency_toposort_order);
     let (_, dependent_to_dependency_tc) = dag_transitive_reduction_closure(&res);
 
-    let (res, dependency_to_dependent_revmap) =
-    dag_to_toposorted_adjacency_list(&dependency_to_dependent_graph, &dependency_to_dependent_toposort_order);
+    let (res, dependency_to_dependent_revmap) = dag_to_toposorted_adjacency_list(
+        &dependency_to_dependent_graph,
+        &dependency_to_dependent_toposort_order,
+    );
     let (_, dependency_to_dependent_tc) = dag_transitive_reduction_closure(&res);
-
-
-
 
     let mut seen_nodes = HashSet::new();
     for (index, namespaced_id) in node_ids.iter().enumerate() {
@@ -775,7 +778,9 @@ fn check_learning_path(voltron: &Graph, node_ids: Vec<&str>, roots: Vec<&str>) -
                         .neighbors(dependent_to_dependency_revmap[matching_node.0.index()])
                         .map(|ix: NodeIndex| dependent_to_dependency_toposort_order[ix.index()])
                         .filter_map(|idx| {
-                            dependent_to_dependency_graph.node_weight(idx).map(|(id, _)| id.clone())
+                            dependent_to_dependency_graph
+                                .node_weight(idx)
+                                .map(|(id, _)| id.clone())
                         })
                         .collect();
                     for dependency in hard_dependency_ids.difference(&seen_nodes) {
@@ -784,23 +789,32 @@ fn check_learning_path(voltron: &Graph, node_ids: Vec<&str>, roots: Vec<&str>) -
                         ));
                     }
 
-
-
-                    
                     let mut dependent_ids: HashSet<String> = dependency_to_dependent_tc
                         .neighbors(dependency_to_dependent_revmap[matching_node.0.index()])
                         .map(|ix: NodeIndex| dependency_to_dependent_toposort_order[ix.index()])
                         .filter_map(|idx| {
-                            dependency_to_dependent_graph.node_weight(idx).map(|(id, _)| id.clone())
+                            dependency_to_dependent_graph
+                                .node_weight(idx)
+                                .map(|(id, _)| id.clone())
                         })
                         .collect();
-                    dependent_ids.insert(matching_node.1.0.clone());
+                    dependent_ids.insert(matching_node.1 .0.clone());
 
                     let is_motivated = seen_nodes.iter().fold(false, |acc, seen_node| {
-                        // seen_node kan motivatie zijn
-                        // deze moet dan, in de motivations graph (niet de TC ervan)
-                        // minstens één element van dependent_ids bereiken
-                        acc || todo!()
+                        acc || {
+                            let motivations_entry = motivations_graph
+                                .node_references()
+                                .find(|node_ref| &node_ref.1 .0 == seen_node);
+                            motivations_entry.is_some_and(|motivations_entry| {
+                                let motivated_by_seen_node: Vec<_> =
+                                    motivations_graph.neighbors(motivations_entry.0).collect();
+                                motivated_by_seen_node.into_iter().any(|idx| {
+                                    let motivated = motivations_graph.node_weight(idx);
+                                    motivated
+                                        .is_some_and(|weight| dependent_ids.contains(&weight.0))
+                                })
+                            })
+                        }
                     });
 
                     if !is_motivated {
