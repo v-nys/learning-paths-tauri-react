@@ -202,7 +202,6 @@ fn node_dot_attributes(_: &Graph, node_ref: (NodeIndex, &NodeData)) -> String {
 ///
 #[tauri::command]
 fn read_contents(paths: &str) -> Vec<(&str, Result<(Vec<String>, String), String>)> {
-    // TODO: dependency injection for mocks
     let mut reader = RealFileReader {};
     read_contents_with_dependencies(paths, reader, file_is_readable)
 }
@@ -213,15 +212,16 @@ fn read_contents_with_dependencies<R: FileReader>(paths: &str, mut reader: R, fi
         read_all_clusters_with_dependencies::<RealFileReader>(paths, &mut reader, file_is_readable);
     let components_svgs: Vec<_> = components
         .iter()
-        .map(|result| result.ok().map(|component| svgify(&component.1)))
+        .map(|result| result.as_ref().ok().map(|component| svgify(&component.1)))
         .collect();
-    let voltron_svg = voltron.ok().map(|voltron| svgify(&voltron));
-    let paths_and_components = paths.split(";").zip(components);
+    let voltron_svg = voltron.as_ref().ok().map(|voltron| svgify(voltron));
+    let paths_and_components = paths.split(";").zip(&components);
     let components_comments: Vec<_> = paths_and_components
         .map(|(path, result)| {
             result
+                .as_ref()
                 .ok()
-                .map(|component| comment_cluster(component.0, component.1, path, file_is_readable))
+                .map(|component| comment_cluster(&component.0, &component.1, path, file_is_readable))
         })
         .collect();
     let mut voltron_comments = vec![];
@@ -330,8 +330,8 @@ fn comment_graph(graph: &Graph, remarks: &mut Vec<String>) {
 }
 
 fn comment_cluster(
-    cluster: Cluster,
-    graph: Graph,
+    cluster: &Cluster,
+    graph: &Graph,
     cluster_path: &str,
     file_is_readable: fn(&Path) -> bool,
 ) -> Vec<String> {
@@ -713,7 +713,7 @@ mod tests {
     #[test]
     fn read_trivial_cluster() {
         let mut reader = MockFileReader::new(vec![&Path::new("tests/git.yaml")]);
-        let analysis = read_all_clusters_with_dependencies("_", true, &mut reader, |_| true);
+        let analysis = read_all_clusters_with_dependencies("_", &mut reader, |_| true);
         assert_eq!(analysis.len(), 2);
         assert_eq!(analysis[0].0, "_");
         assert!(
