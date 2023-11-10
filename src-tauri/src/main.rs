@@ -734,17 +734,29 @@ fn check_learning_path(voltron: &Graph, node_ids: Vec<&str>, roots: Vec<&str>) -
     let mut remarks = vec![];
     let is_any_type = |edge: &EdgeData| edge == &EdgeType::AtLeastOne;
     let is_all_type = |edge: &EdgeData| edge == &EdgeType::All;
+
     // FIXME: pretty sure I am doing some redundant work here
     let motivations_graph = subgraph_with_edges(voltron, is_any_type);
     let dependency_to_dependent_graph = subgraph_with_edges(voltron, is_all_type);
     let mut dependent_to_dependency_graph = dependency_to_dependent_graph.clone();
     dependent_to_dependency_graph.reverse();
-    let toposort_order = toposort(&dependent_to_dependency_graph, None).expect(
+    let dependent_to_dependency_toposort_order = toposort(&dependent_to_dependency_graph, None).expect(
+        "This function should only be called for graphs which have already been cycle-checked.",
+    );
+    let dependency_to_dependent_toposort_order = toposort(&dependency_to_dependent_graph, None).expect(
         "This function should only be called for graphs which have already been cycle-checked.",
     );
     let (res, dependent_to_dependency_revmap) =
-        dag_to_toposorted_adjacency_list(&dependent_to_dependency_graph, &toposort_order);
+        dag_to_toposorted_adjacency_list(&dependent_to_dependency_graph, &dependent_to_dependency_toposort_order);
     let (_, dependent_to_dependency_tc) = dag_transitive_reduction_closure(&res);
+
+    let (res, dependency_to_dependent_revmap) =
+    dag_to_toposorted_adjacency_list(&dependency_to_dependent_graph, &dependency_to_dependent_toposort_order);
+    let (_, dependency_to_dependent_tc) = dag_transitive_reduction_closure(&res);
+
+
+
+
     let mut seen_nodes = HashSet::new();
     for (index, namespaced_id) in node_ids.iter().enumerate() {
         // non-root: must have all its hard dependencies met
@@ -761,7 +773,7 @@ fn check_learning_path(voltron: &Graph, node_ids: Vec<&str>, roots: Vec<&str>) -
                 Some(matching_node) => {
                     let hard_dependency_ids: HashSet<String> = dependent_to_dependency_tc
                         .neighbors(dependent_to_dependency_revmap[matching_node.0.index()])
-                        .map(|ix: NodeIndex| toposort_order[ix.index()])
+                        .map(|ix: NodeIndex| dependent_to_dependency_toposort_order[ix.index()])
                         .filter_map(|idx| {
                             dependent_to_dependency_graph.node_weight(idx).map(|(id, _)| id.clone())
                         })
@@ -771,24 +783,31 @@ fn check_learning_path(voltron: &Graph, node_ids: Vec<&str>, roots: Vec<&str>) -
                             "Node {index} ({namespaced_id}) has unmet dependency {dependency}."
                         ));
                     }
-                    /*
-                    let mut dependent_ids: HashSet<String> = dependent_to_dependency_tc
-                        .neighbors(revmap[matching_node.0.index()])
-                        .map(|ix: NodeIndex| toposort_order[ix.index()])
+
+
+
+                    
+                    let mut dependent_ids: HashSet<String> = dependency_to_dependent_tc
+                        .neighbors(dependency_to_dependent_revmap[matching_node.0.index()])
+                        .map(|ix: NodeIndex| dependency_to_dependent_toposort_order[ix.index()])
                         .filter_map(|idx| {
-                            dependent_to_dependency_graph.node_weight(idx).map(|(id, _)| id.clone())
+                            dependency_to_dependent_graph.node_weight(idx).map(|(id, _)| id.clone())
                         })
                         .collect();
                     dependent_ids.insert(matching_node.1.0.clone());
 
-                    let is_motivated = seen_nodes.iter().fold(false, |acc,elem| {
-                        acc || // seen_nodes.contains(elem) FOUT: willen checken dat een dependent id een neighbor is in de motivations graph
+                    let is_motivated = seen_nodes.iter().fold(false, |acc, seen_node| {
+                        // seen_node kan motivatie zijn
+                        // deze moet dan, in de motivations graph (niet de TC ervan)
+                        // minstens één element van dependent_ids bereiken
+                        acc || todo!()
                     });
+
                     if !is_motivated {
                         remarks.push(format!(
                             "Node {index} ({namespaced_id}) has is not motivated by any predecessor, nor are any of its dependents."
                         ));
-                    }*/
+                    }
                     seen_nodes.insert(matching_node.1 .0.clone());
                 }
                 None => {
