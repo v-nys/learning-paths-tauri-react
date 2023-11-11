@@ -20,37 +20,46 @@ function separateIntoUniquePaths(paths) {
 // this is passed off to watch, so it shouldn't capture any component state
 // that would get outdated
 // instead, use signals to communicate
-async function waitForEvents(parent,children) {
+async function waitForEvents(parent, children) {
   return await watch(
-      parent,
-      // actually produces an array, not a single event
-      (events) => {
-          let shouldReload = false;
-          for (let {path} of events) {
-              if (children.includes(path)) {
-                  shouldReload = true;
-              }
-          }
-          if (shouldReload) {
-            appWindow.emit('filechange');
-          }
-      },
-      { recursive: false }
+    parent,
+    // actually produces an array, not a single event
+    (events) => {
+      let shouldReload = false;
+      for (let { path } of events) {
+        if (children.includes(path)) {
+          shouldReload = true;
+        }
+      }
+      if (shouldReload) {
+        appWindow.emit('filechange');
+      }
+    },
+    { recursive: false }
   );
 }
 
-
+function findCommonPrefix(words: string[]): string|undefined {
+  // check border cases size 1 array and empty first word)
+  if (!words[0] || words.length ==  1) return words[0] || "";
+  let i = 0;
+  // while all words have the same character at position i, increment i
+  while(words[0][i] && words.every(w => w[i] === words[0][i]))
+    i++;
+  // prefix is the substring from the beginning to the last successfully checked i
+  return words[0].substr(0, i);
+}
 
 function App() {
 
   // TODO: consider making more use of useReducer
   const [loading, setLoading] = useState(false);
   const [paths, setPaths] = useState("");
-  const [readResults, setReadResults] = useState(new Map());
+  const [readResults, setReadResults] = useState(new Map<string, Lv1ReadResult>());
   const [pathToDisplayOnceRead, setPathToDisplayOnceRead] = useState(undefined);
   const stopCallbacks = useRef([]);
   // file and settings change really call for the same actions and have same level of precedence, so...
-  const [eventToHandle, setEventToHandle] = useState<undefined|"fileorsettingschange"|"pathchange">(undefined);
+  const [eventToHandle, setEventToHandle] = useState<undefined | "fileorsettingschange" | "pathchange">(undefined);
   /* Setting the type of event to handle is different depending on situation.
    * A path change just occurs when the input field is modified.
    * A file change is signaled from outside the component code.
@@ -66,9 +75,9 @@ function App() {
   });
 
   useEffect(() => {
-      if (!eventToHandle) {
-        setEventToHandle("fileorsettingschange");
-      }
+    if (!eventToHandle) {
+      setEventToHandle("fileorsettingschange");
+    }
   }, []);
 
   useEffect(() => {
@@ -86,37 +95,40 @@ function App() {
     const separatePaths = separateIntoUniquePaths(paths);
     const newStopcallbacks = [];
     try {
-        const association = await invoke('associate', { paths: separatePaths.join(";") });
-        // this is an object, not a map!
-        for (const parent in association) {
-          const children = association[parent];
-          newStopcallbacks.push(await waitForEvents(parent,children));
-        }
+      const association = await invoke('associate', { paths: separatePaths.join(";") });
+      // this is an object, not a map!
+      for (const parent in association) {
+        const children = association[parent];
+        newStopcallbacks.push(await waitForEvents(parent, children));
+      }
     }
     catch (err) {
-        console.log(`${err} lacks a watchable parent node`);
+      console.log(`${err} lacks a watchable parent node`);
     }
     stopCallbacks.current = newStopcallbacks;
   }
 
   async function readFileContents() {
-      let separatePaths = separateIntoUniquePaths(paths);
-      let svgs = await invoke('read_contents',
+    let separatePaths = separateIntoUniquePaths(paths);
+    let svgs = await invoke('read_contents',
       { paths: separatePaths.join(";") });
-      let newReadResults = new Map<string,Lv1ReadResult>();
-      svgs.forEach((pair) => { newReadResults.set(pair[0], pair[1]); });
-      setReadResults(newReadResults);
+    let newReadResults = new Map<string, Lv1ReadResult>();
+    svgs.forEach((pair) => { newReadResults.set(pair[0], pair[1]); });
+    setReadResults(newReadResults);
   }
 
   useEffect(() => {
-      const separatePaths = separateIntoUniquePaths(paths);
-      if (!separatePaths.length) {
-        setPathToDisplayOnceRead(undefined);
-      }
-      else if (!separatePaths.includes(pathToDisplayOnceRead)) {
-        setPathToDisplayOnceRead(separatePaths[0]);
-      }
+    const separatePaths = separateIntoUniquePaths(paths);
+    if (!separatePaths.length) {
+      setPathToDisplayOnceRead(undefined);
+    }
+    else if (!separatePaths.includes(pathToDisplayOnceRead)) {
+      setPathToDisplayOnceRead(separatePaths[0]);
+    }
   }, [paths]);
+
+  let filesRead = Array.from(readResults.keys());
+  let commonPrefix = findCommonPrefix(filesRead.filter((path) => path !== "Complete graph"));
 
   useEffect(() => void (async () => {
     if (!loading) {
@@ -127,11 +139,11 @@ function App() {
           setLoading(true);
           stopWatching();
           if (paths.trim()) {
-              await readFileContents();
-              await startWatching();
+            await readFileContents();
+            await startWatching();
           }
           else {
-              setReadResults(new Map());
+            setReadResults(new Map());
           }
           setLoading(false);
           break;
@@ -147,7 +159,7 @@ function App() {
         }
       }
     }
-  })(), [loading,eventToHandle]);
+  })(), [loading, eventToHandle]);
 
   const onOptionChange = (e) => {
     setPathToDisplayOnceRead(e.target.value);
@@ -155,63 +167,67 @@ function App() {
 
   return (
     <>
-    <div className="container">
-    <textarea
+      <div className="container">
+        <textarea
           id="files-input"
           onChange={(e) => setPaths(e.currentTarget.value)}
           placeholder="Enter &quot;;&quot;-separated paths"
         />
 
-      {
-        loading ?
-        <p>Please hold</p> :
-        <><div className="row">
-            {
-            /* Could split into separate component?
-            */
-             Array.from(readResults.entries())
-                   .map(([k,v]) => {
-                let icon = "✅";
-                console.debug([k,v]);
-                if (v.Err) {
-                  icon = "✖️"
-                }
-                else if (v.Ok[0].length > 0) {
-                  icon = "⚠️"
-                }
-                return (<Fragment key={k}>
-                          <input
-                            name="active-path"
-                            type="radio"
-                            id={`radio-button-${k}`}
-                            value={k}
-                            checked={pathToDisplayOnceRead === k}
-                            onChange={onOptionChange}
-                            />
-                          <label htmlFor={`radio-button-${k}`}>{k} {icon}</label>
-                        </Fragment>
-                       )
-              })
-            } 
-        </div>
         {
-          // textarea positioning is unfortunate
-          // but can fix this later on
-        }
-        
-        <textarea placeholder="enter whitespace-separated nodes that make up a learning path">
+          loading ?
+            <p>Please hold</p> :
+            <><div className="row">
+              {
+                /* Could split into separate component?
+                 * long paths are irritating, by the way
+                 * could compute common prefix for everything but complete graph
+                 * would do this by folding
+                 */
+                
+                Array.from(readResults.entries())
+                  .map(([k, v]) => {
+                    let icon = "✅";
+                    console.debug([k, v]);
+                    if (v.Err) {
+                      icon = "✖️"
+                    }
+                    else if (v.Ok[0].length > 0) {
+                      icon = "⚠️"
+                    }
+                    return (<div key={k}>
+                      <input
+                        name="active-path"
+                        type="radio"
+                        id={`radio-button-${k}`}
+                        value={k}
+                        checked={pathToDisplayOnceRead === k}
+                        onChange={onOptionChange}
+                      />
+                      <label htmlFor={`radio-button-${k}`}>{commonPrefix !== k && k !== "Complete graph" ? `...${k.substring(commonPrefix.length)}` : k} {icon}</label>
+                    </div>
+                    )
+                  })
+              }
+            </div>
+              {
+                // textarea positioning is unfortunate
+                // but can fix this later on
+              }
 
-        </textarea>
-        </>
-      }
-      {
-        readResults.get(pathToDisplayOnceRead) ?
-        (loading ?
-         <p>Loading</p> :
-         <ReadResult value={readResults.get(pathToDisplayOnceRead)} />) :
-        <p>Cannot display anything with this input.</p>
-      }
-    </div>
+              <textarea placeholder="enter whitespace-separated nodes that make up a learning path">
+
+              </textarea>
+            </>
+        }
+        {
+          readResults.get(pathToDisplayOnceRead) ?
+            (loading ?
+              <p>Loading</p> :
+              <ReadResult value={readResults.get(pathToDisplayOnceRead)} />) :
+            <p>Cannot display anything with this input.</p>
+        }
+      </div>
     </>
   );
 }
