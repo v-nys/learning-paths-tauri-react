@@ -727,6 +727,9 @@ fn subgraph_with_edges(parent: &Graph, predicate: impl Fn(&EdgeData) -> bool) ->
 }
 
 fn check_learning_path(voltron: &Graph, node_ids: Vec<&str>, roots: Vec<&str>) -> Vec<String> {
+    // TODO: consider combining the &Graph with roots?
+    // might clarify that they belong together
+    // might even refactor the voltronize_clusters function to also return the roots, would be feasible 
     let mut remarks = vec![];
     let is_any_type = |edge: &EdgeData| edge == &EdgeType::AtLeastOne;
     let is_all_type = |edge: &EdgeData| edge == &EdgeType::All;
@@ -777,20 +780,6 @@ fn check_learning_path(voltron: &Graph, node_ids: Vec<&str>, roots: Vec<&str>) -
             {
                 Some(matching_node) => {
                     let matching_node_idx = matching_node.0.index();
-                    eprintln!("{:#?}", namespaced_id);
-                    eprintln!("{:#?}", matching_node_idx);
-                    // this does not look right
-                    // it is empty
-                    eprintln!("{:#?}", dependent_to_dependency_revmap);
-                    // does that mean the reciprocal is empty, too?
-                    eprintln!("{:#?}", dependent_to_dependency_res);
-                    // seems that way!
-                    // what about the graph?
-                    eprintln!("{:#?}", dependent_to_dependency_graph);
-                    // yup
-                    // what about voltron?
-                    eprintln!("{:#?}", voltron);
-                    // kind of! no edges!
                     let hard_dependency_ids: HashSet<String> = dependent_to_dependency_tc
                         .neighbors(dependent_to_dependency_revmap[matching_node_idx])
                         .map(|ix: NodeIndex| dependent_to_dependency_toposort_order[ix.index()])
@@ -908,9 +897,8 @@ mod tests {
     #[test]
     fn check_learning_path_trivial_cluster() {
         let mut reader = MockFileReader::new(vec![&Path::new("tests/git.yaml")]);
-        let (component_analysis, voltron_analysis) =
+        let (_, voltron_analysis) =
             read_all_clusters_with_dependencies("_", &mut reader, |_| true);
-        eprintln!("{:#?}", voltron_analysis);
         let comments = check_learning_path(
             &voltron_analysis.unwrap(),
             vec![
@@ -925,6 +913,29 @@ mod tests {
                 "Node 1 (git__installation_prerequisites) has is not motivated by any predecessor, nor are any of its dependents."
             ]
         );
+    }
+
+    #[test]
+    fn check_learning_path_two_small_clusters() {
+        let mut reader = MockFileReader::new(vec![&Path::new("tests/git.yaml"),
+                                                  &Path::new("tests/simpleproject.yaml")]);
+        let (components_analysis, voltron_analysis) =
+            read_all_clusters_with_dependencies("_;_", &mut reader, |_| true);
+        eprintln!("{:#?}", components_analysis);
+        eprintln!("{:#?}", voltron_analysis);
+        assert_eq!(reader.calls_made, 2);
+        let comments = check_learning_path(
+            &voltron_analysis.unwrap(),
+            vec![
+                "simpleproject__introduction",
+                "git__what_is_version_control",
+                "git__installation_prerequisites",
+                "git__what_is_local_version_control",
+                "simpleproject__implementation",
+            ],
+            vec!["simpleproject__introduction"],
+        );
+        assert!(comments.is_empty());
     }
 
     // TODO: multi-cluster test

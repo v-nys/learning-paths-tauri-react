@@ -1,0 +1,14 @@
+namespace_prefix: simpleproject
+nodes:
+  - id: introduction
+    title: "Introduction"
+  - id: implementation
+    title: "Implementation"
+all_type_edges:
+  - start_id: git__what_is_local_version_control
+    end_id: implementation
+motivations:
+  - start_id: introduction
+    end_id: implementation
+roots:
+  - introduction
