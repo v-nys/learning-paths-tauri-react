@@ -2,12 +2,12 @@ namespace_prefix: git
 nodes:
   - id: what_is_version_control
     title: "What is version control?"
-    files:
-      - "what_is_version_control.md"
   - id: installation_prerequisites
     title: "Installation prerequisites"
   - id: what_is_local_version_control
     title: "What is local version control?"
+    files:
+      - "something.md"
 all_type_edges:
   - start_id: what_is_version_control
     end_id: installation_prerequisites

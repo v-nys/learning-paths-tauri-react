@@ -21,10 +21,12 @@ function separateIntoUniquePaths(paths) {
 // that would get outdated
 // instead, use signals to communicate
 async function waitForEvents(parent, children) {
+  console.log(`Registering watch for ${parent}`);
   return await watch(
     parent,
     // actually produces an array, not a single event
     (events) => {
+      console.log("SOMETHING HAPPENED!");
       let shouldReload = false;
       for (let { path } of events) {
         if (children.includes(path)) {
@@ -97,9 +99,11 @@ function App() {
 
   async function startWatching() {
     const separatePaths = separateIntoUniquePaths(paths);
+    console.debug("SEPARATED");
     const newStopcallbacks = [];
     try {
-      const association = await invoke('associate', { paths: separatePaths.join(";") });
+      const association = await invoke('associate_parents_children', { paths: separatePaths.join(";") });
+      console.debug(association);
       // this is an object, not a map!
       for (const parent in association) {
         const children = association[parent];
@@ -251,6 +255,11 @@ function App() {
             onChange={async (e) => { setLearningPath(e.target.value) }} />
             { learningPathComments.map((comment, idx) => <p key={idx}>{comment}</p>) }
           </>
+        }
+        {
+          loading || pathToDisplayOnceRead !== COMPLETE_GRAPH_LABEL || learningPathComments.length > 0 || Array.from(readResults.values()).some((readResult) => readResult.Ok && readResult.Ok[0].length > 0) ?
+          <></> :
+          <button>Zip it!</button>
         }
       </div>
     </>
