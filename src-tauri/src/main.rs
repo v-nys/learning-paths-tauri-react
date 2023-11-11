@@ -117,6 +117,7 @@ impl ClusterForSerialization {
     }
 }
 
+// TODO: may want to add variant for node id containing whitespace characters (which is possible in yaml with quoted text)
 /// An error related to the internal structure of a (syntactically valid, semantically invalid) `Cluster`.
 #[derive(Debug)]
 enum StructuralError {

@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, Fragment } from "react";
+import TextareaAutosize from 'react-textarea-autosize';
 import { ReadResult } from "./ReadResult.tsx";
 import { Lv1ReadResult } from "./iointerfaces.ts";
 import { invoke } from "@tauri-apps/api/tauri";
@@ -56,6 +57,7 @@ function App() {
   // TODO: consider making more use of useReducer
   const [loading, setLoading] = useState(false);
   const [paths, setPaths] = useState("");
+  const [learningPath, setLearningPath] = useState("");
   const [readResults, setReadResults] = useState(new Map<string, Lv1ReadResult>());
   const [pathToDisplayOnceRead, setPathToDisplayOnceRead] = useState(undefined);
   const stopCallbacks = useRef([]);
@@ -169,7 +171,7 @@ function App() {
   return (
     <>
       <div className="container">
-        <textarea
+        <TextareaAutosize
           id="files-input"
           onChange={(e) => setPaths(e.currentTarget.value)}
           placeholder="Enter &quot;;&quot;-separated paths"
@@ -223,9 +225,11 @@ function App() {
             <p>Cannot display anything with this input.</p>
         }
         {
-          loading || pathToDisplayOnceRead !== COMPLETE_GRAPH_LABEL ? <></> : <textarea placeholder="enter whitespace-separated nodes that make up a learning path">
-
-          </textarea>
+          loading || pathToDisplayOnceRead !== COMPLETE_GRAPH_LABEL ?
+          <></> :
+          <TextareaAutosize
+            placeholder="enter whitespace-separated nodes that make up a learning path"
+            onChange={(e) => setLearningPath(e.target.value)} />
         }
       </div>
     </>

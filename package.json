@@ -15,6 +15,7 @@
     "npm": "^9.6.6",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
+    "react-textarea-autosize": "^8.5.3",
     "tauri-plugin-fs-watch-api": "github:tauri-apps/tauri-plugin-fs-watch"
   },
   "devDependencies": {
