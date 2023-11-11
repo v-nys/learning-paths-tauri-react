@@ -435,7 +435,8 @@ fn voltronize_clusters(
                     Some(roots) => roots.iter().for_each(|root| {
                         let namespaced_root = format!("{}__{}", cluster.namespace_prefix, root);
                         if !identifier_to_index_map.contains_key(&namespaced_root) {
-                            structural_errors.push(StructuralError::UndeclaredRoot(namespaced_root));
+                            structural_errors
+                                .push(StructuralError::UndeclaredRoot(namespaced_root));
                         }
                     }),
                     _ => {}
@@ -731,7 +732,7 @@ fn subgraph_with_edges(parent: &Graph, predicate: impl Fn(&EdgeData) -> bool) ->
 fn check_learning_path(voltron: &Graph, node_ids: Vec<&str>, roots: Vec<&str>) -> Vec<String> {
     // TODO: consider combining the &Graph with roots?
     // might clarify that they belong together
-    // might even refactor the voltronize_clusters function to also return the roots, would be feasible 
+    // might even refactor the voltronize_clusters function to also return the roots, would be feasible
     let mut remarks = vec![];
     let is_any_type = |edge: &EdgeData| edge == &EdgeType::AtLeastOne;
     let is_all_type = |edge: &EdgeData| edge == &EdgeType::All;
@@ -776,6 +777,7 @@ fn check_learning_path(voltron: &Graph, node_ids: Vec<&str>, roots: Vec<&str>) -
 
     let mut seen_nodes = HashSet::new();
     for (index, namespaced_id) in node_ids.iter().enumerate() {
+        let human_index = index + 1;
         // non-root: must have all its hard dependencies met
         // must also be motivated, or have a motivated dependent
         // no need to check root nodes:
@@ -808,7 +810,7 @@ fn check_learning_path(voltron: &Graph, node_ids: Vec<&str>, roots: Vec<&str>) -
                         .collect();
                     for dependency in hard_dependency_ids.difference(&seen_nodes) {
                         remarks.push(format!(
-                            "Node {index} ({namespaced_id}) has unmet dependency {dependency}."
+                            "Node {human_index} ({namespaced_id}) has unmet dependency {dependency}."
                         ));
                     }
 
@@ -842,14 +844,14 @@ fn check_learning_path(voltron: &Graph, node_ids: Vec<&str>, roots: Vec<&str>) -
 
                     if !is_motivated {
                         remarks.push(format!(
-                            "Node {index} ({namespaced_id}) has is not motivated by any predecessor, nor are any of its dependents."
+                            "Node {human_index} ({namespaced_id}) is not motivated by any predecessor, nor are any of its dependents."
                         ));
                     }
                     seen_nodes.insert(matching_node.1 .0.clone());
                 }
                 None => {
                     remarks.push(format!(
-                        "Node {index} ({namespaced_id}) does not occur in the graph."
+                        "Node {human_index} ({namespaced_id}) does not occur in the graph."
                     ));
                 }
             }
@@ -914,8 +916,7 @@ mod tests {
     #[test]
     fn check_learning_path_trivial_cluster() {
         let mut reader = MockFileReader::new(vec![&Path::new("tests/git.yaml")]);
-        let (_, voltron_analysis) =
-            read_all_clusters_with_dependencies("_", &mut reader, |_| true);
+        let (_, voltron_analysis) = read_all_clusters_with_dependencies("_", &mut reader, |_| true);
         let comments = check_learning_path(
             &voltron_analysis.unwrap(),
             vec![
@@ -926,16 +927,18 @@ mod tests {
         );
         assert_eq!(comments,
             vec![
-                "Node 0 (git__what_is_version_control) has is not motivated by any predecessor, nor are any of its dependents.",
-                "Node 1 (git__installation_prerequisites) has is not motivated by any predecessor, nor are any of its dependents."
+                "Node 1 (git__what_is_version_control) is not motivated by any predecessor, nor are any of its dependents.",
+                "Node 2 (git__installation_prerequisites) is not motivated by any predecessor, nor are any of its dependents."
             ]
         );
     }
 
     #[test]
-    fn check_learning_path_two_small_clusters() {
-        let mut reader = MockFileReader::new(vec![&Path::new("tests/git.yaml"),
-                                                  &Path::new("tests/simpleproject.yaml")]);
+    fn check_valid_learning_path_two_small_clusters() {
+        let mut reader = MockFileReader::new(vec![
+            &Path::new("tests/git.yaml"),
+            &Path::new("tests/simpleproject.yaml"),
+        ]);
         // TODO: could avoid writing two paths here...
         let (components_analysis, voltron_analysis) =
             read_all_clusters_with_dependencies("_;_", &mut reader, |_| true);
@@ -956,7 +959,63 @@ mod tests {
         assert!(comments.is_empty());
     }
 
-    // TODO: multi-cluster test
+    #[test]
+    fn check_invalid_learning_path_two_small_clusters_missing_root() {
+        let mut reader = MockFileReader::new(vec![
+            &Path::new("tests/git.yaml"),
+            &Path::new("tests/simpleproject.yaml"),
+        ]);
+        // TODO: could avoid writing two paths here...
+        let (_, voltron_analysis) =
+            read_all_clusters_with_dependencies("_;_", &mut reader, |_| true);
+        eprintln!("Voltron:");
+        eprintln!("{:#?}", voltron_analysis);
+        assert_eq!(reader.calls_made, 2);
+        let comments = check_learning_path(
+            &voltron_analysis.unwrap(),
+            vec![
+                "git__what_is_version_control",
+                "git__installation_prerequisites",
+                "git__what_is_local_version_control",
+                "simpleproject__implementation",
+            ],
+            vec!["simpleproject__introduction"],
+        );
+        assert_eq!(comments,
+            vec!["Node 1 (git__what_is_version_control) is not motivated by any predecessor, nor are any of its dependents.",
+        "Node 2 (git__installation_prerequisites) is not motivated by any predecessor, nor are any of its dependents.",
+        "Node 3 (git__what_is_local_version_control) is not motivated by any predecessor, nor are any of its dependents.",
+        "Node 4 (simpleproject__implementation) is not motivated by any predecessor, nor are any of its dependents."]);
+    }
+
+    #[test]
+    fn check_invalid_learning_path_two_small_clusters_missing_dependency() {
+        let mut reader = MockFileReader::new(vec![
+            &Path::new("tests/git.yaml"),
+            &Path::new("tests/simpleproject.yaml"),
+        ]);
+        // TODO: could avoid writing two paths here...
+        let (_, voltron_analysis) =
+            read_all_clusters_with_dependencies("_;_", &mut reader, |_| true);
+        eprintln!("Voltron:");
+        eprintln!("{:#?}", voltron_analysis);
+        assert_eq!(reader.calls_made, 2);
+        let comments = check_learning_path(
+            &voltron_analysis.unwrap(),
+            vec![
+                "simpleproject__introduction",
+                "git__installation_prerequisites",
+                "git__what_is_local_version_control",
+                "simpleproject__implementation",
+            ],
+            vec!["simpleproject__introduction"],
+        );
+        assert_eq!(comments,
+            vec![
+        "Node 2 (git__installation_prerequisites) has unmet dependency git__what_is_version_control.",
+        "Node 3 (git__what_is_local_version_control) has unmet dependency git__what_is_version_control.",
+        "Node 4 (simpleproject__implementation) has unmet dependency git__what_is_version_control.",]);
+    }
     // TODO: cycle test
     // TODO: mix of correctly read and incorrectly read results
     // TODO: test for various structural errors
