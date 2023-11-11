@@ -78,6 +78,7 @@ struct Cluster {
 }
 
 #[derive(Deserialize, Clone)]
+#[serde(deny_unknown_fields)]
 struct ClusterForSerialization {
     namespace_prefix: String,
     nodes: Vec<Node>,
@@ -432,8 +433,9 @@ fn voltronize_clusters(
                 }
                 match &cluster.roots {
                     Some(roots) => roots.iter().for_each(|root| {
-                        if !identifier_to_index_map.contains_key(root) {
-                            structural_errors.push(StructuralError::UndeclaredRoot(root.clone()));
+                        let namespaced_root = format!("{}__{}", cluster.namespace_prefix, root);
+                        if !identifier_to_index_map.contains_key(&namespaced_root) {
+                            structural_errors.push(StructuralError::UndeclaredRoot(namespaced_root));
                         }
                     }),
                     _ => {}
@@ -919,9 +921,11 @@ mod tests {
     fn check_learning_path_two_small_clusters() {
         let mut reader = MockFileReader::new(vec![&Path::new("tests/git.yaml"),
                                                   &Path::new("tests/simpleproject.yaml")]);
+        // TODO: could avoid writing two paths here...
         let (components_analysis, voltron_analysis) =
             read_all_clusters_with_dependencies("_;_", &mut reader, |_| true);
         eprintln!("{:#?}", components_analysis);
+        eprintln!("Voltron:");
         eprintln!("{:#?}", voltron_analysis);
         assert_eq!(reader.calls_made, 2);
         let comments = check_learning_path(

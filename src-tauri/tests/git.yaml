@@ -14,4 +14,4 @@ all_type_edges:
   - start_id: installation_prerequisites
     end_id: what_is_local_version_control
 # should remain empty, this is a knowledge cluster
-motivations: []
+one_type_edges: []
