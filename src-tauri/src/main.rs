@@ -229,7 +229,7 @@ fn read_contents_with_dependencies<'a, R: FileReader>(
     let (components, voltron) =
         read_all_clusters_with_dependencies::<RealFileReader>(paths, &mut reader, file_is_readable);
     match voltron.as_ref() {
-        Ok(voltron) => {app_state.insert(voltron.clone());},
+        Ok(voltron) => {let _ = app_state.insert(voltron.clone());},
         _ => {}
     }
     let components_svgs: Vec<_> = components
@@ -743,10 +743,22 @@ fn subgraph_with_edges(parent: &Graph, predicate: impl Fn(&EdgeData) -> bool) ->
     subgraph
 }
 
+#[tauri::command]
+fn check_learning_path_stateful(nodes: Vec<String>, state: tauri::State<'_, AppState>) -> Vec<String> {
+    eprintln!("Got this: {nodes:#?}");
+    let app_state = state.voltron_with_roots.lock().expect("Should always be able to get app state.");
+    app_state.as_ref().map_or(
+        vec!["No stored result. This should not be possible, because text box should only be shown if there is a complete graph.".to_string()],
+        |existing| {
+        check_learning_path(existing, nodes.iter().map(|s| s.as_str()).collect())
+    })
+}
+
 fn check_learning_path((voltron, roots): &(Graph, Vec<String>), node_ids: Vec<&str>) -> Vec<String> {
     // TODO: consider combining the &Graph with roots?
     // might clarify that they belong together
     // might even refactor the voltronize_clusters function to also return the roots, would be feasible
+    eprintln!("Checking {node_ids:#?}");
     let mut remarks = vec![];
     let is_any_type = |edge: &EdgeData| edge == &EdgeType::AtLeastOne;
     let is_all_type = |edge: &EdgeData| edge == &EdgeType::All;
@@ -754,8 +766,6 @@ fn check_learning_path((voltron, roots): &(Graph, Vec<String>), node_ids: Vec<&s
     // FIXME: pretty sure I am doing some redundant work here
     let motivations_graph = subgraph_with_edges(voltron, is_any_type);
     let dependency_to_dependent_graph = subgraph_with_edges(voltron, is_all_type);
-    eprintln!("Dependency graph:");
-    eprintln!("{:#?}", dependency_to_dependent_graph);
     let mut dependent_to_dependency_graph = dependency_to_dependent_graph.clone();
     dependent_to_dependency_graph.reverse();
     let dependent_to_dependency_toposort_order = toposort(&dependent_to_dependency_graph, None)
@@ -785,6 +795,7 @@ fn check_learning_path((voltron, roots): &(Graph, Vec<String>), node_ids: Vec<&s
 
     let mut seen_nodes = HashSet::new();
     for (index, namespaced_id) in node_ids.iter().enumerate() {
+        eprintln!("Checking {namespaced_id}");
         let human_index = index + 1;
         if !roots.contains(&namespaced_id.to_string()) {
             match dependency_to_dependent_graph
@@ -1075,7 +1086,8 @@ fn main() {
         .plugin(tauri_plugin_fs_watch::init())
         .invoke_handler(tauri::generate_handler![
             read_contents,
-            associate_parents_children
+            associate_parents_children,
+            check_learning_path_stateful
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

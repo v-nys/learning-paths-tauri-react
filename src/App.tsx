@@ -58,6 +58,7 @@ function App() {
   const [loading, setLoading] = useState(false);
   const [paths, setPaths] = useState("");
   const [learningPath, setLearningPath] = useState("");
+  const [learningPathComments, setLearningPathComments] = useState<string[]>([]);
   const [readResults, setReadResults] = useState(new Map<string, Lv1ReadResult>());
   const [pathToDisplayOnceRead, setPathToDisplayOnceRead] = useState(undefined);
   const stopCallbacks = useRef([]);
@@ -119,6 +120,23 @@ function App() {
     svgs.forEach((pair) => { newReadResults.set(pair[0], pair[1]); });
     setReadResults(newReadResults);
   }
+
+  async function checkLearningPath() {
+    console.debug(learningPath.split(new RegExp("\\s+")).filter((e) => e !== ""));
+    let resultOfCheck = await invoke('check_learning_path_stateful', {
+      nodes: learningPath.split(new RegExp("\\s+")).filter((e) => e !== "")
+    });
+    setLearningPathComments(resultOfCheck);
+  }
+
+  useEffect(() => {
+    if (learningPath.trim() !== "") {
+      checkLearningPath();
+    }
+    else {
+      setLearningPathComments([]);
+    }
+  }, [learningPath]);
 
   useEffect(() => {
     const separatePaths = separateIntoUniquePaths(paths);
@@ -227,9 +245,12 @@ function App() {
         {
           loading || pathToDisplayOnceRead !== COMPLETE_GRAPH_LABEL ?
           <></> :
-          <TextareaAutosize
+          <><TextareaAutosize
+            value={learningPath}
             placeholder="enter whitespace-separated nodes that make up a learning path"
-            onChange={(e) => setLearningPath(e.target.value)} />
+            onChange={async (e) => { setLearningPath(e.target.value) }} />
+            { learningPathComments.map((comment, idx) => <p key={idx}>{comment}</p>) }
+          </>
         }
       </div>
     </>
