@@ -1,7 +1,6 @@
 import { useState, useEffect, useRef, Fragment } from "react";
 import { ReadResult } from "./ReadResult.tsx";
-import { Lv1ReadResult, Lv2ReadResult } from "./iointerfaces.ts";
-import reactLogo from "./assets/react.svg";
+import { Lv1ReadResult } from "./iointerfaces.ts";
 import { invoke } from "@tauri-apps/api/tauri";
 import { appWindow } from "@tauri-apps/api/window";
 import { watch } from "tauri-plugin-fs-watch-api";
@@ -39,16 +38,18 @@ async function waitForEvents(parent, children) {
   );
 }
 
-function findCommonPrefix(words: string[]): string|undefined {
+function findCommonPrefix(words: string[]): string | undefined {
   // check border cases size 1 array and empty first word)
-  if (!words[0] || words.length ==  1) return words[0] || "";
+  if (!words[0] || words.length == 1) return words[0] || "";
   let i = 0;
   // while all words have the same character at position i, increment i
-  while(words[0][i] && words.every(w => w[i] === words[0][i]))
+  while (words[0][i] && words.every(w => w[i] === words[0][i]))
     i++;
   // prefix is the substring from the beginning to the last successfully checked i
   return words[0].substr(0, i);
 }
+
+const COMPLETE_GRAPH_LABEL = "Complete graph";
 
 function App() {
 
@@ -128,7 +129,7 @@ function App() {
   }, [paths]);
 
   let filesRead = Array.from(readResults.keys());
-  let commonPrefix = findCommonPrefix(filesRead.filter((path) => path !== "Complete graph"));
+  let commonPrefix = findCommonPrefix(filesRead.filter((path) => path !== COMPLETE_GRAPH_LABEL));
 
   useEffect(() => void (async () => {
     if (!loading) {
@@ -143,7 +144,7 @@ function App() {
             await startWatching();
           }
           else {
-            setReadResults(new Map());
+            setReadResults(new Map<string, Lv1ReadResult>());
           }
           setLoading(false);
           break;
@@ -177,14 +178,14 @@ function App() {
         {
           loading ?
             <p>Please hold</p> :
-            <><div className="row">
+            <div className="row">
               {
                 /* Could split into separate component?
                  * long paths are irritating, by the way
                  * could compute common prefix for everything but complete graph
                  * would do this by folding
                  */
-                
+
                 Array.from(readResults.entries())
                   .map(([k, v]) => {
                     let icon = "✅";
@@ -204,21 +205,15 @@ function App() {
                         checked={pathToDisplayOnceRead === k}
                         onChange={onOptionChange}
                       />
-                      <label htmlFor={`radio-button-${k}`}>{commonPrefix !== k && k !== "Complete graph" ? `...${k.substring(commonPrefix.length)}` : k} {icon}</label>
+                      <label htmlFor={`radio-button-${k}`}>{commonPrefix !== k && k !== COMPLETE_GRAPH_LABEL ? `...${k.substring(commonPrefix.length)}` : k} {icon}</label>
                     </div>
                     )
                   })
               }
             </div>
-              {
-                // textarea positioning is unfortunate
-                // but can fix this later on
-              }
 
-              <textarea placeholder="enter whitespace-separated nodes that make up a learning path">
-
-              </textarea>
-            </>
+              
+            
         }
         {
           readResults.get(pathToDisplayOnceRead) ?
@@ -226,6 +221,11 @@ function App() {
               <p>Loading</p> :
               <ReadResult value={readResults.get(pathToDisplayOnceRead)} />) :
             <p>Cannot display anything with this input.</p>
+        }
+        {
+          loading || pathToDisplayOnceRead !== COMPLETE_GRAPH_LABEL ? <></> : <textarea placeholder="enter whitespace-separated nodes that make up a learning path">
+
+          </textarea>
         }
       </div>
     </>

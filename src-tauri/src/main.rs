@@ -190,7 +190,7 @@ struct ClusterGraphCommentsSvgTuple(Cluster, Graph, Vec<String>, String);
 
 fn node_dot_attributes(_: &Graph, node_ref: (NodeIndex, &NodeData)) -> String {
     // label specified last is used, so this overrides the auto-generated one
-    format!("label=\"{}\"", node_ref.1 .1)
+    format!("label=\"{}\" tooltip=\"{}\"", node_ref.1 .1, node_ref.1.0)
 }
 
 /// Given a sequence of filesystem paths, deserialize the cluster represented by each path and optionally run additional validation.
