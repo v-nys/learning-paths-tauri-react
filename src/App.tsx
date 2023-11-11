@@ -51,9 +51,6 @@ function App() {
   const stopCallbacks = useRef([]);
   // file and settings change really call for the same actions and have same level of precedence, so...
   const [eventToHandle, setEventToHandle] = useState<undefined|"fileorsettingschange"|"pathchange">(undefined);
-  const [checkRedundantEdges, setCheckRedundantEdges] = useState(true);
-  const [checkClusterBoundaries, setCheckClusterBoundaries] = useState(true);
-  const [checkMissingFiles, setCheckMissingFiles] = useState(true);
   /* Setting the type of event to handle is different depending on situation.
    * A path change just occurs when the input field is modified.
    * A file change is signaled from outside the component code.
@@ -72,7 +69,7 @@ function App() {
       if (!eventToHandle) {
         setEventToHandle("fileorsettingschange");
       }
-  }, [checkRedundantEdges,checkClusterBoundaries,checkMissingFiles]);
+  }, []);
 
   useEffect(() => {
     setEventToHandle("pathchange");
@@ -105,10 +102,7 @@ function App() {
   async function readFileContents() {
       let separatePaths = separateIntoUniquePaths(paths);
       let svgs = await invoke('read_contents',
-      { paths: separatePaths.join(";"),
-        checkRedundantEdges: checkRedundantEdges,
-        checkClusterBoundaries: checkClusterBoundaries,
-        checkMissingFiles: checkMissingFiles });
+      { paths: separatePaths.join(";") });
       let newReadResults = new Map<string,Lv1ReadResult>();
       svgs.forEach((pair) => { newReadResults.set(pair[0], pair[1]); });
       setReadResults(newReadResults);
@@ -162,45 +156,11 @@ function App() {
   return (
     <>
     <div className="container">
-      <div className="row">
-        <input
-	      type="checkbox"
-          id="redundant-edges-input"
-	      checked={checkRedundantEdges}
-          onChange={() => setCheckRedundantEdges(!checkRedundantEdges)}
-        />
-	    <label htmlFor="redundant-edges-input">check for redundant edges</label>
-      </div>
-
-      <div className="row">
-        <input
-	      type="checkbox"
-          id="cluster-boundaries-input"
-	      checked={checkClusterBoundaries}
-          onChange={() => setCheckClusterBoundaries(!checkClusterBoundaries)}
-        />
-	    <label htmlFor="cluster-boundaries-input">check cluster boundaries</label>
-	  </div>
-
-      <div className="row">
-        <input
-	      type="checkbox"
-          id="check-missing-files-input"
-	      checked={checkMissingFiles}
-          onChange={() => setCheckMissingFiles(!checkMissingFiles)}
-        />
-	    <label htmlFor="check-missing-files-input">check for missing files</label>
-	  </div>
-
-
-
-       <div className="row">
-        <input
+    <textarea
           id="files-input"
           onChange={(e) => setPaths(e.currentTarget.value)}
           placeholder="Enter &quot;;&quot;-separated paths"
         />
-      </div>
 
       {
         loading ?
@@ -239,7 +199,7 @@ function App() {
           // but can fix this later on
         }
         
-        <textarea placeholder="enter space-separated nodes that make up a learning path">
+        <textarea placeholder="enter whitespace-separated nodes that make up a learning path">
 
         </textarea>
         </>
