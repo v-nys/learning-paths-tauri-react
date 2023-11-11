@@ -16,6 +16,7 @@ use petgraph::{
     visit::{EdgeRef, IntoEdgeReferences, IntoNodeReferences},
 };
 use serde::Deserialize;
+use std::sync::{Mutex, MutexGuard};
 use std::{
     collections::{HashMap, HashSet},
     fmt,
@@ -187,8 +188,10 @@ struct ClusterGraphTuple(Cluster, Graph);
 struct CommentsSvgTuple(Vec<String>, String);
 
 
-
-
+#[derive(Default)]
+struct AppState {
+    voltron_with_roots: Mutex<Option<(Graph, Vec<String>)>>
+}
 
 fn node_dot_attributes(_: &Graph, node_ref: (NodeIndex, &NodeData)) -> String {
     // label specified last is used, so this overrides the auto-generated one
@@ -209,19 +212,26 @@ fn node_dot_attributes(_: &Graph, node_ref: (NodeIndex, &NodeData)) -> String {
 /// The function always produces an association list, but the associated values may be errors. This is because each cluster can be analyzed in isolation.
 ///
 #[tauri::command]
-fn read_contents(paths: &str) -> Vec<(&str, Result<(Vec<String>, String), String>)> {
+fn read_contents<'a>(paths: &'a str, state: tauri::State<'_, AppState>) -> Vec<(&'a str, Result<(Vec<String>, String), String>)> {
+    let mut app_state = state.voltron_with_roots.lock().expect("Should always be able to gain access eventually.");
+    app_state.take();
     let mut reader = RealFileReader {};
-    read_contents_with_dependencies(paths, reader, file_is_readable)
+    read_contents_with_dependencies(paths, reader, file_is_readable, app_state)
 }
 
-fn read_contents_with_dependencies<R: FileReader>(
-    paths: &str,
+fn read_contents_with_dependencies<'a, R: FileReader>(
+    paths: &'a str,
     mut reader: R,
     file_is_readable: fn(&Path) -> bool,
-) -> Vec<(&str, Result<(Vec<String>, String), String>)> {
+    mut app_state: MutexGuard<Option<(Graph,Vec<String>)>>,
+) -> Vec<(&'a str, Result<(Vec<String>, String), String>)> {
     let mut reader = RealFileReader {};
     let (components, voltron) =
         read_all_clusters_with_dependencies::<RealFileReader>(paths, &mut reader, file_is_readable);
+    match voltron.as_ref() {
+        Ok(voltron) => {app_state.insert(voltron.clone());},
+        _ => {}
+    }
     let components_svgs: Vec<_> = components
         .iter()
         .map(|result| result.as_ref().ok().map(|component| svgify(&component.1)))
@@ -1061,6 +1071,7 @@ mod tests {
 
 fn main() {
     tauri::Builder::default()
+        .manage(AppState::default())
         .plugin(tauri_plugin_fs_watch::init())
         .invoke_handler(tauri::generate_handler![
             read_contents,
