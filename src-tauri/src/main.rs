@@ -739,6 +739,8 @@ fn check_learning_path(voltron: &Graph, node_ids: Vec<&str>, roots: Vec<&str>) -
     // FIXME: pretty sure I am doing some redundant work here
     let motivations_graph = subgraph_with_edges(voltron, is_any_type);
     let dependency_to_dependent_graph = subgraph_with_edges(voltron, is_all_type);
+    eprintln!("Dependency graph:");
+    eprintln!("{:#?}", dependency_to_dependent_graph);
     let mut dependent_to_dependency_graph = dependency_to_dependent_graph.clone();
     dependent_to_dependency_graph.reverse();
     let dependent_to_dependency_toposort_order = toposort(&dependent_to_dependency_graph, None)
@@ -757,6 +759,13 @@ fn check_learning_path(voltron: &Graph, node_ids: Vec<&str>, roots: Vec<&str>) -
     let (_, dependent_to_dependency_tc) =
         dag_transitive_reduction_closure(&dependent_to_dependency_res);
 
+    eprintln!("Dependents to dependencies:");
+    // 4 nodes makes sense: all the Git nodes, plus the implementation node
+    // the introduction node is not here
+    eprintln!("{:#?}", dependent_to_dependency_res);
+    eprintln!("{:#?}", dependent_to_dependency_revmap);
+    eprintln!("{:#?}", dependent_to_dependency_tc);
+
     let (dependency_to_dependent_res, dependency_to_dependent_revmap) =
         dag_to_toposorted_adjacency_list(
             &dependency_to_dependent_graph,
@@ -774,13 +783,19 @@ fn check_learning_path(voltron: &Graph, node_ids: Vec<&str>, roots: Vec<&str>) -
         // also, the assumption here is that `roots` was already dealt with before
         // so can assume that anything specified in `roots` is, in fact, a root
         if !roots.contains(namespaced_id) {
-            match voltron
+            match dependency_to_dependent_graph
                 .node_references()
                 .filter(|(idx, weight)| &weight.0 == namespaced_id)
                 .collect::<Vec<_>>()
                 .get(0)
             {
+                // voor een gegeven node zoeken we de match in de oorspronkelijke graph
                 Some(matching_node) => {
+                    eprintln!("{:#?}", matching_node);
+                    // oké, loopt mis bij simpleproject__implementation, want die heeft node index 4
+                    // hmm, oké, probleem lijkt dat we de index uit de oorspronkelijke graph gebruiken
+                    // maar deze is vermoedelijk anders in de gereduceerde graphs
+                    // dus moet corresponderende index in de graph in kwestie nog opzoeken
                     let matching_node_idx = matching_node.0.index();
                     let hard_dependency_ids: HashSet<String> = dependent_to_dependency_tc
                         .neighbors(dependent_to_dependency_revmap[matching_node_idx])
@@ -924,7 +939,6 @@ mod tests {
         // TODO: could avoid writing two paths here...
         let (components_analysis, voltron_analysis) =
             read_all_clusters_with_dependencies("_;_", &mut reader, |_| true);
-        eprintln!("{:#?}", components_analysis);
         eprintln!("Voltron:");
         eprintln!("{:#?}", voltron_analysis);
         assert_eq!(reader.calls_made, 2);
