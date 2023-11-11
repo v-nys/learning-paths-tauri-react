@@ -184,10 +184,11 @@ type Graph = petgraph::Graph<NodeData, EdgeData>;
 
 #[derive(Debug)]
 struct ClusterGraphTuple(Cluster, Graph);
-struct ClusterGraphCommentsTuple(Cluster, Graph, Vec<String>);
-struct ClusterGraphCommentsDotTuple(Cluster, Graph, Vec<String>, String);
 struct CommentsSvgTuple(Vec<String>, String);
-struct ClusterGraphCommentsSvgTuple(Cluster, Graph, Vec<String>, String);
+
+
+
+
 
 fn node_dot_attributes(_: &Graph, node_ref: (NodeIndex, &NodeData)) -> String {
     // label specified last is used, so this overrides the auto-generated one
@@ -225,7 +226,7 @@ fn read_contents_with_dependencies<R: FileReader>(
         .iter()
         .map(|result| result.as_ref().ok().map(|component| svgify(&component.1)))
         .collect();
-    let voltron_svg = voltron.as_ref().ok().map(|voltron| svgify(voltron));
+    let voltron_svg = voltron.as_ref().ok().map(|(voltron,_roots)| svgify(voltron));
     let paths_and_components = paths.split(";").zip(&components);
     let components_comments: Vec<_> = paths_and_components
         .map(|(path, result)| {
@@ -237,7 +238,7 @@ fn read_contents_with_dependencies<R: FileReader>(
     let mut voltron_comments = vec![];
     match voltron {
         Ok(ref voltron) => {
-            comment_graph(voltron, &mut voltron_comments);
+            comment_graph(&voltron.0, &mut voltron_comments);
         }
         _ => {}
     };
@@ -298,7 +299,7 @@ fn read_all_clusters_with_dependencies<'a, T: FileReader>(
     file_is_readable: fn(&Path) -> bool,
 ) -> (
     Vec<Result<ClusterGraphTuple, anyhow::Error>>,
-    Result<Graph, anyhow::Error>,
+    Result<(Graph, Vec<String>), anyhow::Error>,
 ) {
     let paths = paths.split(";");
     let read_results = paths.clone().map(|p| reader.read_to_string(p)).collect();
@@ -392,8 +393,9 @@ fn voltronize_clusters(
     read_results: Vec<std::io::Result<String>>,
 ) -> (
     Vec<Result<ClusterGraphTuple, anyhow::Error>>,
-    Result<Graph, anyhow::Error>,
+    Result<(Graph, Vec<String>), anyhow::Error>,
 ) {
+    let mut all_roots: Vec<String> = vec![];
     let clusters = read_results.into_iter().map(|r| match r {
         Ok(ref text) => serde_yaml::from_str::<ClusterForSerialization>(text)
             .map_err(anyhow::Error::new)
@@ -437,8 +439,9 @@ fn voltronize_clusters(
                         let namespaced_root = format!("{}__{}", cluster.namespace_prefix, root);
                         if !identifier_to_index_map.contains_key(&namespaced_root) {
                             structural_errors
-                                .push(StructuralError::UndeclaredRoot(namespaced_root));
+                                .push(StructuralError::UndeclaredRoot(namespaced_root.clone()));
                         }
+                        all_roots.push(namespaced_root);
                     }),
                     _ => {}
                 }
@@ -671,7 +674,7 @@ fn voltronize_clusters(
                         graph.index(cycle.node_id()).0.clone(),
                     ))
                 })
-                .map(|_| graph)
+                .map(|_| (graph, all_roots))
         });
     (cluster_graph_tuples, complete_graph_result)
 }
@@ -730,7 +733,7 @@ fn subgraph_with_edges(parent: &Graph, predicate: impl Fn(&EdgeData) -> bool) ->
     subgraph
 }
 
-fn check_learning_path(voltron: &Graph, node_ids: Vec<&str>, roots: Vec<&str>) -> Vec<String> {
+fn check_learning_path((voltron, roots): &(Graph, Vec<String>), node_ids: Vec<&str>) -> Vec<String> {
     // TODO: consider combining the &Graph with roots?
     // might clarify that they belong together
     // might even refactor the voltronize_clusters function to also return the roots, would be feasible
@@ -761,12 +764,6 @@ fn check_learning_path(voltron: &Graph, node_ids: Vec<&str>, roots: Vec<&str>) -
     let (_, dependent_to_dependency_tc) =
         dag_transitive_reduction_closure(&dependent_to_dependency_res);
 
-    eprintln!("Dependents to dependencies:");
-    // 4 nodes makes sense: all the Git nodes, plus the implementation node
-    // the introduction node is not here
-    eprintln!("{:#?}", dependent_to_dependency_res);
-    eprintln!("{:#?}", dependent_to_dependency_revmap);
-    eprintln!("{:#?}", dependent_to_dependency_tc);
 
     let (dependency_to_dependent_res, dependency_to_dependent_revmap) =
         dag_to_toposorted_adjacency_list(
@@ -779,26 +776,15 @@ fn check_learning_path(voltron: &Graph, node_ids: Vec<&str>, roots: Vec<&str>) -
     let mut seen_nodes = HashSet::new();
     for (index, namespaced_id) in node_ids.iter().enumerate() {
         let human_index = index + 1;
-        // non-root: must have all its hard dependencies met
-        // must also be motivated, or have a motivated dependent
-        // no need to check root nodes:
-        // a Voltron can only be produced if roots are not dependent on anything
-        // also, the assumption here is that `roots` was already dealt with before
-        // so can assume that anything specified in `roots` is, in fact, a root
-        if !roots.contains(namespaced_id) {
+        if !roots.contains(&namespaced_id.to_string()) {
             match dependency_to_dependent_graph
                 .node_references()
                 .filter(|(idx, weight)| &weight.0 == namespaced_id)
                 .collect::<Vec<_>>()
                 .get(0)
             {
-                // voor een gegeven node zoeken we de match in de oorspronkelijke graph
                 Some(matching_node) => {
                     eprintln!("{:#?}", matching_node);
-                    // oké, loopt mis bij simpleproject__implementation, want die heeft node index 4
-                    // hmm, oké, probleem lijkt dat we de index uit de oorspronkelijke graph gebruiken
-                    // maar deze is vermoedelijk anders in de gereduceerde graphs
-                    // dus moet corresponderende index in de graph in kwestie nog opzoeken
                     let matching_node_idx = matching_node.0.index();
                     let hard_dependency_ids: HashSet<String> = dependent_to_dependency_tc
                         .neighbors(dependent_to_dependency_revmap[matching_node_idx])
@@ -924,7 +910,6 @@ mod tests {
                 "git__what_is_version_control",
                 "git__installation_prerequisites",
             ],
-            vec![],
         );
         assert_eq!(comments,
             vec![
@@ -955,7 +940,7 @@ mod tests {
                 "git__what_is_local_version_control",
                 "simpleproject__implementation",
             ],
-            vec!["simpleproject__introduction"],
+            
         );
         assert!(comments.is_empty());
     }
@@ -980,7 +965,6 @@ mod tests {
                 "git__what_is_local_version_control",
                 "simpleproject__implementation",
             ],
-            vec!["simpleproject__introduction"],
         );
         assert_eq!(comments,
             vec!["Node 1 (git__what_is_version_control) is not motivated by any predecessor, nor are any of its dependents.",
@@ -1009,7 +993,6 @@ mod tests {
                 "git__what_is_local_version_control",
                 "simpleproject__implementation",
             ],
-            vec!["simpleproject__introduction"],
         );
         assert_eq!(comments,
             vec![
