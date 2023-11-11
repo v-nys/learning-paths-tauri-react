@@ -205,19 +205,18 @@ function App() {
       {
         loading ?
         <p>Please hold</p> :
-        <div className="row">
+        <><div className="row">
             {
-            /* Could split into separate component? */
+            /* Could split into separate component?
+            */
              Array.from(readResults.entries())
                    .map(([k,v]) => {
                 let icon = "✅";
+                console.debug([k,v]);
                 if (v.Err) {
                   icon = "✖️"
                 }
-                else if (v.Ok.Err) {
-                  icon = "⁉️"
-                }
-                else if (v.Ok.Ok[1].length > 0) {
+                else if (v.Ok[0].length > 0) {
                   icon = "⚠️"
                 }
                 return (<Fragment key={k}>
@@ -233,8 +232,17 @@ function App() {
                         </Fragment>
                        )
               })
-            }
+            } 
         </div>
+        {
+          // textarea positioning is unfortunate
+          // but can fix this later on
+        }
+        
+        <textarea placeholder="enter space-separated nodes that make up a learning path">
+
+        </textarea>
+        </>
       }
       {
         readResults.get(pathToDisplayOnceRead) ?
