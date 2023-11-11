@@ -30,7 +30,7 @@ use std::{
 ///
 /// A `Node` represents knowledge that can be processed as one whole.
 /// It does not need to be entirely standalone, as it can have dependencies in the form of `Edge` values.
-#[derive(Deserialize, Clone)]
+#[derive(Deserialize, Clone, Debug)]
 struct Node {
     /// An ID should be unique and is used to refer to it inside its `Cluster`.
     ///
@@ -55,7 +55,7 @@ enum EdgeType {
     AtLeastOne,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 struct TypedEdge {
     start_id: String,
     end_id: String,
@@ -69,7 +69,7 @@ struct TypedEdge {
 /// A `Cluster` has a (non-nested) namespace prefix, which can be used to refer to nodes in the `Cluster`.
 /// E.g. if a `Cluster's` namespace prefix is `"foo"` and the `Cluster` contains a `Node` whose ID is `bar`, this node can be referred to as `foo__bar`.
 /// The namespace and node ID are always separated by `"__"`.
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 struct Cluster {
     namespace_prefix: String,
     nodes: Vec<Node>,
@@ -176,15 +176,11 @@ impl std::error::Error for StructuralErrorGrouping {
     // source is not mandatory and would be odd here
 }
 
-/*enum Dependency {
-    Requirement(Directed),
-    Motivation(Directed),
-}*/
-
 type NodeData = (String, String);
 type EdgeData = EdgeType;
 type Graph = petgraph::Graph<NodeData, EdgeData>;
 
+#[derive(Debug)]
 struct ClusterGraphTuple(Cluster, Graph);
 struct ClusterGraphCommentsTuple(Cluster, Graph, Vec<String>);
 struct ClusterGraphCommentsDotTuple(Cluster, Graph, Vec<String>, String);
@@ -748,17 +744,21 @@ fn check_learning_path(voltron: &Graph, node_ids: Vec<&str>, roots: Vec<&str>) -
         .expect(
             "This function should only be called for graphs which have already been cycle-checked.",
         );
-    let (res, dependent_to_dependency_revmap) = dag_to_toposorted_adjacency_list(
-        &dependent_to_dependency_graph,
-        &dependent_to_dependency_toposort_order,
-    );
-    let (_, dependent_to_dependency_tc) = dag_transitive_reduction_closure(&res);
+    let (dependent_to_dependency_res, dependent_to_dependency_revmap) =
+        dag_to_toposorted_adjacency_list(
+            &dependent_to_dependency_graph,
+            &dependent_to_dependency_toposort_order,
+        );
+    let (_, dependent_to_dependency_tc) =
+        dag_transitive_reduction_closure(&dependent_to_dependency_res);
 
-    let (res, dependency_to_dependent_revmap) = dag_to_toposorted_adjacency_list(
-        &dependency_to_dependent_graph,
-        &dependency_to_dependent_toposort_order,
-    );
-    let (_, dependency_to_dependent_tc) = dag_transitive_reduction_closure(&res);
+    let (dependency_to_dependent_res, dependency_to_dependent_revmap) =
+        dag_to_toposorted_adjacency_list(
+            &dependency_to_dependent_graph,
+            &dependency_to_dependent_toposort_order,
+        );
+    let (_, dependency_to_dependent_tc) =
+        dag_transitive_reduction_closure(&dependency_to_dependent_res);
 
     let mut seen_nodes = HashSet::new();
     for (index, namespaced_id) in node_ids.iter().enumerate() {
@@ -766,6 +766,8 @@ fn check_learning_path(voltron: &Graph, node_ids: Vec<&str>, roots: Vec<&str>) -
         // must also be motivated, or have a motivated dependent
         // no need to check root nodes:
         // a Voltron can only be produced if roots are not dependent on anything
+        // also, the assumption here is that `roots` was already dealt with before
+        // so can assume that anything specified in `roots` is, in fact, a root
         if !roots.contains(namespaced_id) {
             match voltron
                 .node_references()
@@ -774,8 +776,23 @@ fn check_learning_path(voltron: &Graph, node_ids: Vec<&str>, roots: Vec<&str>) -
                 .get(0)
             {
                 Some(matching_node) => {
+                    let matching_node_idx = matching_node.0.index();
+                    eprintln!("{:#?}", namespaced_id);
+                    eprintln!("{:#?}", matching_node_idx);
+                    // this does not look right
+                    // it is empty
+                    eprintln!("{:#?}", dependent_to_dependency_revmap);
+                    // does that mean the reciprocal is empty, too?
+                    eprintln!("{:#?}", dependent_to_dependency_res);
+                    // seems that way!
+                    // what about the graph?
+                    eprintln!("{:#?}", dependent_to_dependency_graph);
+                    // yup
+                    // what about voltron?
+                    eprintln!("{:#?}", voltron);
+                    // kind of! no edges!
                     let hard_dependency_ids: HashSet<String> = dependent_to_dependency_tc
-                        .neighbors(dependent_to_dependency_revmap[matching_node.0.index()])
+                        .neighbors(dependent_to_dependency_revmap[matching_node_idx])
                         .map(|ix: NodeIndex| dependent_to_dependency_toposort_order[ix.index()])
                         .filter_map(|idx| {
                             dependent_to_dependency_graph
@@ -830,6 +847,8 @@ fn check_learning_path(voltron: &Graph, node_ids: Vec<&str>, roots: Vec<&str>) -
                     ));
                 }
             }
+        } else {
+            seen_nodes.insert(namespaced_id.to_string());
         }
     }
 
@@ -841,8 +860,8 @@ mod tests {
     use std::{collections::HashMap, path::Path};
 
     use crate::{
-        associate_parents_children, comment_cluster, read_all_clusters_with_dependencies, svgify,
-        ClusterGraphTuple,
+        associate_parents_children, check_learning_path, comment_cluster,
+        read_all_clusters_with_dependencies, svgify, ClusterGraphTuple,
     };
 
     struct MockFileReader<'a> {
@@ -882,8 +901,30 @@ mod tests {
             let comments = comment_cluster(&cluster, &graph, "_", |_| true);
             assert!(comments.is_empty());
             assert_eq!(reader.calls_made, 1);
+            assert_eq!(cluster.edges.len(), 2);
         });
-        todo!("Test Voltron")
+    }
+
+    #[test]
+    fn check_learning_path_trivial_cluster() {
+        let mut reader = MockFileReader::new(vec![&Path::new("tests/git.yaml")]);
+        let (component_analysis, voltron_analysis) =
+            read_all_clusters_with_dependencies("_", &mut reader, |_| true);
+        eprintln!("{:#?}", voltron_analysis);
+        let comments = check_learning_path(
+            &voltron_analysis.unwrap(),
+            vec![
+                "git__what_is_version_control",
+                "git__installation_prerequisites",
+            ],
+            vec![],
+        );
+        assert_eq!(comments,
+            vec![
+                "Node 0 (git__what_is_version_control) has is not motivated by any predecessor, nor are any of its dependents.",
+                "Node 1 (git__installation_prerequisites) has is not motivated by any predecessor, nor are any of its dependents."
+            ]
+        );
     }
 
     // TODO: multi-cluster test

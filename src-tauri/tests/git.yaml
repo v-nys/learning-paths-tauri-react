@@ -8,7 +8,7 @@ nodes:
     title: "Installation prerequisites"
   - id: what_is_local_version_control
     title: "What is local version control?"
-edges:
+all_type_edges:
   - start_id: what_is_version_control
     end_id: installation_prerequisites
   - start_id: installation_prerequisites
