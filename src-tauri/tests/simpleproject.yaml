@@ -5,7 +5,7 @@ nodes:
   - id: implementation
     title: "Implementation"
 all_type_edges:
-  - start_id: git__what_is_local_version_control
+  - start_id: technicalinfo__concept_C
     end_id: implementation
 one_type_edges:
   - start_id: introduction
