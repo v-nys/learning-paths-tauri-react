@@ -136,7 +136,6 @@ enum StructuralError {
     UndeclaredRoot(String),
     IncomingAnyEdge(String, String),
     OutgoingAllEdge(String, String),
-    UnreadableNodeContents(String,String),           // cluster name, node name
 }
 
 impl fmt::Display for StructuralError {
@@ -153,7 +152,6 @@ impl fmt::Display for StructuralError {
             Self::UndeclaredRoot(id) => write!(f, "Root {} is not declared as a node in the cluster.", id),
             Self::IncomingAnyEdge(start_id,end_id) => write!(f, "\"At least one\" type edge from {} to {}. These edges can only connect to other clusters in the \"out\" direction.", start_id, end_id),
             Self::OutgoingAllEdge(start_id,end_id) => write!(f, "\"All\" type edge from {} to {}. These edges can only connect to other clusters in the \"in\" direction.", start_id, end_id),
-            Self::UnreadableNodeContents(cluster_name, node_name) => write!(f, "Cannot read contents.md for node {}__{}", cluster_name, node_name),
         }
     }
 }
@@ -438,12 +436,12 @@ fn voltronize_clusters(
             Ok(ref text) => serde_yaml::from_str::<ClusterForSerialization>(text)
                 .map_err(anyhow::Error::new)
                 .and_then(|cfs| {
-                    let cluster_name = p
-                        .file_name()
-                        .map(|osstr| osstr.to_owned().into_string());
+                    let cluster_name = p.file_name().map(|osstr| osstr.to_owned().into_string());
                     match cluster_name {
                         Some(Ok(cluster_name)) => Ok(cfs.build(cluster_name)),
-                        _ => Err(anyhow::Error::msg("Could not derive cluster name from path."))
+                        _ => Err(anyhow::Error::msg(
+                            "Could not derive cluster name from path.",
+                        )),
                     }
                 }),
             Err(e) => Err(anyhow::Error::new(e)),
@@ -478,6 +476,9 @@ fn voltronize_clusters(
                             structural_errors
                                 .push(StructuralError::DoubleNode(definitely_namespaced_key));
                         }
+                        // TODO: checken op aanwezigheid leesbare contents.md?
+                        // ANDERZIJDS: telt dit als structural error, of is het een IO error?
+                        // eerder dat laatste, toch?
                     }
                 }
                 match &cluster.roots {
@@ -617,6 +618,17 @@ fn voltronize_clusters(
             })
         })
         .collect();
+
+    // kan hier mappen over zip van read_results en cluster_graph_tuples om IO errors voor contents.md te signaleren
+    // kan dus een error invullen in geval van een IO probleem
+    let cluster_graph_tuples = cluster_graph_tuples
+        .into_iter()
+        .zip(read_results)
+        .map(|(cluster_graph_tuple,ReadResultForPath(res,path))| {
+            cluster_graph_tuple.and_then(|ClusterGraphTuple(cluster,graph)| {
+                // TODO: return an Err value if any node in the cluster cannot be associated with a readable contents.md file
+            })
+        });
 
     let cluster_graph_pairs_result =
         cluster_graph_tuples
@@ -966,11 +978,11 @@ mod tests {
     fn check_learning_path_trivial_cluster() {
         let mut reader =
             MockFileReader::new(vec![&Path::new("tests/technicalinfo/contents.lc.yaml")]);
-        let (_, voltron_analysis) = read_all_clusters_with_dependencies("technicalinfo", &mut reader, |_| true);
+        let (_, voltron_analysis) =
+            read_all_clusters_with_dependencies("technicalinfo", &mut reader, |_| true);
         let comments = check_learning_path(
             &voltron_analysis.unwrap(),
-            vec!["technicalinfo__concept_A",
-                 "technicalinfo__concept_B"],
+            vec!["technicalinfo__concept_A", "technicalinfo__concept_B"],
         );
         assert_eq!(comments,
             vec![
@@ -988,7 +1000,9 @@ mod tests {
         ]);
         // TODO: could avoid writing two paths here...
         let (components_analysis, voltron_analysis) =
-            read_all_clusters_with_dependencies("technicalinfo;simpleproject", &mut reader, |_| true);
+            read_all_clusters_with_dependencies("technicalinfo;simpleproject", &mut reader, |_| {
+                true
+            });
         assert_eq!(reader.calls_made, 2);
         let comments = check_learning_path(
             &voltron_analysis.unwrap(),
@@ -1012,7 +1026,9 @@ mod tests {
         ]);
         // TODO: could avoid writing two paths here...
         let (_, voltron_analysis) =
-            read_all_clusters_with_dependencies("technicalinfo;simpleproject", &mut reader, |_| true);
+            read_all_clusters_with_dependencies("technicalinfo;simpleproject", &mut reader, |_| {
+                true
+            });
         assert_eq!(reader.calls_made, 2);
         let comments = check_learning_path(
             &voltron_analysis.unwrap(),
@@ -1040,7 +1056,9 @@ mod tests {
         ]);
         // TODO: could avoid writing two paths here...
         let (_, voltron_analysis) =
-            read_all_clusters_with_dependencies("technicalinfo;simpleproject", &mut reader, |_| true);
+            read_all_clusters_with_dependencies("technicalinfo;simpleproject", &mut reader, |_| {
+                true
+            });
         assert_eq!(reader.calls_made, 2);
         let comments = check_learning_path(
             &voltron_analysis.unwrap(),
