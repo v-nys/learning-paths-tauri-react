@@ -1031,7 +1031,20 @@ mod tests {
         "Node 5 (simpleproject__implementation) has unmet dependency technicalinfo__concept_A.",]
         );
     }
-    // TODO: cycle test
+
+    #[test]
+    fn check_structural_error_cycle() {
+        let mut reader = MockFileReader::new(vec![&Path::new("tests/technicalinfo_cycle.yaml")]);
+        let (components_analysis, voltron_analysis) =
+            read_all_clusters_with_dependencies("_", &mut reader, |_| true);
+        assert_eq!(reader.calls_made, 1);
+        // TODO: could check for specific error type
+        assert!(components_analysis
+            .get(0)
+            .is_some_and(|analysis| analysis.is_err()));
+        assert!(voltron_analysis.is_err());
+    }
+
     // TODO: mix of correctly read and incorrectly read results
     // TODO: test for various structural errors
 

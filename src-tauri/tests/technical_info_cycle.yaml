@@ -1,0 +1,15 @@
+namespace_prefix: technicalinfo
+nodes:
+  - id: concept_A
+    title: "Concept A"
+  - id: concept_B
+    title: "Concept B"
+  - id: concept_C
+    title: "Concept C"
+all_type_edges:
+  - start_id: concept_A
+    end_id: concept_B
+  - start_id: concept_B
+    end_id: concept_C
+  - start_id: concept_C
+    end_id: concept_A
