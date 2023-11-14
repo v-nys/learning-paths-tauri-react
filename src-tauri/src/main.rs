@@ -136,6 +136,7 @@ enum StructuralError {
     UndeclaredRoot(String),
     IncomingAnyEdge(String, String),
     OutgoingAllEdge(String, String),
+    UnreadableNodeContents(String,String),           // cluster name, node name
 }
 
 impl fmt::Display for StructuralError {
@@ -152,6 +153,7 @@ impl fmt::Display for StructuralError {
             Self::UndeclaredRoot(id) => write!(f, "Root {} is not declared as a node in the cluster.", id),
             Self::IncomingAnyEdge(start_id,end_id) => write!(f, "\"At least one\" type edge from {} to {}. These edges can only connect to other clusters in the \"out\" direction.", start_id, end_id),
             Self::OutgoingAllEdge(start_id,end_id) => write!(f, "\"All\" type edge from {} to {}. These edges can only connect to other clusters in the \"in\" direction.", start_id, end_id),
+            Self::UnreadableNodeContents(cluster_name, node_name) => write!(f, "Cannot read contents.md for node {}__{}", cluster_name, node_name),
         }
     }
 }
