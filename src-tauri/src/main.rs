@@ -947,7 +947,7 @@ mod tests {
     fn read_trivial_cluster() {
         let mut reader =
             MockFileReader::new(vec![&Path::new("tests/technicalinfo/contents.lc.yaml")]);
-        let (component_analysis, voltron_analysis) =
+        let (component_analysis, _voltron_analysis) =
             read_all_clusters_with_dependencies("_", &mut reader, |_| true);
         assert_eq!(component_analysis.len(), 1);
         assert!(component_analysis.get(0).as_ref().is_some());
@@ -964,7 +964,7 @@ mod tests {
     fn check_learning_path_trivial_cluster() {
         let mut reader =
             MockFileReader::new(vec![&Path::new("tests/technicalinfo/contents.lc.yaml")]);
-        let (_, voltron_analysis) = read_all_clusters_with_dependencies("_", &mut reader, |_| true);
+        let (_, voltron_analysis) = read_all_clusters_with_dependencies("technicalinfo", &mut reader, |_| true);
         let comments = check_learning_path(
             &voltron_analysis.unwrap(),
             vec!["technicalinfo__concept_A",
@@ -986,7 +986,7 @@ mod tests {
         ]);
         // TODO: could avoid writing two paths here...
         let (components_analysis, voltron_analysis) =
-            read_all_clusters_with_dependencies("_;_", &mut reader, |_| true);
+            read_all_clusters_with_dependencies("technicalinfo;simpleproject", &mut reader, |_| true);
         assert_eq!(reader.calls_made, 2);
         let comments = check_learning_path(
             &voltron_analysis.unwrap(),
@@ -1010,7 +1010,7 @@ mod tests {
         ]);
         // TODO: could avoid writing two paths here...
         let (_, voltron_analysis) =
-            read_all_clusters_with_dependencies("_;_", &mut reader, |_| true);
+            read_all_clusters_with_dependencies("technicalinfo;simpleproject", &mut reader, |_| true);
         assert_eq!(reader.calls_made, 2);
         let comments = check_learning_path(
             &voltron_analysis.unwrap(),
@@ -1038,7 +1038,7 @@ mod tests {
         ]);
         // TODO: could avoid writing two paths here...
         let (_, voltron_analysis) =
-            read_all_clusters_with_dependencies("_;_", &mut reader, |_| true);
+            read_all_clusters_with_dependencies("technicalinfo;simpleproject", &mut reader, |_| true);
         assert_eq!(reader.calls_made, 2);
         let comments = check_learning_path(
             &voltron_analysis.unwrap(),
