@@ -3,8 +3,7 @@
 
 use anyhow;
 use graphviz_rust::{cmd::Format, exec, printer::PrinterContext};
-use petgraph::graph::DefaultIx;
-use petgraph::prelude::*;
+use schemars::{JsonSchema, schema};
 use petgraph::visit::IntoNeighbors;
 use petgraph::{
     algo::{
@@ -31,7 +30,7 @@ use std::{
 ///
 /// A `Node` represents knowledge that can be processed as one whole.
 /// It does not need to be entirely standalone, as it can have dependencies in the form of `Edge` values.
-#[derive(Deserialize, Clone, Debug)]
+#[derive(Deserialize, Clone, Debug, JsonSchema)]
 struct Node {
     /// An ID should be unique and is used to refer to it inside its `Cluster`.
     ///
@@ -44,7 +43,7 @@ struct Node {
     files: Option<Vec<String>>,
 }
 
-#[derive(Deserialize, Clone)]
+#[derive(Deserialize, Clone, JsonSchema)]
 struct Edge {
     start_id: String,
     end_id: String,
@@ -78,7 +77,7 @@ struct Cluster {
     roots: Option<Vec<String>>,
 }
 
-#[derive(Deserialize, Clone)]
+#[derive(Deserialize, Clone, JsonSchema)]
 #[serde(deny_unknown_fields)]
 struct ClusterForSerialization {
     namespace_prefix: String,
@@ -921,7 +920,7 @@ mod tests {
 
     #[test]
     fn read_trivial_cluster() {
-        let mut reader = MockFileReader::new(vec![&Path::new("tests/technicalinfo.yaml")]);
+        let mut reader = MockFileReader::new(vec![&Path::new("tests/technicalinfo.lc.yaml")]);
         let (component_analysis, voltron_analysis) =
             read_all_clusters_with_dependencies("_", &mut reader, |_| true);
         assert_eq!(component_analysis.len(), 1);
@@ -937,7 +936,7 @@ mod tests {
 
     #[test]
     fn check_learning_path_trivial_cluster() {
-        let mut reader = MockFileReader::new(vec![&Path::new("tests/technicalinfo.yaml")]);
+        let mut reader = MockFileReader::new(vec![&Path::new("tests/technicalinfo.lc.yaml")]);
         let (_, voltron_analysis) = read_all_clusters_with_dependencies("_", &mut reader, |_| true);
         let comments = check_learning_path(
             &voltron_analysis.unwrap(),
@@ -954,8 +953,8 @@ mod tests {
     #[test]
     fn check_valid_learning_path_two_small_clusters() {
         let mut reader = MockFileReader::new(vec![
-            &Path::new("tests/technicalinfo.yaml"),
-            &Path::new("tests/simpleproject.yaml"),
+            &Path::new("tests/technicalinfo.lc.yaml"),
+            &Path::new("tests/simpleproject.lc.yaml"),
         ]);
         // TODO: could avoid writing two paths here...
         let (components_analysis, voltron_analysis) =
@@ -978,8 +977,8 @@ mod tests {
     #[test]
     fn check_invalid_learning_path_two_small_clusters_missing_root() {
         let mut reader = MockFileReader::new(vec![
-            &Path::new("tests/technicalinfo.yaml"),
-            &Path::new("tests/simpleproject.yaml"),
+            &Path::new("tests/technicalinfo.lc.yaml"),
+            &Path::new("tests/simpleproject.lc.yaml"),
         ]);
         // TODO: could avoid writing two paths here...
         let (_, voltron_analysis) =
@@ -1006,8 +1005,8 @@ mod tests {
     #[test]
     fn check_invalid_learning_path_two_small_clusters_missing_dependency() {
         let mut reader = MockFileReader::new(vec![
-            &Path::new("tests/technicalinfo.yaml"),
-            &Path::new("tests/simpleproject.yaml"),
+            &Path::new("tests/technicalinfo.lc.yaml"),
+            &Path::new("tests/simpleproject.lc.yaml"),
         ]);
         // TODO: could avoid writing two paths here...
         let (_, voltron_analysis) =
@@ -1034,7 +1033,7 @@ mod tests {
 
     #[test]
     fn check_structural_error_cycle() {
-        let mut reader = MockFileReader::new(vec![&Path::new("tests/technicalinfo_cycle.yaml")]);
+        let mut reader = MockFileReader::new(vec![&Path::new("tests/technicalinfo_cycle.lc.yaml")]);
         let (components_analysis, voltron_analysis) =
             read_all_clusters_with_dependencies("_", &mut reader, |_| true);
         assert_eq!(reader.calls_made, 1);
@@ -1104,6 +1103,8 @@ mod tests {
 }
 
 fn main() {
+    let schema = schemars::schema_for!(ClusterForSerialization);
+    println!("{}", serde_json::to_string_pretty(&schema).unwrap());
     tauri::Builder::default()
         .manage(AppState::default())
         .plugin(tauri_plugin_fs_watch::init())
