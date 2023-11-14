@@ -1,4 +1,3 @@
-namespace_prefix: technicalinfo
 nodes:
   - id: concept_A
     title: "Concept A"

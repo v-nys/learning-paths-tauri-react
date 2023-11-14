@@ -3,7 +3,6 @@
 
 use anyhow;
 use graphviz_rust::{cmd::Format, exec, printer::PrinterContext};
-use schemars::{JsonSchema, schema};
 use petgraph::visit::IntoNeighbors;
 use petgraph::{
     algo::{
@@ -14,7 +13,9 @@ use petgraph::{
     graph::NodeIndex,
     visit::{EdgeRef, IntoEdgeReferences, IntoNodeReferences},
 };
+use schemars::{schema, JsonSchema};
 use serde::Deserialize;
+use std::path::PathBuf;
 use std::sync::{Mutex, MutexGuard};
 use std::{
     collections::{HashMap, HashSet},
@@ -80,8 +81,6 @@ struct Cluster {
 #[derive(Deserialize, Clone, JsonSchema)]
 #[serde(deny_unknown_fields)]
 struct ClusterForSerialization {
-    /// This uniquely identifies the `Cluster` and allows references to its nodes to be made from inside other `Cluster`s. 
-    namespace_prefix: String,
     /// Units of information inside this `Cluster`.
     nodes: Vec<Node>,
     /// Strict dependencies. A non-root `Node` can only be accessed if all of its dependencies of this type have been marked complete, along with one interchangeable dependency of this `Node` or of a `Node` which is strictly dependent on this `Node`.
@@ -93,9 +92,9 @@ struct ClusterForSerialization {
 }
 
 impl ClusterForSerialization {
-    fn build(self) -> Cluster {
+    fn build(self, folder_name: String) -> Cluster {
         Cluster {
-            namespace_prefix: self.namespace_prefix,
+            namespace_prefix: folder_name,
             nodes: self.nodes,
             edges: self
                 .all_type_edges
@@ -190,6 +189,8 @@ type Graph = petgraph::Graph<NodeData, EdgeData>;
 #[derive(Debug)]
 struct ClusterGraphTuple(Cluster, Graph);
 struct CommentsSvgTuple(Vec<String>, String);
+
+struct ReadResultForPath(Result<String, std::io::Error>, String);
 
 #[derive(Default)]
 struct AppState {
@@ -325,8 +326,17 @@ fn read_all_clusters_with_dependencies<'a, T: FileReader>(
     Vec<Result<ClusterGraphTuple, anyhow::Error>>,
     Result<(Graph, Vec<String>), anyhow::Error>,
 ) {
-    let paths = paths.split(";");
-    let read_results = paths.clone().map(|p| reader.read_to_string(p)).collect();
+    let paths = paths.split(";").map(|p| PathBuf::from(p));
+    // FIXME: 
+    // p will be a folder
+    // still need to retain p: whole path is needed to locate files
+    let read_results = paths
+        .clone()
+        .map(|p| {
+            let yaml_location = p.join("contents.lc.yaml");
+            (reader.read_to_string(yaml_location), p)
+        })
+        .collect();
     voltronize_clusters(read_results)
 }
 
@@ -414,7 +424,7 @@ fn comment_cluster(
 // also need something that will check a learning path (which does not require comments or SVG's)
 
 fn voltronize_clusters(
-    read_results: Vec<std::io::Result<String>>,
+    read_results: Vec<ReadResultForPath>,
 ) -> (
     Vec<Result<ClusterGraphTuple, anyhow::Error>>,
     Result<(Graph, Vec<String>), anyhow::Error>,
@@ -925,7 +935,8 @@ mod tests {
 
     #[test]
     fn read_trivial_cluster() {
-        let mut reader = MockFileReader::new(vec![&Path::new("tests/technicalinfo/contents.lc.yaml")]);
+        let mut reader =
+            MockFileReader::new(vec![&Path::new("tests/technicalinfo/contents.lc.yaml")]);
         let (component_analysis, voltron_analysis) =
             read_all_clusters_with_dependencies("_", &mut reader, |_| true);
         assert_eq!(component_analysis.len(), 1);
@@ -941,7 +952,8 @@ mod tests {
 
     #[test]
     fn check_learning_path_trivial_cluster() {
-        let mut reader = MockFileReader::new(vec![&Path::new("tests/technicalinfo/contents.lc.yaml")]);
+        let mut reader =
+            MockFileReader::new(vec![&Path::new("tests/technicalinfo/contents.lc.yaml")]);
         let (_, voltron_analysis) = read_all_clusters_with_dependencies("_", &mut reader, |_| true);
         let comments = check_learning_path(
             &voltron_analysis.unwrap(),
@@ -1038,7 +1050,9 @@ mod tests {
 
     #[test]
     fn check_structural_error_cycle() {
-        let mut reader = MockFileReader::new(vec![&Path::new("tests/technicalinfo_cycle/contents.lc.yaml")]);
+        let mut reader = MockFileReader::new(vec![&Path::new(
+            "tests/technicalinfo_cycle/contents.lc.yaml",
+        )]);
         let (components_analysis, voltron_analysis) =
             read_all_clusters_with_dependencies("_", &mut reader, |_| true);
         assert_eq!(reader.calls_made, 1);
