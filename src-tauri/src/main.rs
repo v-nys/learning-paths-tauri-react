@@ -84,7 +84,7 @@ struct ClusterForSerialization {
     namespace_prefix: String,
     nodes: Vec<Node>,
     all_type_edges: Option<Vec<Edge>>,
-    one_type_edges: Option<Vec<Edge>>,
+    any_type_edges: Option<Vec<Edge>>,
     roots: Option<Vec<String>>,
 }
 
@@ -103,7 +103,7 @@ impl ClusterForSerialization {
                     kind: EdgeType::All,
                 })
                 .chain(
-                    self.one_type_edges
+                    self.any_type_edges
                         .unwrap_or_default()
                         .into_iter()
                         .map(|e| TypedEdge {
@@ -187,15 +187,14 @@ type Graph = petgraph::Graph<NodeData, EdgeData>;
 struct ClusterGraphTuple(Cluster, Graph);
 struct CommentsSvgTuple(Vec<String>, String);
 
-
 #[derive(Default)]
 struct AppState {
-    voltron_with_roots: Mutex<Option<(Graph, Vec<String>)>>
+    voltron_with_roots: Mutex<Option<(Graph, Vec<String>)>>,
 }
 
 fn node_dot_attributes(_: &Graph, node_ref: (NodeIndex, &NodeData)) -> String {
     // label specified last is used, so this overrides the auto-generated one
-    format!("label=\"{}\" tooltip=\"{}\"", node_ref.1 .1, node_ref.1.0)
+    format!("label=\"{}\" tooltip=\"{}\"", node_ref.1 .1, node_ref.1 .0)
 }
 
 /// Given a sequence of filesystem paths, deserialize the cluster represented by each path and optionally run additional validation.
@@ -212,8 +211,14 @@ fn node_dot_attributes(_: &Graph, node_ref: (NodeIndex, &NodeData)) -> String {
 /// The function always produces an association list, but the associated values may be errors. This is because each cluster can be analyzed in isolation.
 ///
 #[tauri::command]
-fn read_contents<'a>(paths: &'a str, state: tauri::State<'_, AppState>) -> Vec<(&'a str, Result<(Vec<String>, String), String>)> {
-    let mut app_state = state.voltron_with_roots.lock().expect("Should always be able to gain access eventually.");
+fn read_contents<'a>(
+    paths: &'a str,
+    state: tauri::State<'_, AppState>,
+) -> Vec<(&'a str, Result<(Vec<String>, String), String>)> {
+    let mut app_state = state
+        .voltron_with_roots
+        .lock()
+        .expect("Should always be able to gain access eventually.");
     app_state.take();
     let mut reader = RealFileReader {};
     read_contents_with_dependencies(paths, reader, file_is_readable, app_state)
@@ -223,20 +228,25 @@ fn read_contents_with_dependencies<'a, R: FileReader>(
     paths: &'a str,
     mut reader: R,
     file_is_readable: fn(&Path) -> bool,
-    mut app_state: MutexGuard<Option<(Graph,Vec<String>)>>,
+    mut app_state: MutexGuard<Option<(Graph, Vec<String>)>>,
 ) -> Vec<(&'a str, Result<(Vec<String>, String), String>)> {
     let mut reader = RealFileReader {};
     let (components, voltron) =
         read_all_clusters_with_dependencies::<RealFileReader>(paths, &mut reader, file_is_readable);
     match voltron.as_ref() {
-        Ok(voltron) => {let _ = app_state.insert(voltron.clone());},
+        Ok(voltron) => {
+            let _ = app_state.insert(voltron.clone());
+        }
         _ => {}
     }
     let components_svgs: Vec<_> = components
         .iter()
         .map(|result| result.as_ref().ok().map(|component| svgify(&component.1)))
         .collect();
-    let voltron_svg = voltron.as_ref().ok().map(|(voltron,_roots)| svgify(voltron));
+    let voltron_svg = voltron
+        .as_ref()
+        .ok()
+        .map(|(voltron, _roots)| svgify(voltron));
     let paths_and_components = paths.split(";").zip(&components);
     let components_comments: Vec<_> = paths_and_components
         .map(|(path, result)| {
@@ -744,8 +754,14 @@ fn subgraph_with_edges(parent: &Graph, predicate: impl Fn(&EdgeData) -> bool) ->
 }
 
 #[tauri::command]
-fn check_learning_path_stateful(nodes: Vec<String>, state: tauri::State<'_, AppState>) -> Vec<String> {
-    let app_state = state.voltron_with_roots.lock().expect("Should always be able to get app state.");
+fn check_learning_path_stateful(
+    nodes: Vec<String>,
+    state: tauri::State<'_, AppState>,
+) -> Vec<String> {
+    let app_state = state
+        .voltron_with_roots
+        .lock()
+        .expect("Should always be able to get app state.");
     app_state.as_ref().map_or(
         vec!["No stored result. This should not be possible, because text box should only be shown if there is a complete graph.".to_string()],
         |existing| {
@@ -753,7 +769,10 @@ fn check_learning_path_stateful(nodes: Vec<String>, state: tauri::State<'_, AppS
     })
 }
 
-fn check_learning_path((voltron, roots): &(Graph, Vec<String>), node_ids: Vec<&str>) -> Vec<String> {
+fn check_learning_path(
+    (voltron, roots): &(Graph, Vec<String>),
+    node_ids: Vec<&str>,
+) -> Vec<String> {
     // TODO: consider combining the &Graph with roots?
     // might clarify that they belong together
     // might even refactor the voltronize_clusters function to also return the roots, would be feasible
@@ -781,7 +800,6 @@ fn check_learning_path((voltron, roots): &(Graph, Vec<String>), node_ids: Vec<&s
         );
     let (_, dependent_to_dependency_tc) =
         dag_transitive_reduction_closure(&dependent_to_dependency_res);
-
 
     let (dependency_to_dependent_res, dependency_to_dependent_revmap) =
         dag_to_toposorted_adjacency_list(
@@ -913,7 +931,7 @@ mod tests {
             let comments = comment_cluster(&cluster, &graph, "_", |_| true);
             assert!(comments.is_empty());
             assert_eq!(reader.calls_made, 1);
-            assert_eq!(cluster.edges.len(), 3);
+            assert_eq!(cluster.edges.len(), 4);
         });
     }
 
@@ -923,10 +941,7 @@ mod tests {
         let (_, voltron_analysis) = read_all_clusters_with_dependencies("_", &mut reader, |_| true);
         let comments = check_learning_path(
             &voltron_analysis.unwrap(),
-            vec![
-                "technicalinfo__concept_A",
-                "technicalinfo__concept_B",
-            ],
+            vec!["technicalinfo__concept_A", "technicalinfo__concept_B"],
         );
         assert_eq!(comments,
             vec![
@@ -952,10 +967,10 @@ mod tests {
                 "simpleproject__introduction",
                 "technicalinfo__concept_A",
                 "technicalinfo__concept_B",
+                "technicalinfo__concept_E",
                 "technicalinfo__concept_C",
                 "simpleproject__implementation",
             ],
-            
         );
         assert!(comments.is_empty());
     }
@@ -982,7 +997,9 @@ mod tests {
         assert_eq!(comments,
             vec!["Node 1 (technicalinfo__concept_A) is not motivated by any predecessor, nor are any of its dependents.",
         "Node 2 (technicalinfo__concept_B) is not motivated by any predecessor, nor are any of its dependents.",
+        "Node 3 (technicalinfo__concept_C) has unmet dependency technicalinfo__concept_E.",
         "Node 3 (technicalinfo__concept_C) is not motivated by any predecessor, nor are any of its dependents.",
+        "Node 4 (simpleproject__implementation) has unmet dependency technicalinfo__concept_E.",
         "Node 4 (simpleproject__implementation) is not motivated by any predecessor, nor are any of its dependents."]);
     }
 
@@ -1001,15 +1018,18 @@ mod tests {
             vec![
                 "simpleproject__introduction",
                 "technicalinfo__concept_B",
+                "technicalinfo__concept_E",
                 "technicalinfo__concept_C",
                 "simpleproject__implementation",
             ],
         );
-        assert_eq!(comments,
+        assert_eq!(
+            comments,
             vec![
         "Node 2 (technicalinfo__concept_B) has unmet dependency technicalinfo__concept_A.",
-        "Node 3 (technicalinfo__concept_C) has unmet dependency technicalinfo__concept_A.",
-        "Node 4 (simpleproject__implementation) has unmet dependency technicalinfo__concept_A.",]);
+        "Node 4 (technicalinfo__concept_C) has unmet dependency technicalinfo__concept_A.",
+        "Node 5 (simpleproject__implementation) has unmet dependency technicalinfo__concept_A.",]
+        );
     }
     // TODO: cycle test
     // TODO: mix of correctly read and incorrectly read results

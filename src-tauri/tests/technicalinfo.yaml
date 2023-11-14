@@ -8,6 +8,8 @@ nodes:
     title: "Concept C"
   - id: concept_D
     title: "Concept D"
+  - id: concept_E
+    title: "Concept E"
 all_type_edges:
   - start_id: concept_A
     end_id: concept_B
@@ -15,5 +17,5 @@ all_type_edges:
     end_id: concept_C
   - start_id: concept_B
     end_id: concept_D
-# should remain empty, this is a knowledge cluster
-one_type_edges: []
+  - start_id: concept_E
+    end_id: concept_C

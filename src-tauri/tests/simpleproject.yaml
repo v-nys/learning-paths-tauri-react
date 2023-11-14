@@ -7,7 +7,7 @@ nodes:
 all_type_edges:
   - start_id: technicalinfo__concept_C
     end_id: implementation
-one_type_edges:
+any_type_edges:
   - start_id: introduction
     end_id: implementation
 roots:
