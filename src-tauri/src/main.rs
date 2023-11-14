@@ -925,7 +925,7 @@ mod tests {
 
     #[test]
     fn read_trivial_cluster() {
-        let mut reader = MockFileReader::new(vec![&Path::new("tests/technicalinfo.lc.yaml")]);
+        let mut reader = MockFileReader::new(vec![&Path::new("tests/technicalinfo/contents.lc.yaml")]);
         let (component_analysis, voltron_analysis) =
             read_all_clusters_with_dependencies("_", &mut reader, |_| true);
         assert_eq!(component_analysis.len(), 1);
@@ -941,7 +941,7 @@ mod tests {
 
     #[test]
     fn check_learning_path_trivial_cluster() {
-        let mut reader = MockFileReader::new(vec![&Path::new("tests/technicalinfo.lc.yaml")]);
+        let mut reader = MockFileReader::new(vec![&Path::new("tests/technicalinfo/contents.lc.yaml")]);
         let (_, voltron_analysis) = read_all_clusters_with_dependencies("_", &mut reader, |_| true);
         let comments = check_learning_path(
             &voltron_analysis.unwrap(),
@@ -958,8 +958,8 @@ mod tests {
     #[test]
     fn check_valid_learning_path_two_small_clusters() {
         let mut reader = MockFileReader::new(vec![
-            &Path::new("tests/technicalinfo.lc.yaml"),
-            &Path::new("tests/simpleproject.lc.yaml"),
+            &Path::new("tests/technicalinfo/contents.lc.yaml"),
+            &Path::new("tests/simpleproject/contents.lc.yaml"),
         ]);
         // TODO: could avoid writing two paths here...
         let (components_analysis, voltron_analysis) =
@@ -982,8 +982,8 @@ mod tests {
     #[test]
     fn check_invalid_learning_path_two_small_clusters_missing_root() {
         let mut reader = MockFileReader::new(vec![
-            &Path::new("tests/technicalinfo.lc.yaml"),
-            &Path::new("tests/simpleproject.lc.yaml"),
+            &Path::new("tests/technicalinfo/contents.lc.yaml"),
+            &Path::new("tests/simpleproject/contents.lc.yaml"),
         ]);
         // TODO: could avoid writing two paths here...
         let (_, voltron_analysis) =
@@ -1010,8 +1010,8 @@ mod tests {
     #[test]
     fn check_invalid_learning_path_two_small_clusters_missing_dependency() {
         let mut reader = MockFileReader::new(vec![
-            &Path::new("tests/technicalinfo.lc.yaml"),
-            &Path::new("tests/simpleproject.lc.yaml"),
+            &Path::new("tests/technicalinfo/contents.lc.yaml"),
+            &Path::new("tests/simpleproject/contents.lc.yaml"),
         ]);
         // TODO: could avoid writing two paths here...
         let (_, voltron_analysis) =
@@ -1038,7 +1038,7 @@ mod tests {
 
     #[test]
     fn check_structural_error_cycle() {
-        let mut reader = MockFileReader::new(vec![&Path::new("tests/technicalinfo_cycle.lc.yaml")]);
+        let mut reader = MockFileReader::new(vec![&Path::new("tests/technicalinfo_cycle/contents.lc.yaml")]);
         let (components_analysis, voltron_analysis) =
             read_all_clusters_with_dependencies("_", &mut reader, |_| true);
         assert_eq!(reader.calls_made, 1);
