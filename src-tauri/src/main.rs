@@ -13,7 +13,7 @@ use petgraph::{
     graph::NodeIndex,
     visit::{EdgeRef, IntoEdgeReferences, IntoNodeReferences},
 };
-use schemars::{schema, JsonSchema};
+use schemars::JsonSchema;
 use serde::Deserialize;
 use std::path::PathBuf;
 use std::sync::{Mutex, MutexGuard};
@@ -190,7 +190,7 @@ type Graph = petgraph::Graph<NodeData, EdgeData>;
 struct ClusterGraphTuple(Cluster, Graph);
 struct CommentsSvgTuple(Vec<String>, String);
 
-struct ReadResultForPath(Result<String, std::io::Error>, String);
+struct ReadResultForPath(Result<String, std::io::Error>, PathBuf);
 
 #[derive(Default)]
 struct AppState {
@@ -307,13 +307,13 @@ fn file_is_readable(file_path: &Path) -> bool {
 }
 
 trait FileReader {
-    fn read_to_string(&mut self, path: &str) -> std::io::Result<String>;
+    fn read_to_string(&mut self, path: &Path) -> std::io::Result<String>;
 }
 
 struct RealFileReader;
 
 impl FileReader for RealFileReader {
-    fn read_to_string(&mut self, path: &str) -> std::io::Result<String> {
+    fn read_to_string(&mut self, path: &Path) -> std::io::Result<String> {
         std::fs::read_to_string(path)
     }
 }
@@ -327,14 +327,14 @@ fn read_all_clusters_with_dependencies<'a, T: FileReader>(
     Result<(Graph, Vec<String>), anyhow::Error>,
 ) {
     let paths = paths.split(";").map(|p| PathBuf::from(p));
-    // FIXME: 
+    // FIXME:
     // p will be a folder
     // still need to retain p: whole path is needed to locate files
     let read_results = paths
         .clone()
         .map(|p| {
             let yaml_location = p.join("contents.lc.yaml");
-            (reader.read_to_string(yaml_location), p)
+            ReadResultForPath(reader.read_to_string(yaml_location.as_path()), p)
         })
         .collect();
     voltronize_clusters(read_results)
@@ -430,12 +430,22 @@ fn voltronize_clusters(
     Result<(Graph, Vec<String>), anyhow::Error>,
 ) {
     let mut all_roots: Vec<String> = vec![];
-    let clusters = read_results.into_iter().map(|r| match r {
-        Ok(ref text) => serde_yaml::from_str::<ClusterForSerialization>(text)
-            .map_err(anyhow::Error::new)
-            .map(|cfs| cfs.build()),
-        Err(e) => Err(anyhow::Error::new(e)),
-    });
+    let clusters = read_results
+        .into_iter()
+        .map(|ReadResultForPath(r, p)| match r {
+            Ok(ref text) => serde_yaml::from_str::<ClusterForSerialization>(text)
+                .map_err(anyhow::Error::new)
+                .and_then(|cfs| {
+                    let cluster_name = p
+                        .file_name()
+                        .map(|osstr| osstr.to_owned().into_string());
+                    match cluster_name {
+                        Some(Ok(cluster_name)) => Ok(cfs.build(cluster_name)),
+                        _ => Err(anyhow::Error::msg("Could not derive cluster name from path."))
+                    }
+                }),
+            Err(e) => Err(anyhow::Error::new(e)),
+        });
     // each cluster is associated with a petgraph Graph
     // so we get a vector of results
     let cluster_graph_tuples: Vec<_> = clusters
@@ -905,7 +915,7 @@ mod tests {
 
     use crate::{
         associate_parents_children, check_learning_path, comment_cluster,
-        read_all_clusters_with_dependencies, svgify, ClusterGraphTuple,
+        read_all_clusters_with_dependencies, ClusterGraphTuple,
     };
 
     struct MockFileReader<'a> {
@@ -914,7 +924,7 @@ mod tests {
     }
 
     impl<'a> super::FileReader for MockFileReader<'a> {
-        fn read_to_string(&mut self, _path: &str) -> std::io::Result<String> {
+        fn read_to_string(&mut self, _path: &Path) -> std::io::Result<String> {
             let path_option = self.paths.get(self.calls_made);
             self.calls_made += 1;
             match path_option {
@@ -957,7 +967,8 @@ mod tests {
         let (_, voltron_analysis) = read_all_clusters_with_dependencies("_", &mut reader, |_| true);
         let comments = check_learning_path(
             &voltron_analysis.unwrap(),
-            vec!["technicalinfo__concept_A", "technicalinfo__concept_B"],
+            vec!["technicalinfo__concept_A",
+                 "technicalinfo__concept_B"],
         );
         assert_eq!(comments,
             vec![
