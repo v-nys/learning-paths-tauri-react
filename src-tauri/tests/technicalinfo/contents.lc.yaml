@@ -8,7 +8,13 @@ nodes:
   - id: concept_D
     title: "Concept D"
   - id: concept_E
-    title: "Concept F"
+    title: "Concept E"
+    assignments:
+      - id: my_first_assignment
+        title: "My first assignment"
+        attachments:
+          - attachment1.txt
+          - attachment2.csv
 all_type_edges:
   - start_id: concept_A
     end_id: concept_B

@@ -43,7 +43,14 @@ struct Node {
     title: String,
     // NOTE: once these become assignments, also check file structure
     // similar to how contents.md is checked for nodes themselves
-    files: Option<Vec<String>>,
+    assignments: Option<Vec<Assignment>>,
+}
+
+#[derive(Deserialize, Debug, Clone, JsonSchema)]
+struct Assignment {
+    id: String,
+    title: Option<String>,
+    attachments: Option<Vec<String>> // TODO: best ook "vlak" houden, want path separator betekent incompatibiliteit Windows - UNIX...
 }
 
 #[derive(Deserialize, Clone, JsonSchema)]
@@ -337,9 +344,6 @@ fn read_all_clusters_with_dependencies<'a, T: FileReader>(
     Result<(Graph, Vec<String>), anyhow::Error>,
 ) {
     let paths = paths.split(";").map(|p| PathBuf::from(p));
-    // FIXME:
-    // p will be a folder
-    // still need to retain p: whole path is needed to locate files
     let read_results = paths
         .clone()
         .map(|p| {
@@ -413,22 +417,31 @@ fn comment_cluster(
             if !directory_is_readable(&cluster_path.join(&n.id).as_path()) {
                 remarks.push(format!("{} should contain a child directory {}.", cluster_path.to_string_lossy(), n.id));
             }
-            else if !file_is_readable(&cluster_path.join(&n.id).join("contents.md").as_path()) {
-                remarks.push(format!("Directory for node {} should contain a contents.md file.", n.id));
-            }
-            match n.files {
-                Some(ref file_paths) => {
-                    file_paths.iter().for_each(|raw_file_path| {
-                        let file_path = Path::new(raw_file_path);
-                        let joined_path = cluster_path.join(file_path);
-                        if file_path.is_absolute() {
-                            remarks.push(format!("File associated with node {} is absolute. Paths should always be relative to the location of the cluster file.", n.title));
-                        }
-                        else if !file_is_readable(&joined_path) {
-                            remarks.push(format!("File associated with node {} is not a regular, readable file.", n.title));
-                        }
-                    })},
-                None => {}
+            else {
+                if !file_is_readable(&cluster_path.join(&n.id).join("contents.md").as_path()) {
+                    remarks.push(format!("Directory for node {} should contain a contents.md file.", n.id));
+                }
+                match n.assignments {
+                    Some(ref file_paths) => {
+                        file_paths.iter().for_each(|assignment| {
+                            
+                            let base_assignment_path = cluster_path.join(&n.id).join(&assignment.id);
+                            let contents_path = base_assignment_path.join("contents.md");
+                            
+                            if !file_is_readable(&contents_path) {
+                                remarks.push(format!("Assignment {} associated with node {} lacks a readable file contents.md file.", assignment.id , n.title));
+                            }
+                            let _ = assignment.attachments.as_ref().map(|attachments| {
+                                attachments.iter().for_each(|attachment| {
+                                    let attachment_path = base_assignment_path.join(attachment);
+                                    if !file_is_readable(attachment_path.as_path()) {
+                                        remarks.push(format!("Attachment cannot be found at {}", attachment_path.to_string_lossy()))
+                                    }
+                                })
+                            });
+                        })},
+                    None => {}
+                }
             }
         });
     comment_graph(&graph, &mut remarks);
