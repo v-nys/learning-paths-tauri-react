@@ -20,16 +20,16 @@ function separateIntoUniquePaths(paths) {
 // this is passed off to watch, so it shouldn't capture any component state
 // that would get outdated
 // instead, use signals to communicate
-async function waitForEvents(parent, children) {
+async function waitForEvents(parent, children: any[]) {
   console.log(`Registering watch for ${parent}`);
   return await watch(
     parent,
     // actually produces an array, not a single event
     (events) => {
-      console.log("SOMETHING HAPPENED!");
+      console.debug(events);
       let shouldReload = false;
       for (let { path } of events) {
-        if (children.includes(path)) {
+        if (children.find((child) => path.startsWith(child))) {
           shouldReload = true;
         }
       }
@@ -37,7 +37,7 @@ async function waitForEvents(parent, children) {
         appWindow.emit('filechange');
       }
     },
-    { recursive: false }
+    { recursive: true }
   );
 }
 
@@ -213,7 +213,6 @@ function App() {
                 Array.from(readResults.entries())
                   .map(([k, v]) => {
                     let icon = "✅";
-                    console.debug([k, v]);
                     if (v.Err) {
                       icon = "✖️"
                     }

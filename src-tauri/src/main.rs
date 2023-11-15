@@ -41,6 +41,8 @@ struct Node {
     ///
     /// This is not required to be unique at any level.
     title: String,
+    // NOTE: once these become assignments, also check file structure
+    // similar to how contents.md is checked for nodes themselves
     files: Option<Vec<String>>,
 }
 
@@ -121,7 +123,7 @@ impl ClusterForSerialization {
     }
 }
 
-// TODO: may want to add variant for node id containing whitespace characters (which is possible in yaml with quoted text)
+// TODO: may want to add variant for cluster id / node id / assignment id containing whitespace characters (which is possible in yaml with quoted text)
 /// An error related to the internal structure of a (syntactically valid, semantically invalid) `Cluster`.
 #[derive(Debug)]
 enum StructuralError {
@@ -136,6 +138,7 @@ enum StructuralError {
     UndeclaredRoot(String),
     IncomingAnyEdge(String, String),
     OutgoingAllEdge(String, String),
+    // TODO: invalid naming, bv. clusternaam of nodenaam of assignmentnaam met spaties,...
 }
 
 impl fmt::Display for StructuralError {
@@ -189,7 +192,6 @@ type Graph = petgraph::Graph<NodeData, EdgeData>;
 #[derive(Debug)]
 struct ClusterGraphTuple(Cluster, Graph);
 struct CommentsSvgTuple(Vec<String>, String);
-
 struct ReadResultForPath(Result<String, std::io::Error>, PathBuf);
 
 #[derive(Default)]
@@ -226,13 +228,14 @@ fn read_contents<'a>(
         .expect("Should always be able to gain access eventually.");
     app_state.take();
     let mut reader = RealFileReader {};
-    read_contents_with_dependencies(paths, reader, file_is_readable, app_state)
+    read_contents_with_dependencies(paths, reader, file_is_readable, path_is_dir, app_state)
 }
 
 fn read_contents_with_dependencies<'a, R: FileReader>(
     paths: &'a str,
     mut reader: R,
     file_is_readable: fn(&Path) -> bool,
+    directory_is_readable: fn(&Path) -> bool,
     mut app_state: MutexGuard<Option<(Graph, Vec<String>)>>,
 ) -> Vec<(&'a str, Result<(Vec<String>, String), String>)> {
     let mut reader = RealFileReader {};
@@ -252,15 +255,19 @@ fn read_contents_with_dependencies<'a, R: FileReader>(
         .as_ref()
         .ok()
         .map(|(voltron, _roots)| svgify(voltron));
-    let paths_and_components = paths.split(";").zip(&components);
+    // let paths_and_components = paths.split(";").zip(&components);
+
+    let paths = paths.split(";");
+    let paths_and_components = paths.clone().map(|p| PathBuf::from(p)).zip(&components);
     let components_comments: Vec<_> = paths_and_components
         .map(|(path, result)| {
             result.as_ref().ok().map(|component| {
-                comment_cluster(&component.0, &component.1, path, file_is_readable)
+                comment_cluster(&component.0, &component.1, &path, file_is_readable, directory_is_readable)
             })
         })
         .collect();
     let mut voltron_comments = vec![];
+
     match voltron {
         Ok(ref voltron) => {
             comment_graph(&voltron.0, &mut voltron_comments);
@@ -269,7 +276,6 @@ fn read_contents_with_dependencies<'a, R: FileReader>(
     };
     let expectation = "Should only be None if component_result is Err.";
     let mut path_result_tuples: Vec<_> = paths
-        .split(";")
         .zip(components)
         .zip(components_svgs)
         .zip(components_comments)
@@ -304,6 +310,10 @@ fn read_contents_with_dependencies<'a, R: FileReader>(
 
 fn file_is_readable(file_path: &Path) -> bool {
     file_path.is_file() && File::open(file_path).is_ok()
+}
+
+fn path_is_dir(directory_path: &Path) -> bool {
+    directory_path.is_dir()
 }
 
 trait FileReader {
@@ -391,30 +401,36 @@ fn comment_graph(graph: &Graph, remarks: &mut Vec<String>) {
 fn comment_cluster(
     cluster: &Cluster,
     graph: &Graph,
-    cluster_path: &str,
+    cluster_path: &PathBuf,
     file_is_readable: fn(&Path) -> bool,
+    directory_is_readable: fn(&Path) -> bool,
 ) -> Vec<String> {
     let mut remarks: Vec<String> = vec![];
     let cluster_path = Path::new(cluster_path);
     cluster.nodes
         .iter()
         .for_each(|n| {
+            if !directory_is_readable(&cluster_path.join(&n.id).as_path()) {
+                remarks.push(format!("{} should contain a child directory {}.", cluster_path.to_string_lossy(), n.id));
+            }
+            else if !file_is_readable(&cluster_path.join(&n.id).join("contents.md").as_path()) {
+                remarks.push(format!("Directory for node {} should contain a contents.md file.", n.id));
+            }
             match n.files {
-                                Some(ref file_paths) => {
-                                    file_paths.iter().for_each(|raw_file_path| {
-                                        let file_path = Path::new(raw_file_path);
-                                        let joined_path = cluster_path.join(file_path);
-                                        if file_path.is_absolute() {
-                                            remarks.push(format!("File associated with node {} is absolute. Paths should always be relative to the location of the cluster file.", n.title));
-                                        }
-                                        else if !file_is_readable(&joined_path) {
-                                            remarks.push(format!("File associated with node {} is not a regular, readable file.", n.title));
-                                        }
-                                    })
-                                }
-                                None => {}
-                            }
-                        });
+                Some(ref file_paths) => {
+                    file_paths.iter().for_each(|raw_file_path| {
+                        let file_path = Path::new(raw_file_path);
+                        let joined_path = cluster_path.join(file_path);
+                        if file_path.is_absolute() {
+                            remarks.push(format!("File associated with node {} is absolute. Paths should always be relative to the location of the cluster file.", n.title));
+                        }
+                        else if !file_is_readable(&joined_path) {
+                            remarks.push(format!("File associated with node {} is not a regular, readable file.", n.title));
+                        }
+                    })},
+                None => {}
+            }
+        });
     comment_graph(&graph, &mut remarks);
     remarks
 }
@@ -618,17 +634,6 @@ fn voltronize_clusters(
             })
         })
         .collect();
-
-    // kan hier mappen over zip van read_results en cluster_graph_tuples om IO errors voor contents.md te signaleren
-    // kan dus een error invullen in geval van een IO probleem
-    let cluster_graph_tuples = cluster_graph_tuples
-        .into_iter()
-        .zip(read_results)
-        .map(|(cluster_graph_tuple,ReadResultForPath(res,path))| {
-            cluster_graph_tuple.and_then(|ClusterGraphTuple(cluster,graph)| {
-                // TODO: return an Err value if any node in the cluster cannot be associated with a readable contents.md file
-            })
-        });
 
     let cluster_graph_pairs_result =
         cluster_graph_tuples
@@ -925,7 +930,10 @@ fn check_learning_path(
 
 #[cfg(test)]
 mod tests {
-    use std::{collections::HashMap, path::Path};
+    use std::{
+        collections::HashMap,
+        path::{Path, PathBuf},
+    };
 
     use crate::{
         associate_parents_children, check_learning_path, comment_cluster,
@@ -967,7 +975,7 @@ mod tests {
         assert!(component_analysis.get(0).as_ref().is_some());
         component_analysis.into_iter().for_each(|result| {
             let ClusterGraphTuple(cluster, graph) = result.expect("There should be a result here.");
-            let comments = comment_cluster(&cluster, &graph, "_", |_| true);
+            let comments = comment_cluster(&cluster, &graph, &PathBuf::from("_"), |_| true, |_| true);
             assert!(comments.is_empty());
             assert_eq!(reader.calls_made, 1);
             assert_eq!(cluster.edges.len(), 4);
