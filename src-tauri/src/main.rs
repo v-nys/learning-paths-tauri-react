@@ -15,8 +15,13 @@ use petgraph::{
 };
 use schemars::JsonSchema;
 use serde::Deserialize;
+use zip::{ZipWriter, CompressionMethod};
+use zip::write::FileOptions;
+use std::io::{Read, Write};
 use std::path::PathBuf;
 use std::sync::{Mutex, MutexGuard};
+use std::thread::sleep;
+use std::time::Duration;
 use std::{
     collections::{HashMap, HashSet},
     fmt,
@@ -24,6 +29,7 @@ use std::{
     ops::Index,
     path::Path,
 };
+use walkdir::{DirEntry, WalkDir};
 
 /* Maybe more use of references would be more idiomatic here. */
 
@@ -637,6 +643,8 @@ fn voltronize_clusters(
                     }
                     _ => {}
                 };
+                // TODO: can check for redundant motivations
+                // i.e. motivating a strict predecessor is unncessary when motivating a successor
                 if structural_errors.is_empty() {
                     Ok(ClusterGraphTuple(cluster, single_cluster_graph))
                 } else {
@@ -789,6 +797,67 @@ fn associate_parents_children(
             map.entry(parent).or_insert_with(Vec::new).push(path);
             Ok(map)
         })
+}
+
+fn add_dir_to_zip(
+    iterator: &mut dyn Iterator<Item = DirEntry>,
+    prefix: &str, // i.e. the directory
+    zip: &mut ZipWriter<File>
+) -> zip::result::ZipResult<()>
+{
+    let options = FileOptions::default()
+        // i.e. no actual compression!
+        .compression_method(CompressionMethod::Stored)
+        .unix_permissions(0o755);
+
+    let mut buffer = Vec::new();
+    for entry in iterator {
+        let path = entry.path();
+        let name = path.strip_prefix(Path::new(prefix)).unwrap();
+        // Write file or directory explicitly
+        // Some unzip tools unzip files with directory paths correctly, some do not!
+        if path.is_file() {
+            println!("adding file {path:?} as {name:?} ...");
+            #[allow(deprecated)]
+            zip.start_file_from_path(name, options)?;
+            let mut f = File::open(path)?;
+
+            f.read_to_end(&mut buffer)?;
+            zip.write_all(&buffer)?;
+            buffer.clear();
+        } else if !name.as_os_str().is_empty() {
+            // Only if not root! Avoids path spec / warning
+            // and mapname conversion failed error on unzip
+            println!("adding dir {path:?} as {name:?} ...");
+            #[allow(deprecated)]
+            zip.add_directory_from_path(name, options)?;
+        }
+    }
+    Result::Ok(())
+}
+
+#[tauri::command]
+fn build_zip(paths: &'_ str) { // TODO: should probably return a Result<Path,Error>
+    // TODO
+    // maak een geserialiseerde voorstelling van de nodige data voor Moodle
+    // moet Voltron en de clusters weergeven
+    // want wil die kunnen tonen op de kaart
+    // moet ook de (toposorted) topics oplijsten, met hun attachments
+    // moet bij elk topic ook de vereenvoudigde voorwaarden voor unlocking geven
+    // en moet alle clusterdata opnemen in zip
+    // 1. (-) maak een zip met daarin gewoon brondata van elke cluster
+    // 2. (-) serialiseer Voltron, misschien best naar zelfde formaat als de clusters en neem mee op in zip
+    // 3. (-) voeg JSON/YAML met toposorted topics en metadata toe
+    let zip_path = std::path::Path::new("archive.zip");
+    let zip_file = std::fs::File::create(zip_path).expect("TODO: deal with result");
+    let absolute_cluster_dirs = paths.split(";");
+    let mut zip = zip::ZipWriter::new(zip_file);
+    absolute_cluster_dirs.for_each(|absolute_dir| {
+        let walkdir = WalkDir::new(absolute_dir);
+        let iterator = walkdir.into_iter();
+        add_dir_to_zip(&mut iterator.filter_map(|e| e.ok()), absolute_dir, &mut zip);
+    });
+    zip.finish();
 }
 
 fn subgraph_with_edges(parent: &Graph, predicate: impl Fn(&EdgeData) -> bool) -> Graph {
@@ -1174,15 +1243,16 @@ mod tests {
 }
 
 fn main() {
-    let schema = schemars::schema_for!(ClusterForSerialization);
-    println!("{}", serde_json::to_string_pretty(&schema).unwrap());
+    //let schema = schemars::schema_for!(ClusterForSerialization);
+    //println!("{}", serde_json::to_string_pretty(&schema).unwrap());
     tauri::Builder::default()
         .manage(AppState::default())
         .plugin(tauri_plugin_fs_watch::init())
         .invoke_handler(tauri::generate_handler![
             read_contents,
             associate_parents_children,
-            check_learning_path_stateful
+            check_learning_path_stateful,
+            build_zip
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

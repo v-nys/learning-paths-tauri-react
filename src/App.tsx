@@ -58,6 +58,7 @@ function App() {
 
   // TODO: consider making more use of useReducer
   const [loading, setLoading] = useState(false);
+  const [zipping, setZipping] = useState(false);
   const [paths, setPaths] = useState("");
   const [learningPath, setLearningPath] = useState("");
   const [learningPathComments, setLearningPathComments] = useState<string[]>([]);
@@ -258,7 +259,7 @@ function App() {
         {
           loading || pathToDisplayOnceRead !== COMPLETE_GRAPH_LABEL || learningPathComments.length > 0 || Array.from(readResults.values()).some((readResult) => readResult.Ok && readResult.Ok[0].length > 0) ?
           <></> :
-          <button>Zip it!</button>
+          <button disabled={zipping} onClick={ async (e) => { setZipping(true) ; await invoke('build_zip', { paths }) ; setZipping(false); }}>Zip it!</button>
         }
       </div>
     </>
