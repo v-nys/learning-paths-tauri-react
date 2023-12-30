@@ -813,7 +813,8 @@ fn add_dir_to_zip(
     let mut buffer = Vec::new();
     for entry in iterator {
         let path = entry.path();
-        let name = path.strip_prefix(Path::new(prefix)).unwrap();
+        // TODO: fix unwraps
+        let name = path.strip_prefix(Path::new(prefix).parent().unwrap()).unwrap();
         // Write file or directory explicitly
         // Some unzip tools unzip files with directory paths correctly, some do not!
         if path.is_file() {
@@ -845,7 +846,7 @@ fn build_zip(paths: &'_ str) { // TODO: should probably return a Result<Path,Err
     // moet ook de (toposorted) topics oplijsten, met hun attachments
     // moet bij elk topic ook de vereenvoudigde voorwaarden voor unlocking geven
     // en moet alle clusterdata opnemen in zip
-    // 1. (-) maak een zip met daarin gewoon brondata van elke cluster
+    // 1. (x) maak een zip met daarin gewoon brondata van elke cluster
     // 2. (-) serialiseer Voltron, misschien best naar zelfde formaat als de clusters en neem mee op in zip
     // 3. (-) voeg JSON/YAML met toposorted topics en metadata toe
     let zip_path = std::path::Path::new("archive.zip");
