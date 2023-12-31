@@ -79,9 +79,10 @@ struct TypedEdge {
     kind: EdgeType,
 }
 
+#[derive(Debug, Serialize)]
 struct UnlockingCondition {
-    allOf: Vec<String>,
-    oneOf: Vec<String>,
+    allOf: HashSet<String>,
+    oneOf: HashSet<String>,
 }
 
 /// An namespaced collection of `Node`s which may link to `Node`s in different namespaces.
@@ -906,11 +907,11 @@ fn build_zip(paths: &'_ str, state: tauri::State<'_, AppState>) { // TODO: shoul
         roots.iter().for_each(|root| {
             serialized.push_str(&format!("  - {}\n", root));
         });
-    }
-    // serialize unlocking conditions per topic (other metadata is in clusters anyway)
+    }    
     println!("TODO: add to JSON file");
     println!("{}", &serialized);
-    // TODO: can I use check_learning path, or extract something from there?
+
+    // serialize unlocking conditions per topic (other metadata is in clusters anyway)
     let ((dependent_to_dependency_graph,dependent_to_dependency_tc,dependent_to_dependency_revmap,dependent_to_dependency_toposort_order),
          (dependency_to_dependent_graph,dependency_to_dependent_tc,dependency_to_dependent_revmap,dependency_to_dependent_toposort_order),
          motivations_graph) = dependency_helpers(voltron_with_roots);
@@ -921,6 +922,7 @@ fn build_zip(paths: &'_ str, state: tauri::State<'_, AppState>) { // TODO: shoul
         }
         else {
             // dependent_to... uses a subgraph, so indexes are different!
+            // matching_node = "all-type" graph counterpart to the current Voltron node
             let matching_nodes = dependency_to_dependent_graph
                 .node_references()
                 .filter(|(idx, weight)| &weight.0 == voltron_node_id)
@@ -929,6 +931,10 @@ fn build_zip(paths: &'_ str, state: tauri::State<'_, AppState>) { // TODO: shoul
                 .get(0)
                 .expect("Subgraph should contain all the Voltron nodes.");
             let matching_node_idx = matching_node.0.index();
+            // denk dat dit strenger is dan nodig
+            // dependent_to_dependency_tc betekent dat we *alle* harde dependencies zullen oplijsten
+            // kan dit beperken tot enkel directe dependencies
+            // i.e. de neighbors in dependent_to_depency_graph (neighbors = bereikbaar in één gerichte hop)
             let hard_dependency_ids: HashSet<String> = dependent_to_dependency_tc
                         .neighbors(dependent_to_dependency_revmap[matching_node_idx])
                         .map(|ix: NodeIndex| dependent_to_dependency_toposort_order[ix.index()])
@@ -948,9 +954,24 @@ fn build_zip(paths: &'_ str, state: tauri::State<'_, AppState>) { // TODO: shoul
                         })
                         .collect();
                     dependent_ids.insert(matching_node.1 .0.clone());
-            let soft_dependency_ids = todo!("see is_motivated part of check_learning_path");
-            // TODO: insert UnlockingCondition into hash map
+            let soft_dependency_ids = motivations_graph.node_references().filter_map(|potential_motivator| {
+                let neighbors: HashSet<_> = motivations_graph
+                                            .neighbors(potential_motivator.0)
+                                            .filter_map(|motivator_index| { motivations_graph.node_weight(motivator_index).map(|(id,title)| id.to_string()) })
+                                            .collect();
+                if neighbors.is_disjoint(&dependent_ids) {
+                    None
+                }
+                else {
+                    Some(potential_motivator.1.0.to_string())
+                }
+            }).collect();
+            unlocking_conditions.insert(voltron_node_id.clone(), Some(UnlockingCondition { allOf: hard_dependency_ids, oneOf: soft_dependency_ids }));
         }
+    });
+    unlocking_conditions.iter().for_each(|(k,v)| {
+        println!("Unlocking conditions for {}:", k);
+        println!("{:#?}", v);
     });
     // TODO: write serialized stuff to files
     zip.finish();
