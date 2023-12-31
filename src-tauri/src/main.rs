@@ -14,7 +14,7 @@ use petgraph::{
     visit::{EdgeRef, IntoEdgeReferences, IntoNodeReferences},
 };
 use schemars::JsonSchema;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use zip::{ZipWriter, CompressionMethod};
 use zip::write::FileOptions;
 use std::io::{Read, Write};
@@ -65,7 +65,7 @@ struct Edge {
     end_id: String,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 enum EdgeType {
     All,
     AtLeastOne,
@@ -838,7 +838,7 @@ fn add_dir_to_zip(
 }
 
 #[tauri::command]
-fn build_zip(paths: &'_ str) { // TODO: should probably return a Result<Path,Error>
+fn build_zip(paths: &'_ str, state: tauri::State<'_, AppState>) { // TODO: should probably return a Result<Path,Error>
     // TODO
     // maak een geserialiseerde voorstelling van de nodige data voor Moodle
     // moet Voltron en de clusters weergeven
@@ -846,11 +846,12 @@ fn build_zip(paths: &'_ str) { // TODO: should probably return a Result<Path,Err
     // moet ook de (toposorted) topics oplijsten, met hun attachments
     // moet bij elk topic ook de vereenvoudigde voorwaarden voor unlocking geven
     // en moet alle clusterdata opnemen in zip
-    // 1. (x) maak een zip met daarin gewoon brondata van elke cluster
-    // 2. (-) serialiseer Voltron, misschien best naar zelfde formaat als de clusters en neem mee op in zip
-    // 3. (-) voeg JSON/YAML met toposorted topics en metadata toe
+    // 1. (x) maak een zip met daarin gewoon brondata van elke cluster (kan later nog stuff renderen,...)
+    // 2. (!) serialiseer Voltron, misschien best naar zelfde formaat als de clusters en neem mee op in zip (zou vooral nuttig zijn voor visualisatie, vandaar enkel ID en titel)
+    // 3. (-) voeg JSON/YAML met toposorted topics en metadata toe (controle at least one/... zal wel daar staan, of op plaats waar concreet pad gecheckt wordt)
     let zip_path = std::path::Path::new("archive.zip");
     let zip_file = std::fs::File::create(zip_path).expect("TODO: deal with result");
+    // copy clusters into zipped folder
     let absolute_cluster_dirs = paths.split(";");
     let mut zip = zip::ZipWriter::new(zip_file);
     absolute_cluster_dirs.for_each(|absolute_dir| {
@@ -858,6 +859,60 @@ fn build_zip(paths: &'_ str) { // TODO: should probably return a Result<Path,Err
         let iterator = walkdir.into_iter();
         add_dir_to_zip(&mut iterator.filter_map(|e| e.ok()), absolute_dir, &mut zip);
     });
+    // serialize Voltron
+    /* format is
+...
+all_type_edges:
+  - start_id: technicalinfo__concept_C
+    end_id: implementation
+any_type_edges:
+  - start_id: introduction
+    end_id: implementation
+...
+    */
+    let voltron_with_roots = state
+        .voltron_with_roots
+        .lock()
+        .expect("Should always be able to gain access eventually.");
+    let voltron_with_roots = voltron_with_roots
+        .as_ref()
+        .unwrap(); // this command can only be invoked if there is a combined graph
+    let voltron = &voltron_with_roots.0;
+    // graph without nodes would not be valid
+    let mut serialized = "nodes:\n".to_string();
+    // TODO: take into account case of no edges of particular type
+    voltron.node_weights().for_each(|(id,title)| {
+        serialized.push_str(&format!("  - id: {}\n", id));
+        serialized.push_str(&format!("    title: {}\n", title));
+    });
+    let all_type_edges: Vec<_> = voltron.edge_references().filter(|e| e.weight() == &EdgeType::All).map(|e| {
+        Option::zip(voltron.node_weight(e.source()), voltron.node_weight(e.target())).map(|(n1,n2)| { (n1.0.clone(), n2.0.clone()) })
+    }).filter_map(|x| x).collect();
+    let any_type_edges: Vec<_> = voltron.edge_references().filter(|e| e.weight() == &EdgeType::AtLeastOne).map(|e| {
+        Option::zip(voltron.node_weight(e.source()), voltron.node_weight(e.target())).map(|(n1,n2)| { (n1.0.clone(), n2.0.clone()) })
+    }).filter_map(|x| x).collect();
+    if all_type_edges.len() > 0 {
+        serialized.push_str("all_type_edges:\n");
+        all_type_edges.iter().for_each(|(id1,id2)| {
+            serialized.push_str(&format!("  - start_id: {}\n", id1));
+            serialized.push_str(&format!("    end_id: {}\n", id2));
+        })
+    }
+    if any_type_edges.len() > 0 {
+        serialized.push_str("any_type_edges:\n");
+        any_type_edges.iter().for_each(|(id1,id2)| {
+            serialized.push_str(&format!("  - start_id: {}\n", id1));
+            serialized.push_str(&format!("    end_id: {}\n", id2));
+        })
+    }
+    let roots = &voltron_with_roots.1;
+    if roots.len() > 0 {
+        serialized.push_str("roots:\n");
+        roots.iter().for_each(|root| {
+            serialized.push_str(&format!("  - {}\n", root));
+        });
+    }
+    println!("{}", &serialized);
     zip.finish();
 }
 
