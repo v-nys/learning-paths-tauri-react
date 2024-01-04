@@ -864,7 +864,7 @@ fn build_zip(paths: &'_ str, state: tauri::State<'_, AppState>) { // TODO: shoul
     absolute_cluster_dirs.for_each(|absolute_dir| {
         let walkdir = WalkDir::new(absolute_dir);
         let iterator = walkdir.into_iter();
-        add_dir_to_zip(&mut iterator.filter_map(|e| e.ok()), absolute_dir, &mut zip);
+        add_dir_to_zip(&mut iterator.flatten(), absolute_dir, &mut zip);
     });
     // serialize Voltron
     let voltron_with_roots = state
@@ -881,12 +881,13 @@ fn build_zip(paths: &'_ str, state: tauri::State<'_, AppState>) { // TODO: shoul
         serialized.push_str(&format!("  - id: {}\n", id));
         serialized.push_str(&format!("    title: {}\n", title));
     });
+    // TODO: misschien gebruik maken van partition op edge_references?
     let all_type_edges: Vec<_> = voltron.edge_references().filter(|e| e.weight() == &EdgeType::All).map(|e| {
         Option::zip(voltron.node_weight(e.source()), voltron.node_weight(e.target())).map(|(n1,n2)| { (n1.0.clone(), n2.0.clone()) })
-    }).filter_map(|x| x).collect();
+    }).flatten().collect();
     let any_type_edges: Vec<_> = voltron.edge_references().filter(|e| e.weight() == &EdgeType::AtLeastOne).map(|e| {
         Option::zip(voltron.node_weight(e.source()), voltron.node_weight(e.target())).map(|(n1,n2)| { (n1.0.clone(), n2.0.clone()) })
-    }).filter_map(|x| x).collect();
+    }).flatten().collect();
     if all_type_edges.len() > 0 {
         serialized.push_str("all_type_edges:\n");
         all_type_edges.iter().for_each(|(id1,id2)| {
@@ -907,9 +908,12 @@ fn build_zip(paths: &'_ str, state: tauri::State<'_, AppState>) { // TODO: shoul
         roots.iter().for_each(|root| {
             serialized.push_str(&format!("  - {}\n", root));
         });
-    }    
-    println!("TODO: add to JSON file");
-    println!("{}", &serialized);
+    }
+    let options = FileOptions::default()
+        .compression_method(CompressionMethod::Stored)
+        .unix_permissions(0o755);
+    zip.start_file("serialized_complete_graph.yaml", options);
+    zip.write(serialized.as_bytes());
 
     // serialize unlocking conditions per topic (other metadata is in clusters anyway)
     let ((dependent_to_dependency_graph,dependent_to_dependency_tc,dependent_to_dependency_revmap,dependent_to_dependency_toposort_order),
