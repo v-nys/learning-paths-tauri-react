@@ -825,7 +825,6 @@ fn add_dir_to_zip(
         // Write file or directory explicitly
         // Some unzip tools unzip files with directory paths correctly, some do not!
         if path.is_file() {
-            println!("adding file {path:?} as {name:?} ...");
             #[allow(deprecated)]
             zip.start_file_from_path(name, options)?;
             let mut f = File::open(path)?;
@@ -836,7 +835,6 @@ fn add_dir_to_zip(
         } else if !name.as_os_str().is_empty() {
             // Only if not root! Avoids path spec / warning
             // and mapname conversion failed error on unzip
-            println!("adding dir {path:?} as {name:?} ...");
             #[allow(deprecated)]
             zip.add_directory_from_path(name, options)?;
         }
@@ -973,11 +971,8 @@ fn build_zip(paths: &'_ str, state: tauri::State<'_, AppState>) { // TODO: shoul
             unlocking_conditions.insert(voltron_node_id.clone(), Some(UnlockingCondition { allOf: hard_dependency_ids, oneOf: soft_dependency_ids }));
         }
     });
-    unlocking_conditions.iter().for_each(|(k,v)| {
-        println!("Unlocking conditions for {}:", k);
-        println!("{:#?}", v);
-    });
-    // TODO: write serialized stuff to files
+    zip.start_file("unlocking_conditions.json", options);
+    zip.write(serde_json::to_string_pretty(&unlocking_conditions).unwrap().as_bytes());
     zip.finish();
 }
 
