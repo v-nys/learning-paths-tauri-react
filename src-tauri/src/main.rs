@@ -16,6 +16,7 @@ use petgraph::{
 };
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
+use yaml2json_rs::Yaml2Json;
 use zip::{ZipWriter, CompressionMethod};
 use zip::write::FileOptions;
 use std::io::{Read, Write};
@@ -844,16 +845,6 @@ fn add_dir_to_zip(
 
 #[tauri::command]
 fn build_zip(paths: &'_ str, state: tauri::State<'_, AppState>) { // TODO: should probably return a Result<Path,Error>
-    // TODO
-    // maak een geserialiseerde voorstelling van de nodige data voor Moodle
-    // moet Voltron en de clusters weergeven
-    // want wil die kunnen tonen op de kaart
-    // moet ook de (toposorted) topics oplijsten, met hun attachments
-    // moet bij elk topic ook de vereenvoudigde voorwaarden voor unlocking geven
-    // en moet alle clusterdata opnemen in zip
-    // 1. (x) maak een zip met daarin gewoon brondata van elke cluster (kan later nog stuff renderen,...)
-    // 2. (x) serialiseer Voltron, misschien best naar zelfde formaat als de clusters en neem mee op in zip (zou vooral nuttig zijn voor visualisatie, vandaar enkel ID en titel)
-    // 3. (-) voeg JSON/YAML met toposorted topics en metadata toe (controle at least one/... zal wel daar staan, of op plaats waar concreet pad gecheckt wordt)
     let zip_path = std::path::Path::new("archive.zip");
     let zip_file = std::fs::File::create(zip_path).expect("TODO: deal with result");
     // copy clusters into zipped folder
@@ -862,6 +853,11 @@ fn build_zip(paths: &'_ str, state: tauri::State<'_, AppState>) { // TODO: shoul
     absolute_cluster_dirs.for_each(|absolute_dir| {
         let walkdir = WalkDir::new(absolute_dir);
         let iterator = walkdir.into_iter();
+        // TODO: convert contents.lc.yaml to json and store in absolute_dir
+        let raw_cluster_contents = std::fs::read_to_string(&format!("{}/contents.lc.yaml", absolute_dir)).expect("Has to be there. Deal with later.");
+        let yaml2json = Yaml2Json::new(yaml2json_rs::Style::PRETTY);
+        let json_contents = yaml2json.document_to_string(&raw_cluster_contents);
+        std::fs::write(&format!("{}/contents.lc.json", absolute_dir), json_contents.expect("Conversion should not be an issue"));
         add_dir_to_zip(&mut iterator.flatten(), absolute_dir, &mut zip);
     });
     // serialize Voltron
@@ -912,7 +908,8 @@ fn build_zip(paths: &'_ str, state: tauri::State<'_, AppState>) { // TODO: shoul
         .unix_permissions(0o755);
     zip.start_file("serialized_complete_graph.yaml", options);
     zip.write(serialized.as_bytes());
-
+    zip.start_file("course_structure.svg", options);
+    zip.write(svgify(&voltron).as_bytes());
     // serialize unlocking conditions per topic (other metadata is in clusters anyway)
     let ((dependent_to_dependency_graph,dependent_to_dependency_tc,dependent_to_dependency_revmap,dependent_to_dependency_toposort_order),
          (dependency_to_dependent_graph,dependency_to_dependent_tc,dependency_to_dependent_revmap,dependency_to_dependent_toposort_order),

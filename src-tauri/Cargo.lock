@@ -1617,6 +1617,7 @@ dependencies = [
  "tauri-build",
  "tauri-plugin-fs-watch",
  "walkdir",
+ "yaml2json-rs",
  "zip",
 ]
 
@@ -4047,6 +4048,18 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6d1526bbe5aaeb5eb06885f4d987bcdfa5e23187055de9b83fe00156a821fabc"
 dependencies = [
  "libc",
+]
+
+[[package]]
+name = "yaml2json-rs"
+version = "0.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "48a0bb0478dd35dae5b827e68835c31615d53e7175dfbe7d82d7ff8f1fdae8cf"
+dependencies = [
+ "serde",
+ "serde_json",
+ "serde_yaml",
+ "thiserror",
 ]
 
 [[package]]
