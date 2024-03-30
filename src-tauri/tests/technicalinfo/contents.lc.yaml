@@ -7,8 +7,8 @@ nodes:
     title: "Concept C"
   - id: concept_D
     title: "Concept D"
-  - id: concept_E
-    title: "Concept E"
+  - id: concept_Q
+    title: "Concept Q"
     assignments:
       - id: my_first_assignment
         title: "My first assignment"
@@ -22,5 +22,5 @@ all_type_edges:
     end_id: concept_C
   - start_id: concept_B
     end_id: concept_D
-  - start_id: concept_E
+  - start_id: concept_Q
     end_id: concept_C
