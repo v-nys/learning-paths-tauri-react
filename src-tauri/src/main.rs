@@ -14,8 +14,7 @@ use petgraph::{
     graph::NodeIndex,
     visit::{EdgeRef, IntoEdgeReferences, IntoNodeReferences},
 };
-use schemars::JsonSchema;
-use serde::{Deserialize, Serialize};
+
 use std::io::{Read, Write};
 use std::path::PathBuf;
 use std::sync::{Mutex, MutexGuard};
@@ -31,112 +30,12 @@ use yaml2json_rs::Yaml2Json;
 use zip::write::FileOptions;
 use zip::{CompressionMethod, ZipWriter};
 
+mod deserialization;
+mod domain;
+
+use crate::domain::{EdgeType, TypedEdge, UnlockingCondition};
+
 /* Maybe more use of references would be more idiomatic here. */
-
-/// A single unit of learning material.
-///
-/// A `Node` represents knowledge that can be processed as one whole.
-/// It does not need to be entirely standalone, as it can have dependencies in the form of `Edge` values.
-#[derive(Deserialize, Clone, Debug, JsonSchema)]
-struct Node {
-    /// An ID should be locally unique inside a `Cluster` and is used to refer to a node inside its `Cluster`.
-    ///
-    /// The ID also be used to refer to the node from outside its `Cluster`, if it is preceded by the `Cluster`'s namespace prefix.
-    id: String,
-    /// Human-readable title for this unit of knowledge.
-    ///
-    /// This is not required to be unique at any level.
-    title: String,
-}
-
-#[derive(Deserialize, Clone, JsonSchema)]
-struct Edge {
-    start_id: String,
-    end_id: String,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
-enum EdgeType {
-    All,
-    AtLeastOne,
-}
-
-#[derive(Clone, Debug)]
-struct TypedEdge {
-    start_id: String,
-    end_id: String,
-    kind: EdgeType,
-}
-
-#[derive(Debug, Serialize)]
-struct UnlockingCondition {
-    all_of: HashSet<String>,
-    one_of: HashSet<String>,
-}
-
-/// An namespaced collection of `Node`s which may link to `Node`s in different namespaces.
-///
-/// A `Cluster` can represent a thematic clustering (nodes are related to the same topic such as a common technology).
-/// It can also represent a practical clustering (nodes make up a single project).
-/// A `Cluster` has a (non-nested) namespace prefix, which can be used to refer to nodes in the `Cluster`.
-/// E.g. if a `Cluster's` namespace prefix is `"foo"` and the `Cluster` contains a `Node` whose ID is `bar`, this node can be referred to as `foo__bar`.
-/// The namespace and node ID are always separated by `"__"`.
-#[derive(Clone, Debug)]
-struct Cluster {
-    namespace_prefix: String,
-    nodes: Vec<Node>,
-    edges: Vec<TypedEdge>,
-    roots: Vec<String>,
-}
-
-/// A representation of a `Cluster` which is more suitable for (de)serialization.
-///
-/// It does not require a namespace prefix, as that is assumed to match the name of the file to
-/// which it is serialized.
-/// It uses disjoint, optional sets of edges because that saves a lot of repetition when writing in
-/// a data format.
-#[derive(Deserialize, Clone, JsonSchema)]
-#[serde(deny_unknown_fields)]
-struct ClusterForSerialization {
-    /// Units of information inside this `Cluster`.
-    nodes: Vec<Node>,
-    /// Strict dependencies. A non-root `Node` can only be accessed if all of its dependencies of this type have been marked complete, along with one interchangeable dependency of this `Node` or of a `Node` which is strictly dependent on this `Node`.
-    all_type_edges: Option<Vec<Edge>>,
-    /// Interchangeable dependencies. A non-root `Node` can only be accessed if one dependency of this type has been marked complete for this node or for a `Node` which is strictly dependent on this `Node`. Furthermore, all strict dependencies must still be marked complete.
-    any_type_edges: Option<Vec<Edge>>,
-    /// IDs of `Node`s with no dependencies whatsoever, i.e. the only `Node`s which can be accessed unconditionally.
-    roots: Option<Vec<String>>,
-}
-
-impl ClusterForSerialization {
-    fn build(self, folder_name: String) -> Cluster {
-        Cluster {
-            namespace_prefix: folder_name,
-            nodes: self.nodes,
-            edges: self
-                .all_type_edges
-                .unwrap_or_default()
-                .into_iter()
-                .map(|e| TypedEdge {
-                    start_id: e.start_id,
-                    end_id: e.end_id,
-                    kind: EdgeType::All,
-                })
-                .chain(
-                    self.any_type_edges
-                        .unwrap_or_default()
-                        .into_iter()
-                        .map(|e| TypedEdge {
-                            start_id: e.start_id,
-                            end_id: e.end_id,
-                            kind: EdgeType::AtLeastOne,
-                        }),
-                )
-                .collect::<Vec<_>>(),
-            roots: self.roots.unwrap_or_default(),
-        }
-    }
-}
 
 // TODO: may want to add variant for cluster id / node id / assignment id containing whitespace characters (which is possible in yaml with quoted text)
 /// An error related to the internal structure of a (syntactically valid, semantically invalid) `Cluster`.
@@ -205,7 +104,7 @@ type EdgeData = EdgeType;
 type Graph = petgraph::Graph<NodeData, EdgeData>;
 
 #[derive(Debug)]
-struct ClusterGraphTuple(Cluster, Graph);
+struct ClusterGraphTuple(domain::Cluster, Graph);
 struct CommentsSvgTuple(Vec<String>, String);
 struct ReadResultForPath(Result<String, std::io::Error>, PathBuf);
 
@@ -417,7 +316,7 @@ fn comment_graph(graph: &Graph, remarks: &mut Vec<String>) {
 }
 
 fn comment_cluster(
-    cluster: &Cluster,
+    cluster: &domain::Cluster,
     graph: &Graph,
     cluster_path: &PathBuf,
     file_is_readable: fn(&Path) -> bool,
@@ -459,7 +358,7 @@ fn voltronize_clusters(
     let clusters = read_results
         .into_iter()
         .map(|ReadResultForPath(r, p)| match r {
-            Ok(ref text) => serde_yaml::from_str::<ClusterForSerialization>(text)
+            Ok(ref text) => serde_yaml::from_str::<deserialization::ClusterForSerialization>(text)
                 .map_err(anyhow::Error::new)
                 .and_then(|cfs| {
                     let cluster_name = p.file_name().map(|osstr| osstr.to_owned().into_string());
@@ -476,7 +375,7 @@ fn voltronize_clusters(
     // so we get a vector of results
     let cluster_graph_tuples: Vec<_> = clusters
         .map(|result| {
-            result.and_then(|cluster: Cluster| {
+            result.and_then(|cluster: domain::Cluster| {
                 // ??? why do I need to annotate this?
                 let mut identifier_to_index_map = std::collections::HashMap::new();
                 let mut single_cluster_graph = Graph::new();
@@ -507,7 +406,7 @@ fn voltronize_clusters(
                         // eerder dat laatste, toch?
                     }
                 }
-                &cluster.roots.iter().for_each(|root| {
+                cluster.roots.iter().for_each(|root| {
                     let namespaced_root = format!("{}__{}", cluster.namespace_prefix, root);
                     if !identifier_to_index_map.contains_key(&namespaced_root) {
                         structural_errors
