@@ -49,16 +49,6 @@ struct Node {
     ///
     /// This is not required to be unique at any level.
     title: String,
-    // NOTE: once these become assignments, also check file structure
-    // similar to how contents.md is checked for nodes themselves
-    assignments: Option<Vec<Assignment>>,
-}
-
-#[derive(Deserialize, Debug, Clone, JsonSchema)]
-struct Assignment {
-    id: String,
-    title: Option<String>,
-    attachments: Option<Vec<String>> // TODO: best ook "vlak" houden, want path separator betekent incompatibiliteit Windows - UNIX...
 }
 
 #[derive(Deserialize, Clone, JsonSchema)]
@@ -434,27 +424,6 @@ fn comment_cluster(
             else {
                 if !file_is_readable(&cluster_path.join(&n.id).join("contents.md").as_path()) {
                     remarks.push(format!("Directory for node {} should contain a contents.md file.", n.id));
-                }
-                match n.assignments {
-                    Some(ref file_paths) => {
-                        file_paths.iter().for_each(|assignment| {
-                            
-                            let base_assignment_path = cluster_path.join(&n.id).join(&assignment.id);
-                            let contents_path = base_assignment_path.join("contents.md");
-                            
-                            if !file_is_readable(&contents_path) {
-                                remarks.push(format!("Assignment {} associated with node {} lacks a readable file contents.md file.", assignment.id , n.title));
-                            }
-                            let _ = assignment.attachments.as_ref().map(|attachments| {
-                                attachments.iter().for_each(|attachment| {
-                                    let attachment_path = base_assignment_path.join(attachment);
-                                    if !file_is_readable(attachment_path.as_path()) {
-                                        remarks.push(format!("Attachment cannot be found at {}", attachment_path.to_string_lossy()))
-                                    }
-                                })
-                            });
-                        })},
-                    None => {}
                 }
             }
         });
