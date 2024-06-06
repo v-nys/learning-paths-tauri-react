@@ -16,14 +16,9 @@ use petgraph::{
 };
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
-use yaml2json_rs::Yaml2Json;
-use zip::{ZipWriter, CompressionMethod};
-use zip::write::FileOptions;
 use std::io::{Read, Write};
 use std::path::PathBuf;
 use std::sync::{Mutex, MutexGuard};
-use std::thread::sleep;
-use std::time::Duration;
 use std::{
     collections::{HashMap, HashSet},
     fmt,
@@ -32,6 +27,9 @@ use std::{
     path::Path,
 };
 use walkdir::{DirEntry, WalkDir};
+use yaml2json_rs::Yaml2Json;
+use zip::write::FileOptions;
+use zip::{CompressionMethod, ZipWriter};
 
 /* Maybe more use of references would be more idiomatic here. */
 
@@ -72,8 +70,8 @@ struct TypedEdge {
 
 #[derive(Debug, Serialize)]
 struct UnlockingCondition {
-    allOf: HashSet<String>,
-    oneOf: HashSet<String>,
+    all_of: HashSet<String>,
+    one_of: HashSet<String>,
 }
 
 /// An namespaced collection of `Node`s which may link to `Node`s in different namespaces.
@@ -88,9 +86,15 @@ struct Cluster {
     namespace_prefix: String,
     nodes: Vec<Node>,
     edges: Vec<TypedEdge>,
-    roots: Option<Vec<String>>,
+    roots: Vec<String>,
 }
 
+/// A representation of a `Cluster` which is more suitable for (de)serialization.
+///
+/// It does not require a namespace prefix, as that is assumed to match the name of the file to
+/// which it is serialized.
+/// It uses disjoint, optional sets of edges because that saves a lot of repetition when writing in
+/// a data format.
 #[derive(Deserialize, Clone, JsonSchema)]
 #[serde(deny_unknown_fields)]
 struct ClusterForSerialization {
@@ -129,7 +133,7 @@ impl ClusterForSerialization {
                         }),
                 )
                 .collect::<Vec<_>>(),
-            roots: self.roots,
+            roots: self.roots.unwrap_or_default(),
         }
     }
 }
@@ -273,7 +277,13 @@ fn read_contents_with_dependencies<'a, R: FileReader>(
     let components_comments: Vec<_> = paths_and_components
         .map(|(path, result)| {
             result.as_ref().ok().map(|component| {
-                comment_cluster(&component.0, &component.1, &path, file_is_readable, directory_is_readable)
+                comment_cluster(
+                    &component.0,
+                    &component.1,
+                    &path,
+                    file_is_readable,
+                    directory_is_readable,
+                )
             })
         })
         .collect();
@@ -415,18 +425,22 @@ fn comment_cluster(
 ) -> Vec<String> {
     let mut remarks: Vec<String> = vec![];
     let cluster_path = Path::new(cluster_path);
-    cluster.nodes
-        .iter()
-        .for_each(|n| {
-            if !directory_is_readable(&cluster_path.join(&n.id).as_path()) {
-                remarks.push(format!("{} should contain a child directory {}.", cluster_path.to_string_lossy(), n.id));
+    cluster.nodes.iter().for_each(|n| {
+        if !directory_is_readable(&cluster_path.join(&n.id).as_path()) {
+            remarks.push(format!(
+                "{} should contain a child directory {}.",
+                cluster_path.to_string_lossy(),
+                n.id
+            ));
+        } else {
+            if !file_is_readable(&cluster_path.join(&n.id).join("contents.md").as_path()) {
+                remarks.push(format!(
+                    "Directory for node {} should contain a contents.md file.",
+                    n.id
+                ));
             }
-            else {
-                if !file_is_readable(&cluster_path.join(&n.id).join("contents.md").as_path()) {
-                    remarks.push(format!("Directory for node {} should contain a contents.md file.", n.id));
-                }
-            }
-        });
+        }
+    });
     comment_graph(&graph, &mut remarks);
     remarks
 }
@@ -493,17 +507,14 @@ fn voltronize_clusters(
                         // eerder dat laatste, toch?
                     }
                 }
-                match &cluster.roots {
-                    Some(roots) => roots.iter().for_each(|root| {
-                        let namespaced_root = format!("{}__{}", cluster.namespace_prefix, root);
-                        if !identifier_to_index_map.contains_key(&namespaced_root) {
-                            structural_errors
-                                .push(StructuralError::UndeclaredRoot(namespaced_root.clone()));
-                        }
-                        all_roots.push(namespaced_root);
-                    }),
-                    _ => {}
-                }
+                &cluster.roots.iter().for_each(|root| {
+                    let namespaced_root = format!("{}__{}", cluster.namespace_prefix, root);
+                    if !identifier_to_index_map.contains_key(&namespaced_root) {
+                        structural_errors
+                            .push(StructuralError::UndeclaredRoot(namespaced_root.clone()));
+                    }
+                    all_roots.push(namespaced_root);
+                });
                 // build the single-cluster graph and check for structural errors at the same time
                 for TypedEdge {
                     start_id,
@@ -529,12 +540,7 @@ fn voltronize_clusters(
                         ));
                         can_add = false;
                     }
-                    if can_add
-                        && cluster
-                            .roots
-                            .as_ref()
-                            .is_some_and(|roots| roots.contains(end_id))
-                    {
+                    if can_add && cluster.roots.contains(end_id) {
                         structural_errors
                             .push(StructuralError::DependentRootNode(end_id.to_owned()));
                         can_add = false;
@@ -779,9 +785,8 @@ fn associate_parents_children(
 fn add_dir_to_zip(
     iterator: &mut dyn Iterator<Item = DirEntry>,
     prefix: &str, // i.e. the directory
-    zip: &mut ZipWriter<File>
-) -> zip::result::ZipResult<()>
-{
+    zip: &mut ZipWriter<File>,
+) -> zip::result::ZipResult<()> {
     let options = FileOptions::default()
         // i.e. no actual compression!
         .compression_method(CompressionMethod::Stored)
@@ -791,7 +796,9 @@ fn add_dir_to_zip(
     for entry in iterator {
         let path = entry.path();
         // TODO: fix unwraps
-        let name = path.strip_prefix(Path::new(prefix).parent().unwrap()).unwrap();
+        let name = path
+            .strip_prefix(Path::new(prefix).parent().unwrap())
+            .unwrap();
         // Write file or directory explicitly
         // Some unzip tools unzip files with directory paths correctly, some do not!
         if path.is_file() {
@@ -813,7 +820,8 @@ fn add_dir_to_zip(
 }
 
 #[tauri::command]
-fn build_zip(paths: &'_ str, state: tauri::State<'_, AppState>) { // TODO: should probably return a Result<Path,Error>
+fn build_zip(paths: &'_ str, state: tauri::State<'_, AppState>) {
+    // TODO: should probably return a Result<Path,Error>
     let zip_path = std::path::Path::new("archive.zip");
     let zip_file = std::fs::File::create(zip_path).expect("TODO: deal with result");
     // copy clusters into zipped folder
@@ -823,10 +831,15 @@ fn build_zip(paths: &'_ str, state: tauri::State<'_, AppState>) { // TODO: shoul
         let walkdir = WalkDir::new(absolute_dir);
         let iterator = walkdir.into_iter();
         // TODO: convert contents.lc.yaml to json and store in absolute_dir
-        let raw_cluster_contents = std::fs::read_to_string(&format!("{}/contents.lc.yaml", absolute_dir)).expect("Has to be there. Deal with later.");
+        let raw_cluster_contents =
+            std::fs::read_to_string(&format!("{}/contents.lc.yaml", absolute_dir))
+                .expect("Has to be there. Deal with later.");
         let yaml2json = Yaml2Json::new(yaml2json_rs::Style::PRETTY);
         let json_contents = yaml2json.document_to_string(&raw_cluster_contents);
-        std::fs::write(&format!("{}/contents.lc.json", absolute_dir), json_contents.expect("Conversion should not be an issue"));
+        std::fs::write(
+            &format!("{}/contents.lc.json", absolute_dir),
+            json_contents.expect("Conversion should not be an issue"),
+        );
         add_dir_to_zip(&mut iterator.flatten(), absolute_dir, &mut zip);
     });
     // serialize Voltron
@@ -834,33 +847,49 @@ fn build_zip(paths: &'_ str, state: tauri::State<'_, AppState>) { // TODO: shoul
         .voltron_with_roots
         .lock()
         .expect("Should always be able to gain access eventually.");
-    let voltron_with_roots = voltron_with_roots
-        .as_ref()
-        .unwrap(); // this command can only be invoked if there is a combined graph
+    let voltron_with_roots = voltron_with_roots.as_ref().unwrap(); // this command can only be invoked if there is a combined graph
     let voltron = &voltron_with_roots.0;
     // graph without nodes would not be valid
     let mut serialized = "nodes:\n".to_string();
-    voltron.node_weights().for_each(|(id,title)| {
+    voltron.node_weights().for_each(|(id, title)| {
         serialized.push_str(&format!("  - id: {}\n", id));
         serialized.push_str(&format!("    title: {}\n", title));
     });
     // TODO: misschien gebruik maken van partition op edge_references?
-    let all_type_edges: Vec<_> = voltron.edge_references().filter(|e| e.weight() == &EdgeType::All).map(|e| {
-        Option::zip(voltron.node_weight(e.source()), voltron.node_weight(e.target())).map(|(n1,n2)| { (n1.0.clone(), n2.0.clone()) })
-    }).flatten().collect();
-    let any_type_edges: Vec<_> = voltron.edge_references().filter(|e| e.weight() == &EdgeType::AtLeastOne).map(|e| {
-        Option::zip(voltron.node_weight(e.source()), voltron.node_weight(e.target())).map(|(n1,n2)| { (n1.0.clone(), n2.0.clone()) })
-    }).flatten().collect();
+    let all_type_edges: Vec<_> = voltron
+        .edge_references()
+        .filter(|e| e.weight() == &EdgeType::All)
+        .map(|e| {
+            Option::zip(
+                voltron.node_weight(e.source()),
+                voltron.node_weight(e.target()),
+            )
+            .map(|(n1, n2)| (n1.0.clone(), n2.0.clone()))
+        })
+        .flatten()
+        .collect();
+    let any_type_edges: Vec<_> = voltron
+        .edge_references()
+        .filter(|e| e.weight() == &EdgeType::AtLeastOne)
+        .map(|e| {
+            Option::zip(
+                voltron.node_weight(e.source()),
+                voltron.node_weight(e.target()),
+            )
+            .map(|(n1, n2)| (n1.0.clone(), n2.0.clone()))
+        })
+        .flatten()
+        .collect();
     if all_type_edges.len() > 0 {
         serialized.push_str("all_type_edges:\n");
-        all_type_edges.iter().for_each(|(id1,id2)| {
+        all_type_edges.iter().for_each(|(id1, id2)| {
             serialized.push_str(&format!("  - start_id: {}\n", id1));
             serialized.push_str(&format!("    end_id: {}\n", id2));
         })
     }
     if any_type_edges.len() > 0 {
         serialized.push_str("any_type_edges:\n");
-        any_type_edges.iter().for_each(|(id1,id2)| {
+        any_type_edges.iter().for_each(|(id1, id2)| {
             serialized.push_str(&format!("  - start_id: {}\n", id1));
             serialized.push_str(&format!("    end_id: {}\n", id2));
         })
@@ -880,65 +909,94 @@ fn build_zip(paths: &'_ str, state: tauri::State<'_, AppState>) { // TODO: shoul
     zip.start_file("course_structure.svg", options);
     zip.write(svgify(&voltron).as_bytes());
     // serialize unlocking conditions per topic (other metadata is in clusters anyway)
-    let ((dependent_to_dependency_graph,dependent_to_dependency_tc,dependent_to_dependency_revmap,dependent_to_dependency_toposort_order),
-         (dependency_to_dependent_graph,dependency_to_dependent_tc,dependency_to_dependent_revmap,dependency_to_dependent_toposort_order),
-         motivations_graph) = dependency_helpers(voltron_with_roots);
-    let mut unlocking_conditions: HashMap<String,Option<UnlockingCondition>> = HashMap::new();
-    voltron.node_references().for_each(|(voltron_node_index, (voltron_node_id,_))| {
-        if roots.contains(voltron_node_id) {
-            unlocking_conditions.insert(voltron_node_id.clone(), None);
-        }
-        else {
-            // dependent_to... uses a subgraph, so indexes are different!
-            // matching_node = "all-type" graph counterpart to the current Voltron node
-            let matching_nodes = dependency_to_dependent_graph
-                .node_references()
-                .filter(|(idx, weight)| &weight.0 == voltron_node_id)
-                .collect::<Vec<_>>();
-            let matching_node = matching_nodes
-                .get(0)
-                .expect("Subgraph should contain all the Voltron nodes.");
-            let matching_node_idx = matching_node.0.index();
-            // denk dat dit strenger is dan nodig
-            // dependent_to_dependency_tc betekent dat we *alle* harde dependencies zullen oplijsten
-            // kan dit beperken tot enkel directe dependencies
-            // i.e. de neighbors in dependent_to_depency_graph (neighbors = bereikbaar in één gerichte hop)
-            let hard_dependency_ids: HashSet<String> = dependent_to_dependency_tc
-                        .neighbors(dependent_to_dependency_revmap[matching_node_idx])
-                        .map(|ix: NodeIndex| dependent_to_dependency_toposort_order[ix.index()])
-                        .filter_map(|idx| {
-                            dependent_to_dependency_graph
-                                .node_weight(idx)
-                                .map(|(id, _)| id.clone())
-                        })
-                        .collect();
-            let mut dependent_ids: HashSet<String> = dependency_to_dependent_tc
-                        .neighbors(dependency_to_dependent_revmap[matching_node.0.index()])
-                        .map(|ix: NodeIndex| dependency_to_dependent_toposort_order[ix.index()])
-                        .filter_map(|idx| {
-                            dependency_to_dependent_graph
-                                .node_weight(idx)
-                                .map(|(id, _)| id.clone())
-                        })
-                        .collect();
-                    dependent_ids.insert(matching_node.1 .0.clone());
-            let soft_dependency_ids = motivations_graph.node_references().filter_map(|potential_motivator| {
-                let neighbors: HashSet<_> = motivations_graph
-                                            .neighbors(potential_motivator.0)
-                                            .filter_map(|motivator_index| { motivations_graph.node_weight(motivator_index).map(|(id,title)| id.to_string()) })
-                                            .collect();
-                if neighbors.is_disjoint(&dependent_ids) {
-                    None
-                }
-                else {
-                    Some(potential_motivator.1.0.to_string())
-                }
-            }).collect();
-            unlocking_conditions.insert(voltron_node_id.clone(), Some(UnlockingCondition { allOf: hard_dependency_ids, oneOf: soft_dependency_ids }));
-        }
-    });
+    let (
+        (
+            dependent_to_dependency_graph,
+            dependent_to_dependency_tc,
+            dependent_to_dependency_revmap,
+            dependent_to_dependency_toposort_order,
+        ),
+        (
+            dependency_to_dependent_graph,
+            dependency_to_dependent_tc,
+            dependency_to_dependent_revmap,
+            dependency_to_dependent_toposort_order,
+        ),
+        motivations_graph,
+    ) = dependency_helpers(voltron_with_roots);
+    let mut unlocking_conditions: HashMap<String, Option<UnlockingCondition>> = HashMap::new();
+    voltron
+        .node_references()
+        .for_each(|(voltron_node_index, (voltron_node_id, _))| {
+            if roots.contains(voltron_node_id) {
+                unlocking_conditions.insert(voltron_node_id.clone(), None);
+            } else {
+                // dependent_to... uses a subgraph, so indexes are different!
+                // matching_node = "all-type" graph counterpart to the current Voltron node
+                let matching_nodes = dependency_to_dependent_graph
+                    .node_references()
+                    .filter(|(idx, weight)| &weight.0 == voltron_node_id)
+                    .collect::<Vec<_>>();
+                let matching_node = matching_nodes
+                    .get(0)
+                    .expect("Subgraph should contain all the Voltron nodes.");
+                let matching_node_idx = matching_node.0.index();
+                // denk dat dit strenger is dan nodig
+                // dependent_to_dependency_tc betekent dat we *alle* harde dependencies zullen oplijsten
+                // kan dit beperken tot enkel directe dependencies
+                // i.e. de neighbors in dependent_to_depency_graph (neighbors = bereikbaar in één gerichte hop)
+                let hard_dependency_ids: HashSet<String> = dependent_to_dependency_tc
+                    .neighbors(dependent_to_dependency_revmap[matching_node_idx])
+                    .map(|ix: NodeIndex| dependent_to_dependency_toposort_order[ix.index()])
+                    .filter_map(|idx| {
+                        dependent_to_dependency_graph
+                            .node_weight(idx)
+                            .map(|(id, _)| id.clone())
+                    })
+                    .collect();
+                let mut dependent_ids: HashSet<String> = dependency_to_dependent_tc
+                    .neighbors(dependency_to_dependent_revmap[matching_node.0.index()])
+                    .map(|ix: NodeIndex| dependency_to_dependent_toposort_order[ix.index()])
+                    .filter_map(|idx| {
+                        dependency_to_dependent_graph
+                            .node_weight(idx)
+                            .map(|(id, _)| id.clone())
+                    })
+                    .collect();
+                dependent_ids.insert(matching_node.1 .0.clone());
+                let soft_dependency_ids = motivations_graph
+                    .node_references()
+                    .filter_map(|potential_motivator| {
+                        let neighbors: HashSet<_> = motivations_graph
+                            .neighbors(potential_motivator.0)
+                            .filter_map(|motivator_index| {
+                                motivations_graph
+                                    .node_weight(motivator_index)
+                                    .map(|(id, title)| id.to_string())
+                            })
+                            .collect();
+                        if neighbors.is_disjoint(&dependent_ids) {
+                            None
+                        } else {
+                            Some(potential_motivator.1 .0.to_string())
+                        }
+                    })
+                    .collect();
+                unlocking_conditions.insert(
+                    voltron_node_id.clone(),
+                    Some(UnlockingCondition {
+                        all_of: hard_dependency_ids,
+                        one_of: soft_dependency_ids,
+                    }),
+                );
+            }
+        });
     zip.start_file("unlocking_conditions.json", options);
-    zip.write(serde_json::to_string_pretty(&unlocking_conditions).unwrap().as_bytes());
+    zip.write(
+        serde_json::to_string_pretty(&unlocking_conditions)
+            .unwrap()
+            .as_bytes(),
+    );
     zip.finish();
 }
 
@@ -977,7 +1035,13 @@ fn check_learning_path_stateful(
 }
 
 // factored out because it is needed both for checking learning path and for building zip
-fn dependency_helpers((voltron, roots): &(Graph, Vec<String>)) -> ((Graph,List<(), NodeIndex>,Vec<NodeIndex>,Vec<NodeIndex>),(Graph,List<(), NodeIndex>,Vec<NodeIndex>,Vec<NodeIndex>),Graph) {
+fn dependency_helpers(
+    (voltron, roots): &(Graph, Vec<String>),
+) -> (
+    (Graph, List<(), NodeIndex>, Vec<NodeIndex>, Vec<NodeIndex>),
+    (Graph, List<(), NodeIndex>, Vec<NodeIndex>, Vec<NodeIndex>),
+    Graph,
+) {
     let is_any_type = |edge: &EdgeData| edge == &EdgeType::AtLeastOne;
     let is_all_type = |edge: &EdgeData| edge == &EdgeType::All;
 
@@ -1009,10 +1073,22 @@ fn dependency_helpers((voltron, roots): &(Graph, Vec<String>)) -> ((Graph,List<(
         );
     let (_, dependency_to_dependent_tc) =
         dag_transitive_reduction_closure(&dependency_to_dependent_res);
-    
-    return ((dependent_to_dependency_graph,dependent_to_dependency_tc,dependent_to_dependency_revmap,dependent_to_dependency_toposort_order),
-            (dependency_to_dependent_graph,dependency_to_dependent_tc,dependency_to_dependent_revmap,dependency_to_dependent_toposort_order),
-            motivations_graph);
+
+    return (
+        (
+            dependent_to_dependency_graph,
+            dependent_to_dependency_tc,
+            dependent_to_dependency_revmap,
+            dependent_to_dependency_toposort_order,
+        ),
+        (
+            dependency_to_dependent_graph,
+            dependency_to_dependent_tc,
+            dependency_to_dependent_revmap,
+            dependency_to_dependent_toposort_order,
+        ),
+        motivations_graph,
+    );
 }
 
 fn check_learning_path(
@@ -1023,10 +1099,22 @@ fn check_learning_path(
     // might clarify that they belong together
     // might even refactor the voltronize_clusters function to also return the roots, would be feasible
     let mut remarks = vec![];
-    let ((dependent_to_dependency_graph,dependent_to_dependency_tc,dependent_to_dependency_revmap,dependent_to_dependency_toposort_order),
-         (dependency_to_dependent_graph,dependency_to_dependent_tc,dependency_to_dependent_revmap,dependency_to_dependent_toposort_order),
-         motivations_graph) = dependency_helpers(voltron_with_roots);
-    let (_,roots) = voltron_with_roots;
+    let (
+        (
+            dependent_to_dependency_graph,
+            dependent_to_dependency_tc,
+            dependent_to_dependency_revmap,
+            dependent_to_dependency_toposort_order,
+        ),
+        (
+            dependency_to_dependent_graph,
+            dependency_to_dependent_tc,
+            dependency_to_dependent_revmap,
+            dependency_to_dependent_toposort_order,
+        ),
+        motivations_graph,
+    ) = dependency_helpers(voltron_with_roots);
+    let (_, roots) = voltron_with_roots;
     let mut seen_nodes = HashSet::new();
     for (index, namespaced_id) in node_ids.iter().enumerate() {
         let human_index = index + 1;
@@ -1150,7 +1238,8 @@ mod tests {
         assert!(component_analysis.get(0).as_ref().is_some());
         component_analysis.into_iter().for_each(|result| {
             let ClusterGraphTuple(cluster, graph) = result.expect("There should be a result here.");
-            let comments = comment_cluster(&cluster, &graph, &PathBuf::from("_"), |_| true, |_| true);
+            let comments =
+                comment_cluster(&cluster, &graph, &PathBuf::from("_"), |_| true, |_| true);
             assert!(comments.is_empty());
             assert_eq!(reader.calls_made, 1);
             assert_eq!(cluster.edges.len(), 4);
@@ -1336,8 +1425,6 @@ mod tests {
 }
 
 fn main() {
-    //let schema = schemars::schema_for!(ClusterForSerialization);
-    //println!("{}", serde_json::to_string_pretty(&schema).unwrap());
     tauri::Builder::default()
         .manage(AppState::default())
         .plugin(tauri_plugin_fs_watch::init())
