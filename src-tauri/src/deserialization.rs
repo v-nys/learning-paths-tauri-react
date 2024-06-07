@@ -20,12 +20,17 @@ impl Node {
     fn build(&self, namespace: &str) -> Result<domain::Node, String> {
         let parts = self.id.split("__").collect::<Vec<_>>();
         if parts.len() > 1 {
-            Err(format!("Declared node {} specifies explicit namespace", self.id))
+            Err(format!(
+                "Declared node {} specifies explicit namespace",
+                self.id
+            ))
         } else {
             Ok(domain::Node {
-                namespace: namespace.to_owned(),
-                local_id: self.id.clone(),
-                title: self.title.clone()
+                node_id: domain::NodeID {
+                    namespace: namespace.to_owned(),
+                    local_id: self.id.clone(),
+                },
+                title: self.title.clone(),
             })
         }
     }
@@ -36,6 +41,52 @@ struct Edge {
     // TODO: rename to UntypedEdge?
     start_id: String,
     end_id: String,
+}
+
+impl Edge {
+    fn build(&self, namespace: &str, kind: domain::EdgeType) -> Result<domain::TypedEdge, String> {
+        let mut start_components: Vec<_> = self.start_id.split("__").collect();
+        let mut end_components: Vec<_> = self.start_id.split("__").collect();
+        if start_components.len() > 2 {
+            Err(format!(
+                "{} is not a valid start for an edge (too many explicit namespaces)",
+                self.start_id
+            ))
+        } else if end_components.len() > 2 {
+            Err(format!(
+                "{} is not a valid end for an edge (too many explicit namespaces)",
+                self.end_id
+            ))
+        } else if start_components.len() == 2 && start_components[0] == namespace {
+            Err(format!(
+                "{} should not be explicitly namespaced in this context",
+                self.start_id
+            ))
+        } else if end_components.len() == 2 && end_components[0] == namespace {
+            Err(format!(
+                "{} should not be explicitly namespaced in this context",
+                self.end_id
+            ))
+        } else {
+            if start_components.len() == 1 {
+                start_components.insert(0, namespace);
+            }
+            if end_components.len() == 1 {
+                end_components.insert(0, namespace);
+            }
+            Ok(domain::TypedEdge {
+                start_id: domain::NodeID {
+                    namespace: start_components[0].to_owned(),
+                    local_id: start_components[1].to_owned(),
+                },
+                end_id: domain::NodeID {
+                    namespace: end_components[0].to_owned(),
+                    local_id: end_components[1].to_owned(),
+                },
+                kind,
+            })
+        }
+    }
 }
 
 /// A representation of a `Cluster` which is more suitable for (de)serialization.
@@ -58,36 +109,36 @@ pub struct ClusterForSerialization {
 }
 
 impl ClusterForSerialization {
-    // TODO: may fail (specifically if Nodes cannot be deserialized)
     pub fn build(self, folder_name: String) -> Result<domain::Cluster, String> {
         // this gives a vector of results
         let nodes: Vec<_> = self.nodes.iter().map(|n| n.build(&folder_name)).collect();
         // turn it into a result for a vector
         let nodes: Result<Vec<_>, _> = nodes.into_iter().collect();
         Ok(domain::Cluster {
-            namespace_prefix: folder_name,
+            namespace_prefix: folder_name.clone(),
             nodes: nodes?,
             edges: self
                 .all_type_edges
                 .unwrap_or_default()
                 .into_iter()
-                .map(|e| domain::TypedEdge {
-                    start_id: e.start_id,
-                    end_id: e.end_id,
-                    kind: domain::EdgeType::All,
-                })
+                .map(|e| e.build(&folder_name, domain::EdgeType::All))
                 .chain(
                     self.any_type_edges
                         .unwrap_or_default()
                         .into_iter()
-                        .map(|e| domain::TypedEdge {
-                            start_id: e.start_id,
-                            end_id: e.end_id,
-                            kind: domain::EdgeType::AtLeastOne,
-                        }),
+                        .map(|e| e.build(&folder_name, domain::EdgeType::AtLeastOne)),
                 )
-                .collect::<Vec<_>>(),
-            roots: self.roots.unwrap_or_default(),
+                .collect::<Result<Vec<_>, _>>()?,
+            // FIXME: don't think error is spotted if root is namespaced via __
+            roots: self
+                .roots
+                .unwrap_or_default()
+                .into_iter()
+                .map(|root_string| domain::NodeID {
+                    namespace: folder_name.clone(),
+                    local_id: root_string,
+                })
+                .collect(),
         })
     }
 }

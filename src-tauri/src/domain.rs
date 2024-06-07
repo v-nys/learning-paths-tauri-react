@@ -9,16 +9,15 @@ pub enum EdgeType {
 
 #[derive(Clone, Debug)]
 pub struct TypedEdge {
-    pub start_id: String,
-    pub end_id: String,
+    pub start_id: NodeID,
+    pub end_id: NodeID,
     pub kind: EdgeType,
 }
 
 #[derive(Debug, Serialize)]
 pub struct UnlockingCondition {
-    // TODO: consider replacing single String with separate namespace / local ID?
-    pub all_of: HashSet<String>,
-    pub one_of: HashSet<String>,
+    pub all_of: HashSet<NodeID>,
+    pub one_of: HashSet<NodeID>,
 }
 
 /// An namespaced collection of `Node`s which may link to `Node`s in different namespaces.
@@ -33,7 +32,23 @@ pub struct Cluster {
     pub namespace_prefix: String,
     pub nodes: Vec<Node>,
     pub edges: Vec<TypedEdge>,
-    pub roots: Vec<String>,
+    pub roots: Vec<NodeID>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize)]
+pub struct NodeID {
+    /// Each node is namespaced according to its `Cluster`.
+    pub namespace: String,
+    /// An ID should be locally unique inside a `Cluster` and is used to refer to a node inside its `Cluster`.
+    ///
+    /// The ID also be used to refer to the node from outside its `Cluster`, if it is preceded by the `Cluster`'s namespace prefix.
+    pub local_id: String,
+}
+
+impl std::fmt::Display for NodeID {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}__{}", self.namespace, self.local_id)
+    }
 }
 
 /// A single unit of learning material.
@@ -42,15 +57,9 @@ pub struct Cluster {
 /// It does not need to be entirely standalone, as it can have dependencies in the form of `Edge` values.
 #[derive(Clone, Debug)]
 pub struct Node {
-    /// Each node is namespaced according to its `Cluster`.
-    pub namespace: String,
-    /// An ID should be locally unique inside a `Cluster` and is used to refer to a node inside its `Cluster`.
-    ///
-    /// The ID also be used to refer to the node from outside its `Cluster`, if it is preceded by the `Cluster`'s namespace prefix.
-    pub local_id: String,
+    pub node_id: NodeID,
     /// Human-readable title for this unit of knowledge.
     ///
     /// This is not required to be unique at any level.
     pub title: String,
-
 }

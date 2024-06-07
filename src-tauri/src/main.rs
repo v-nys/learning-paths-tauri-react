@@ -33,7 +33,7 @@ use zip::{CompressionMethod, ZipWriter};
 mod deserialization;
 mod domain;
 
-use crate::domain::{EdgeType, TypedEdge, UnlockingCondition};
+use crate::domain::{EdgeType, NodeID, TypedEdge, UnlockingCondition};
 
 /* Maybe more use of references would be more idiomatic here. */
 
@@ -41,17 +41,17 @@ use crate::domain::{EdgeType, TypedEdge, UnlockingCondition};
 /// An error related to the internal structure of a (syntactically valid, semantically invalid) `Cluster`.
 #[derive(Debug)]
 enum StructuralError {
-    DoubleNode(String),                              // creating two nodes with same ID
-    MissingInternalEndpoint(String, String, String), // referring to non-existent node
+    DoubleNode(NodeID),                              // creating two nodes with same ID
+    MissingInternalEndpoint(NodeID, NodeID, NodeID), // referring to non-existent node
     NodeMultipleNamespace(String),                   // creating a node with explicit namespace
     EdgeMultipleNamespace(String, String, String),   // edge from / to internal node with
-    ClusterBoundary(String, String),                 // cluster, reference
+    ClusterBoundary(String, NodeID),                 // cluster, reference
     InvalidComponentGraph,
-    Cycle(String),
-    DependentRootNode(String),
-    UndeclaredRoot(String),
-    IncomingAnyEdge(String, String),
-    OutgoingAllEdge(String, String),
+    Cycle(NodeID),
+    DependentRootNode(NodeID),
+    UndeclaredRoot(NodeID),
+    IncomingAnyEdge(NodeID, NodeID),
+    OutgoingAllEdge(NodeID, NodeID),
     // TODO: invalid naming, bv. clusternaam of nodenaam of assignmentnaam met spaties,...
 }
 
@@ -99,7 +99,7 @@ impl std::error::Error for StructuralErrorGrouping {
     // source is not mandatory and would be odd here
 }
 
-type NodeData = (String, String);
+type NodeData = (NodeID, String);
 type EdgeData = EdgeType;
 type Graph = petgraph::Graph<NodeData, EdgeData>;
 
@@ -110,7 +110,7 @@ struct ReadResultForPath(Result<String, std::io::Error>, PathBuf);
 
 #[derive(Default)]
 struct AppState {
-    voltron_with_roots: Mutex<Option<(Graph, Vec<String>)>>,
+    voltron_with_roots: Mutex<Option<(Graph, Vec<NodeID>)>>,
 }
 
 fn node_dot_attributes(_: &Graph, node_ref: (NodeIndex, &NodeData)) -> String {
@@ -150,7 +150,7 @@ fn read_contents_with_dependencies<'a, R: FileReader>(
     mut reader: R,
     file_is_readable: fn(&Path) -> bool,
     directory_is_readable: fn(&Path) -> bool,
-    mut app_state: MutexGuard<Option<(Graph, Vec<String>)>>,
+    mut app_state: MutexGuard<Option<(Graph, Vec<NodeID>)>>,
 ) -> Vec<(&'a str, Result<(Vec<String>, String), String>)> {
     let mut reader = RealFileReader {};
     let (components, voltron) =
@@ -254,7 +254,7 @@ fn read_all_clusters_with_dependencies<'a, T: FileReader>(
     file_is_readable: fn(&Path) -> bool,
 ) -> (
     Vec<Result<ClusterGraphTuple, anyhow::Error>>,
-    Result<(Graph, Vec<String>), anyhow::Error>,
+    Result<(Graph, Vec<NodeID>), anyhow::Error>,
 ) {
     let paths = paths.split(";").map(|p| PathBuf::from(p));
     let read_results = paths
@@ -325,17 +325,22 @@ fn comment_cluster(
     let mut remarks: Vec<String> = vec![];
     let cluster_path = Path::new(cluster_path);
     cluster.nodes.iter().for_each(|n| {
-        if !directory_is_readable(&cluster_path.join(&n.local_id).as_path()) {
+        if !directory_is_readable(&cluster_path.join(&n.node_id.local_id).as_path()) {
             remarks.push(format!(
                 "{} should contain a child directory {}.",
                 cluster_path.to_string_lossy(),
-                n.local_id
+                n.node_id.local_id
             ));
         } else {
-            if !file_is_readable(&cluster_path.join(&n.local_id).join("contents.md").as_path()) {
+            if !file_is_readable(
+                &cluster_path
+                    .join(&n.node_id.local_id)
+                    .join("contents.md")
+                    .as_path(),
+            ) {
                 remarks.push(format!(
                     "Directory for node {} should contain a contents.md file.",
-                    n.local_id
+                    n.node_id.local_id
                 ));
             }
         }
@@ -352,9 +357,9 @@ fn voltronize_clusters(
     read_results: Vec<ReadResultForPath>,
 ) -> (
     Vec<Result<ClusterGraphTuple, anyhow::Error>>,
-    Result<(Graph, Vec<String>), anyhow::Error>,
+    Result<(Graph, Vec<NodeID>), anyhow::Error>,
 ) {
-    let mut all_roots: Vec<String> = vec![];
+    let mut all_roots: Vec<NodeID> = vec![];
     let clusters = read_results
         .into_iter()
         .map(|ReadResultForPath(r, p)| match r {
@@ -365,7 +370,9 @@ fn voltronize_clusters(
                     match cluster_name {
                         // dit wrappen is niet goed genoeg
                         // build kan dus een Err(String) opleveren
-                        Some(Ok(cluster_name)) => cfs.build(cluster_name).map_err(anyhow::Error::msg),
+                        Some(Ok(cluster_name)) => {
+                            cfs.build(cluster_name).map_err(anyhow::Error::msg)
+                        }
                         _ => Err(anyhow::Error::msg(
                             "Could not derive cluster name from path.",
                         )),
@@ -378,39 +385,23 @@ fn voltronize_clusters(
     let cluster_graph_tuples: Vec<_> = clusters
         .map(|result| {
             result.and_then(|cluster: domain::Cluster| {
-                // ??? why do I need to annotate this?
                 let mut identifier_to_index_map = std::collections::HashMap::new();
                 let mut single_cluster_graph = Graph::new();
                 let mut structural_errors: Vec<StructuralError> = vec![];
-                // check that nodes are not explicitly namespaced (because only internal ones are mentioned, external ones should only appear in edges)
-                // also check whether nodes are mentioned only once
                 for node in &cluster.nodes {
-                    let maybe_namespaced_key = node.local_id.clone();
-                    {
-                        let definitely_namespaced_key = format!(
-                            "{prefix}__{maybe_namespaced_key}",
-                            prefix = cluster.namespace_prefix
-                        );
-                        if !identifier_to_index_map.contains_key(&definitely_namespaced_key) {
-                            let idx = single_cluster_graph
-                                .add_node((node.local_id.to_owned(), node.title.to_owned()));
-                            identifier_to_index_map.insert(definitely_namespaced_key, idx);
-                        } else {
-                            structural_errors
-                                .push(StructuralError::DoubleNode(definitely_namespaced_key));
-                        }
-                        // TODO: checken op aanwezigheid leesbare contents.md?
-                        // ANDERZIJDS: telt dit als structural error, of is het een IO error?
-                        // eerder dat laatste, toch?
+                    if !identifier_to_index_map.contains_key(&node.node_id) {
+                        let idx = single_cluster_graph
+                            .add_node((node.node_id.clone(), node.title.clone()));
+                        identifier_to_index_map.insert(node.node_id.clone(), idx);
+                    } else {
+                        structural_errors.push(StructuralError::DoubleNode(node.node_id.clone()));
                     }
                 }
                 cluster.roots.iter().for_each(|root| {
-                    let namespaced_root = format!("{}__{}", cluster.namespace_prefix, root);
-                    if !identifier_to_index_map.contains_key(&namespaced_root) {
-                        structural_errors
-                            .push(StructuralError::UndeclaredRoot(namespaced_root.clone()));
+                    if !identifier_to_index_map.contains_key(&root) {
+                        structural_errors.push(StructuralError::UndeclaredRoot(root.clone()));
                     }
-                    all_roots.push(namespaced_root);
+                    all_roots.push(root.clone());
                 });
                 // build the single-cluster graph and check for structural errors at the same time
                 for TypedEdge {
@@ -420,36 +411,21 @@ fn voltronize_clusters(
                 } in &cluster.edges
                 {
                     let mut can_add = true;
-                    // current cluster's namespace should not be mentioned
-                    if start_id.starts_with(&format!("{}__", &cluster.namespace_prefix)) {
-                        structural_errors.push(StructuralError::EdgeMultipleNamespace(
-                            start_id.to_owned(),
-                            end_id.to_owned(),
-                            start_id.to_owned(),
-                        ));
-                        can_add = false;
-                    }
-                    // FIXME: should not need this (here), should be recognized on deserialization
-                    if end_id.starts_with(&format!("{}__", &cluster.namespace_prefix)) {
-                        structural_errors.push(StructuralError::EdgeMultipleNamespace(
-                            start_id.to_owned(),
-                            end_id.to_owned(),
-                            start_id.to_owned(),
-                        ));
-                        can_add = false;
-                    }
-                    if can_add && cluster.roots.contains(end_id) {
+                    if cluster.roots.contains(end_id) {
                         structural_errors
                             .push(StructuralError::DependentRootNode(end_id.to_owned()));
                         can_add = false;
                     }
-                    if start_id.contains("__") && *kind == EdgeType::AtLeastOne {
+                    if start_id.namespace != cluster.namespace_prefix
+                        && *kind == EdgeType::AtLeastOne
+                    {
                         structural_errors.push(StructuralError::IncomingAnyEdge(
                             start_id.to_owned(),
                             end_id.to_owned(),
                         ));
                         can_add = false;
-                    } else if end_id.contains("__") && *kind == EdgeType::All {
+                    } else if end_id.namespace != cluster.namespace_prefix && *kind == EdgeType::All
+                    {
                         structural_errors.push(StructuralError::OutgoingAllEdge(
                             start_id.to_owned(),
                             end_id.to_owned(),
@@ -457,25 +433,19 @@ fn voltronize_clusters(
                         can_add = false;
                     }
                     if can_add {
-                        let mut start_id = start_id.to_owned();
-                        let mut end_id = end_id.to_owned();
-                        if start_id.contains("__") {
-                            if !identifier_to_index_map.contains_key(&start_id) {
-                                let idx = single_cluster_graph
-                                    .add_node((start_id.clone(), start_id.clone()));
-                                identifier_to_index_map.insert(start_id.clone(), idx);
-                            }
-                        } else {
-                            start_id = format!("{}__{start_id}", cluster.namespace_prefix);
+                        if start_id.namespace != cluster.namespace_prefix
+                            && !identifier_to_index_map.contains_key(&start_id)
+                        {
+                            let idx = single_cluster_graph
+                                .add_node((start_id.clone(), format!("{}", &start_id)));
+                            identifier_to_index_map.insert(start_id.clone(), idx);
                         }
-                        if end_id.contains("__") {
-                            if !identifier_to_index_map.contains_key(&end_id) {
-                                let idx =
-                                    single_cluster_graph.add_node((end_id.clone(), end_id.clone()));
-                                identifier_to_index_map.insert(end_id.clone(), idx);
-                            }
-                        } else {
-                            end_id = format!("{}__{end_id}", cluster.namespace_prefix);
+                        if end_id.namespace != cluster.namespace_prefix
+                            && !identifier_to_index_map.contains_key(&end_id)
+                        {
+                            let idx = single_cluster_graph
+                                .add_node((end_id.clone(), format!("{}", &end_id)));
+                            identifier_to_index_map.insert(end_id.clone(), idx);
                         }
                         match (
                             identifier_to_index_map.get(&start_id),
@@ -554,20 +524,16 @@ fn voltronize_clusters(
 
             let mut complete_graph: Graph = Graph::new();
             let mut complete_graph_map = HashMap::new();
-            // first: insert all internal nodes in their namespaced form
-            // also map each namespaced ID to a graph index
+            // first: insert all internal nodes
+            // also map each ID to a graph index
             cluster_graph_pairs
                 .iter()
                 .for_each(|ClusterGraphTuple(cluster, graph)| {
                     for (id, title) in graph.node_weights() {
                         // only add the internal ones to the map
-                        if !id.contains("__") {
-                            let node_idx = complete_graph.add_node((
-                                format!("{}__{id}", cluster.namespace_prefix),
-                                title.to_owned(),
-                            ));
-                            complete_graph_map
-                                .insert(format!("{}__{id}", cluster.namespace_prefix), node_idx);
+                        if cluster.namespace_prefix == id.namespace {
+                            let node_idx = complete_graph.add_node((id.clone(), title.to_owned()));
+                            complete_graph_map.insert(id.clone(), node_idx);
                         }
                     }
                 });
@@ -581,7 +547,7 @@ fn voltronize_clusters(
                         kind,
                     } in cluster.edges.iter()
                     {
-                        // add the dependencies
+                        /* // add the dependencies
                         let namespaced_start_id = if start_id.contains("__") {
                             start_id.to_owned()
                         } else {
@@ -591,10 +557,10 @@ fn voltronize_clusters(
                             end_id.to_owned()
                         } else {
                             format!("{}__{end_id}", cluster.namespace_prefix)
-                        };
+                        };*/
                         match (
-                            complete_graph_map.get(&namespaced_start_id),
-                            complete_graph_map.get(&namespaced_end_id),
+                            complete_graph_map.get(&start_id),
+                            complete_graph_map.get(&end_id),
                         ) {
                             (Some(start_idx), Some(end_idx)) => {
                                 complete_graph.add_edge(*start_idx, *end_idx, kind.clone());
@@ -602,23 +568,23 @@ fn voltronize_clusters(
                             (Some(_), None) => {
                                 boundary_errors.push(StructuralError::ClusterBoundary(
                                     cluster.namespace_prefix.clone(),
-                                    namespaced_end_id,
+                                    end_id.clone(),
                                 ));
                             }
                             (None, Some(_)) => {
                                 boundary_errors.push(StructuralError::ClusterBoundary(
                                     cluster.namespace_prefix.clone(),
-                                    namespaced_start_id,
+                                    start_id.clone(),
                                 ));
                             }
                             (None, None) => {
                                 boundary_errors.push(StructuralError::ClusterBoundary(
                                     cluster.namespace_prefix.clone(),
-                                    namespaced_end_id,
+                                    end_id.clone(),
                                 ));
                                 boundary_errors.push(StructuralError::ClusterBoundary(
                                     cluster.namespace_prefix.clone(),
-                                    namespaced_start_id,
+                                    start_id.clone(),
                                 ));
                             }
                         }
@@ -822,7 +788,7 @@ fn build_zip(paths: &'_ str, state: tauri::State<'_, AppState>) {
         ),
         motivations_graph,
     ) = dependency_helpers(voltron_with_roots);
-    let mut unlocking_conditions: HashMap<String, Option<UnlockingCondition>> = HashMap::new();
+    let mut unlocking_conditions: HashMap<NodeID, Option<UnlockingCondition>> = HashMap::new();
     voltron
         .node_references()
         .for_each(|(voltron_node_index, (voltron_node_id, _))| {
@@ -843,7 +809,7 @@ fn build_zip(paths: &'_ str, state: tauri::State<'_, AppState>) {
                 // dependent_to_dependency_tc betekent dat we *alle* harde dependencies zullen oplijsten
                 // kan dit beperken tot enkel directe dependencies
                 // i.e. de neighbors in dependent_to_depency_graph (neighbors = bereikbaar in één gerichte hop)
-                let hard_dependency_ids: HashSet<String> = dependent_to_dependency_tc
+                let hard_dependency_ids: HashSet<NodeID> = dependent_to_dependency_tc
                     .neighbors(dependent_to_dependency_revmap[matching_node_idx])
                     .map(|ix: NodeIndex| dependent_to_dependency_toposort_order[ix.index()])
                     .filter_map(|idx| {
@@ -852,7 +818,7 @@ fn build_zip(paths: &'_ str, state: tauri::State<'_, AppState>) {
                             .map(|(id, _)| id.clone())
                     })
                     .collect();
-                let mut dependent_ids: HashSet<String> = dependency_to_dependent_tc
+                let mut dependent_ids: HashSet<NodeID> = dependency_to_dependent_tc
                     .neighbors(dependency_to_dependent_revmap[matching_node.0.index()])
                     .map(|ix: NodeIndex| dependency_to_dependent_toposort_order[ix.index()])
                     .filter_map(|idx| {
@@ -870,13 +836,13 @@ fn build_zip(paths: &'_ str, state: tauri::State<'_, AppState>) {
                             .filter_map(|motivator_index| {
                                 motivations_graph
                                     .node_weight(motivator_index)
-                                    .map(|(id, title)| id.to_string())
+                                    .map(|(id, title)| id.clone())
                             })
                             .collect();
                         if neighbors.is_disjoint(&dependent_ids) {
                             None
                         } else {
-                            Some(potential_motivator.1 .0.to_string())
+                            Some(potential_motivator.1 .0.clone())
                         }
                     })
                     .collect();
@@ -934,7 +900,7 @@ fn check_learning_path_stateful(
 
 // factored out because it is needed both for checking learning path and for building zip
 fn dependency_helpers(
-    (voltron, roots): &(Graph, Vec<String>),
+    (voltron, roots): &(Graph, Vec<NodeID>),
 ) -> (
     (Graph, List<(), NodeIndex>, Vec<NodeIndex>, Vec<NodeIndex>),
     (Graph, List<(), NodeIndex>, Vec<NodeIndex>, Vec<NodeIndex>),
@@ -990,7 +956,7 @@ fn dependency_helpers(
 }
 
 fn check_learning_path(
-    voltron_with_roots: &(Graph, Vec<String>),
+    voltron_with_roots: &(Graph, Vec<NodeID>),
     node_ids: Vec<&str>,
 ) -> Vec<String> {
     // TODO: consider combining the &Graph with roots?
@@ -1013,13 +979,14 @@ fn check_learning_path(
         motivations_graph,
     ) = dependency_helpers(voltron_with_roots);
     let (_, roots) = voltron_with_roots;
-    let mut seen_nodes = HashSet::new();
+    let roots = roots.iter().map(|r| format!("{}", r)).collect::<Vec<_>>();
+    let mut seen_nodes: HashSet<String> = HashSet::new();
     for (index, namespaced_id) in node_ids.iter().enumerate() {
         let human_index = index + 1;
         if !roots.contains(&namespaced_id.to_string()) {
             match dependency_to_dependent_graph
                 .node_references()
-                .filter(|(idx, weight)| &weight.0 == namespaced_id)
+                .filter(|(idx, weight)| &format!("{}", weight.0) == namespaced_id)
                 .collect::<Vec<_>>()
                 .get(0)
             {
@@ -1031,7 +998,7 @@ fn check_learning_path(
                         .filter_map(|idx| {
                             dependent_to_dependency_graph
                                 .node_weight(idx)
-                                .map(|(id, _)| id.clone())
+                                .map(|(id, _)| format!("{}", id))
                         })
                         .collect();
                     for dependency in hard_dependency_ids.difference(&seen_nodes) {
@@ -1046,23 +1013,24 @@ fn check_learning_path(
                         .filter_map(|idx| {
                             dependency_to_dependent_graph
                                 .node_weight(idx)
-                                .map(|(id, _)| id.clone())
+                                .map(|(id, _)| format!("{}", id))
                         })
                         .collect();
-                    dependent_ids.insert(matching_node.1 .0.clone());
+                    dependent_ids.insert(format!("{}", matching_node.1 .0));
 
                     let is_motivated = seen_nodes.iter().fold(false, |acc, seen_node| {
                         acc || {
                             let motivations_entry = motivations_graph
                                 .node_references()
-                                .find(|node_ref| &node_ref.1 .0 == seen_node);
+                                .find(|node_ref| &format!("{}", node_ref.1 .0) == seen_node);
                             motivations_entry.is_some_and(|motivations_entry| {
                                 let motivated_by_seen_node: Vec<_> =
                                     motivations_graph.neighbors(motivations_entry.0).collect();
                                 motivated_by_seen_node.into_iter().any(|idx| {
                                     let motivated = motivations_graph.node_weight(idx);
-                                    motivated
-                                        .is_some_and(|weight| dependent_ids.contains(&weight.0))
+                                    motivated.is_some_and(|weight| {
+                                        dependent_ids.contains(&format!("{}", weight.0))
+                                    })
                                 })
                             })
                         }
@@ -1073,7 +1041,7 @@ fn check_learning_path(
                             "Node {human_index} ({namespaced_id}) is not motivated by any predecessor, nor are any of its dependents."
                         ));
                     }
-                    seen_nodes.insert(matching_node.1 .0.clone());
+                    seen_nodes.insert(format!("{}", matching_node.1 .0));
                 }
                 None => {
                     remarks.push(format!(
@@ -1097,8 +1065,11 @@ mod tests {
     };
 
     use crate::{
-        associate_parents_children, check_learning_path, comment_cluster,
-        read_all_clusters_with_dependencies, ClusterGraphTuple,
+        associate_parents_children,
+        check_learning_path,
+        comment_cluster,
+        read_all_clusters_with_dependencies,
+        ClusterGraphTuple,
     };
 
     struct MockFileReader<'a> {
