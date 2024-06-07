@@ -15,7 +15,6 @@ use petgraph::{
     visit::{EdgeRef, IntoEdgeReferences, IntoNodeReferences},
 };
 
-use std::io::{Read, Write};
 use std::path::PathBuf;
 use std::sync::{Mutex, MutexGuard};
 use std::{
@@ -25,15 +24,11 @@ use std::{
     ops::Index,
     path::Path,
 };
-use walkdir::{DirEntry, WalkDir};
-use yaml2json_rs::Yaml2Json;
-use zip::write::FileOptions;
-use zip::{CompressionMethod, ZipWriter};
 
 mod deserialization;
 mod domain;
 
-use crate::domain::{EdgeType, NodeID, TypedEdge, UnlockingCondition};
+use crate::domain::{EdgeType, NodeID, TypedEdge};
 
 /* Maybe more use of references would be more idiomatic here. */
 
@@ -412,8 +407,10 @@ fn voltronize_clusters(
                 {
                     let mut can_add = true;
                     if cluster.roots.contains(end_id) {
-                        structural_errors
-                            .push(StructuralError::DependentRootNode(end_id.to_owned(), start_id.to_owned()));
+                        structural_errors.push(StructuralError::DependentRootNode(
+                            end_id.to_owned(),
+                            start_id.to_owned(),
+                        ));
                         can_add = false;
                     }
                     if start_id.namespace != cluster.namespace_prefix
@@ -547,17 +544,6 @@ fn voltronize_clusters(
                         kind,
                     } in cluster.edges.iter()
                     {
-                        /* // add the dependencies
-                        let namespaced_start_id = if start_id.contains("__") {
-                            start_id.to_owned()
-                        } else {
-                            format!("{}__{start_id}", cluster.namespace_prefix)
-                        };
-                        let namespaced_end_id = if end_id.contains("__") {
-                            end_id.to_owned()
-                        } else {
-                            format!("{}__{end_id}", cluster.namespace_prefix)
-                        };*/
                         match (
                             complete_graph_map.get(&start_id),
                             complete_graph_map.get(&end_id),
@@ -644,43 +630,6 @@ fn associate_parents_children(
             map.entry(parent).or_insert_with(Vec::new).push(path);
             Ok(map)
         })
-}
-
-fn add_dir_to_zip(
-    iterator: &mut dyn Iterator<Item = DirEntry>,
-    prefix: &str, // i.e. the directory
-    zip: &mut ZipWriter<File>,
-) -> zip::result::ZipResult<()> {
-    let options = FileOptions::default()
-        // i.e. no actual compression!
-        .compression_method(CompressionMethod::Stored)
-        .unix_permissions(0o755);
-
-    let mut buffer = Vec::new();
-    for entry in iterator {
-        let path = entry.path();
-        // TODO: fix unwraps
-        let name = path
-            .strip_prefix(Path::new(prefix).parent().unwrap())
-            .unwrap();
-        // Write file or directory explicitly
-        // Some unzip tools unzip files with directory paths correctly, some do not!
-        if path.is_file() {
-            #[allow(deprecated)]
-            zip.start_file_from_path(name, options)?;
-            let mut f = File::open(path)?;
-
-            f.read_to_end(&mut buffer)?;
-            zip.write_all(&buffer)?;
-            buffer.clear();
-        } else if !name.as_os_str().is_empty() {
-            // Only if not root! Avoids path spec / warning
-            // and mapname conversion failed error on unzip
-            #[allow(deprecated)]
-            zip.add_directory_from_path(name, options)?;
-        }
-    }
-    Result::Ok(())
 }
 
 fn subgraph_with_edges(parent: &Graph, predicate: impl Fn(&EdgeData) -> bool) -> Graph {
@@ -805,7 +754,7 @@ fn check_learning_path(
         if !roots.contains(&namespaced_id.to_string()) {
             match dependency_to_dependent_graph
                 .node_references()
-                .filter(|(idx, weight)| &format!("{}", weight.0) == namespaced_id)
+                .filter(|(_idx, (node_id, _title))| &format!("{}", node_id) == namespaced_id)
                 .collect::<Vec<_>>()
                 .get(0)
             {
@@ -884,11 +833,8 @@ mod tests {
     };
 
     use crate::{
-        associate_parents_children,
-        check_learning_path,
-        comment_cluster,
-        read_all_clusters_with_dependencies,
-        ClusterGraphTuple,
+        associate_parents_children, check_learning_path, comment_cluster,
+        read_all_clusters_with_dependencies, ClusterGraphTuple,
     };
 
     struct MockFileReader<'a> {
@@ -959,7 +905,7 @@ mod tests {
             &Path::new("tests/simpleproject/contents.lc.yaml"),
         ]);
         // TODO: could avoid writing two paths here...
-        let (components_analysis, voltron_analysis) =
+        let (_, voltron_analysis) =
             read_all_clusters_with_dependencies("technicalinfo;simpleproject", &mut reader, |_| {
                 true
             });
