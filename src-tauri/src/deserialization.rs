@@ -46,7 +46,7 @@ struct Edge {
 impl Edge {
     fn build(&self, namespace: &str, kind: domain::EdgeType) -> Result<domain::TypedEdge, String> {
         let mut start_components: Vec<_> = self.start_id.split("__").collect();
-        let mut end_components: Vec<_> = self.start_id.split("__").collect();
+        let mut end_components: Vec<_> = self.end_id.split("__").collect();
         if start_components.len() > 2 {
             Err(format!(
                 "{} is not a valid start for an edge (too many explicit namespaces)",

@@ -48,7 +48,7 @@ enum StructuralError {
     ClusterBoundary(String, NodeID),                 // cluster, reference
     InvalidComponentGraph,
     Cycle(NodeID),
-    DependentRootNode(NodeID),
+    DependentRootNode(NodeID, NodeID),
     UndeclaredRoot(NodeID),
     IncomingAnyEdge(NodeID, NodeID),
     OutgoingAllEdge(NodeID, NodeID),
@@ -65,7 +65,7 @@ impl fmt::Display for StructuralError {
             Self::ClusterBoundary(cluster,reference) => write!(f, "Cluster {} refers to non-existent external node {}", cluster, reference),
             Self::InvalidComponentGraph => write!(f, "At least one component graph is invalid"),
             Self::Cycle(id) => write!(f, "Node {} is involved in a cycle", id),
-            Self::DependentRootNode(id) => write!(f, "Node {} is declared as a root and has at least one incoming edge. Roots should not have incoming edges.", id),
+            Self::DependentRootNode(id, start_id) => write!(f, "Node {} is declared as a root and has at least one incoming edge (from {}). Roots should not have incoming edges.", id, start_id),
             Self::UndeclaredRoot(id) => write!(f, "Root {} is not declared as a node in the cluster.", id),
             Self::IncomingAnyEdge(start_id,end_id) => write!(f, "\"At least one\" type edge from {} to {}. These edges can only connect to other clusters in the \"out\" direction.", start_id, end_id),
             Self::OutgoingAllEdge(start_id,end_id) => write!(f, "\"All\" type edge from {} to {}. These edges can only connect to other clusters in the \"in\" direction.", start_id, end_id),
@@ -413,7 +413,7 @@ fn voltronize_clusters(
                     let mut can_add = true;
                     if cluster.roots.contains(end_id) {
                         structural_errors
-                            .push(StructuralError::DependentRootNode(end_id.to_owned()));
+                            .push(StructuralError::DependentRootNode(end_id.to_owned(), start_id.to_owned()));
                         can_add = false;
                     }
                     if start_id.namespace != cluster.namespace_prefix
