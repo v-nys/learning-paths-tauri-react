@@ -42,12 +42,15 @@ pub struct Cluster {
 /// It does not need to be entirely standalone, as it can have dependencies in the form of `Edge` values.
 #[derive(Clone, Debug)]
 pub struct Node {
+    /// Each node is namespaced according to its `Cluster`.
+    pub namespace: String,
     /// An ID should be locally unique inside a `Cluster` and is used to refer to a node inside its `Cluster`.
     ///
     /// The ID also be used to refer to the node from outside its `Cluster`, if it is preceded by the `Cluster`'s namespace prefix.
-    pub id: String,
+    pub local_id: String,
     /// Human-readable title for this unit of knowledge.
     ///
     /// This is not required to be unique at any level.
     pub title: String,
+
 }

@@ -325,17 +325,17 @@ fn comment_cluster(
     let mut remarks: Vec<String> = vec![];
     let cluster_path = Path::new(cluster_path);
     cluster.nodes.iter().for_each(|n| {
-        if !directory_is_readable(&cluster_path.join(&n.id).as_path()) {
+        if !directory_is_readable(&cluster_path.join(&n.local_id).as_path()) {
             remarks.push(format!(
                 "{} should contain a child directory {}.",
                 cluster_path.to_string_lossy(),
-                n.id
+                n.local_id
             ));
         } else {
-            if !file_is_readable(&cluster_path.join(&n.id).join("contents.md").as_path()) {
+            if !file_is_readable(&cluster_path.join(&n.local_id).join("contents.md").as_path()) {
                 remarks.push(format!(
                     "Directory for node {} should contain a contents.md file.",
-                    n.id
+                    n.local_id
                 ));
             }
         }
@@ -363,7 +363,9 @@ fn voltronize_clusters(
                 .and_then(|cfs| {
                     let cluster_name = p.file_name().map(|osstr| osstr.to_owned().into_string());
                     match cluster_name {
-                        Some(Ok(cluster_name)) => Ok(cfs.build(cluster_name)),
+                        // dit wrappen is niet goed genoeg
+                        // build kan dus een Err(String) opleveren
+                        Some(Ok(cluster_name)) => cfs.build(cluster_name).map_err(anyhow::Error::msg),
                         _ => Err(anyhow::Error::msg(
                             "Could not derive cluster name from path.",
                         )),
@@ -380,22 +382,18 @@ fn voltronize_clusters(
                 let mut identifier_to_index_map = std::collections::HashMap::new();
                 let mut single_cluster_graph = Graph::new();
                 let mut structural_errors: Vec<StructuralError> = vec![];
-
                 // check that nodes are not explicitly namespaced (because only internal ones are mentioned, external ones should only appear in edges)
                 // also check whether nodes are mentioned only once
                 for node in &cluster.nodes {
-                    let maybe_namespaced_key = node.id.clone();
-                    if maybe_namespaced_key.contains("__") {
-                        structural_errors
-                            .push(StructuralError::NodeMultipleNamespace(maybe_namespaced_key));
-                    } else {
+                    let maybe_namespaced_key = node.local_id.clone();
+                    {
                         let definitely_namespaced_key = format!(
                             "{prefix}__{maybe_namespaced_key}",
                             prefix = cluster.namespace_prefix
                         );
                         if !identifier_to_index_map.contains_key(&definitely_namespaced_key) {
                             let idx = single_cluster_graph
-                                .add_node((node.id.to_owned(), node.title.to_owned()));
+                                .add_node((node.local_id.to_owned(), node.title.to_owned()));
                             identifier_to_index_map.insert(definitely_namespaced_key, idx);
                         } else {
                             structural_errors
@@ -431,6 +429,7 @@ fn voltronize_clusters(
                         ));
                         can_add = false;
                     }
+                    // FIXME: should not need this (here), should be recognized on deserialization
                     if end_id.starts_with(&format!("{}__", &cluster.namespace_prefix)) {
                         structural_errors.push(StructuralError::EdgeMultipleNamespace(
                             start_id.to_owned(),

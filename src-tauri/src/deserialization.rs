@@ -17,10 +17,16 @@ struct Node {
 }
 
 impl Node {
-    fn build(&self) -> domain::Node {
-        domain::Node {
-            id: self.id.clone(),
-            title: self.title.clone(),
+    fn build(&self, namespace: &str) -> Result<domain::Node, String> {
+        let parts = self.id.split("__").collect::<Vec<_>>();
+        if parts.len() > 1 {
+            Err(format!("Declared node {} specifies explicit namespace", self.id))
+        } else {
+            Ok(domain::Node {
+                namespace: namespace.to_owned(),
+                local_id: self.id.clone(),
+                title: self.title.clone()
+            })
         }
     }
 }
@@ -52,11 +58,15 @@ pub struct ClusterForSerialization {
 }
 
 impl ClusterForSerialization {
-    pub fn build(self, folder_name: String) -> domain::Cluster {
-        domain::Cluster {
+    // TODO: may fail (specifically if Nodes cannot be deserialized)
+    pub fn build(self, folder_name: String) -> Result<domain::Cluster, String> {
+        // this gives a vector of results
+        let nodes: Vec<_> = self.nodes.iter().map(|n| n.build(&folder_name)).collect();
+        // turn it into a result for a vector
+        let nodes: Result<Vec<_>, _> = nodes.into_iter().collect();
+        Ok(domain::Cluster {
             namespace_prefix: folder_name,
-            // TODO: need to turn deserialization nodes into domain nodes
-            nodes: self.nodes.iter().map(|n| { n.build() }).collect(),
+            nodes: nodes?,
             edges: self
                 .all_type_edges
                 .unwrap_or_default()
@@ -78,6 +88,6 @@ impl ClusterForSerialization {
                 )
                 .collect::<Vec<_>>(),
             roots: self.roots.unwrap_or_default(),
-        }
+        })
     }
 }
