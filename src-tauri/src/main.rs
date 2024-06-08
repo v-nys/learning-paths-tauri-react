@@ -198,6 +198,7 @@ impl FileReader for RealFileReader {
     }
 }
 
+/// Reads input files, returning individual clusters and supercluster.
 fn read_all_clusters_with_test_dependencies<'a, T: FileReader>(
     paths: &'a str,
     reader: &mut T,
@@ -287,6 +288,7 @@ fn merge_clusters(
     Result<RootedSupercluster, anyhow::Error>,
 ) {
     let mut all_roots: Vec<NodeID> = vec![];
+    // step 1: get individual clusters
     let clusters = read_results
         .into_iter()
         .map(|ReadResultForPath(r, p)| match r {
@@ -295,8 +297,6 @@ fn merge_clusters(
                 .and_then(|cfs| {
                     let cluster_name = p.file_name().map(|osstr| osstr.to_owned().into_string());
                     match cluster_name {
-                        // dit wrappen is niet goed genoeg
-                        // build kan dus een Err(String) opleveren
                         Some(Ok(cluster_name)) => {
                             cfs.build(cluster_name).map_err(anyhow::Error::msg)
                         }
@@ -307,11 +307,12 @@ fn merge_clusters(
                 }),
             Err(e) => Err(anyhow::Error::new(e)),
         });
-    // each cluster is associated with a petgraph Graph
-    // so we get a vector of results
+    // step 2: associate individual clusters with separate Petgraph graphs
     let cluster_graph_tuples: Vec<_> = clusters
         .map(|result| {
             result.and_then(|cluster: domain::Cluster| {
+                // Petgraph uses its own indexing system
+                // so map own node identifiers to Petgraph indexes
                 let mut identifier_to_index_map = std::collections::HashMap::new();
                 let mut single_cluster_graph = Graph::new();
                 let mut structural_errors: Vec<StructuralError> = vec![];
@@ -412,6 +413,8 @@ fn merge_clusters(
         })
         .collect();
 
+    // step 3: turn a vector of entirely Ok results into a a single Ok result
+    // couldn't I just
     let cluster_graph_pairs_result =
         cluster_graph_tuples
             .iter()
@@ -422,59 +425,16 @@ fn merge_clusters(
                     Ok(vec)
                 }
             });
+    /* can I simplify along these lines?
+    let cluster_graph_pairs_result: Result<Vec<&ClusterGraphTuple>, anyhow::Error> =
+       cluster_graph_tuples
+           .iter()
+           .collect::<Result<Vec<_>,anyhow::Error>>()
+           .map_err(|_| anyhow::Error::from(StructuralError::InvalidComponentGraph));*/
 
-    let complete_graph_result = cluster_graph_pairs_result
-        .and_then(|cluster_graph_pairs| {
-            let mut boundary_errors = vec![];
-
-            let mut complete_graph: Graph = Graph::new();
-            let mut complete_graph_map = HashMap::new();
-            // first: insert all internal nodes
-            // also map each ID to a graph index
-            cluster_graph_pairs
-                .iter()
-                .for_each(|ClusterGraphTuple(cluster, graph)| {
-                    for (id, title) in graph.node_weights() {
-                        // only add the internal ones to the map
-                        if cluster.namespace_prefix == id.namespace {
-                            let node_idx = complete_graph.add_node((id.clone(), title.to_owned()));
-                            complete_graph_map.insert(id.clone(), node_idx);
-                        }
-                    }
-                });
-            // now insert the edges
-            cluster_graph_pairs
-                .iter()
-                .for_each(|ClusterGraphTuple(cluster, _)| {
-                    for TypedEdge {
-                        start_id,
-                        end_id,
-                        kind,
-                    } in cluster.edges.iter()
-                    {
-                        let ids = [start_id, end_id];
-                        let idxs = ids.map(|id| complete_graph_map.get(id));
-                        ids.iter().zip(idxs).for_each(|(id, idx)| {
-                            if let None = idx {
-                                boundary_errors.push(StructuralError::ClusterBoundary(
-                                    cluster.namespace_prefix.clone(),
-                                    (*id).clone(),
-                                ));
-                            }
-                        });
-                        if let [Some(start_idx), Some(end_idx)] = idxs {
-                            complete_graph.add_edge(*start_idx, *end_idx, kind.clone());
-                        }
-                    }
-                });
-            if boundary_errors.is_empty() {
-                Ok(complete_graph)
-            } else {
-                Err(anyhow::Error::from(StructuralErrorGrouping {
-                    components: boundary_errors,
-                }))
-            }
-        })
+    // step 4: compute the supercluster
+    let supercluster = cluster_graph_pairs_result
+        .and_then(merge_into_supercluster)
         .and_then(|graph| {
             toposort(&graph, None)
                 .map_err(|cycle| {
@@ -488,7 +448,57 @@ fn merge_clusters(
                 })
         });
 
-    (cluster_graph_tuples, complete_graph_result)
+    (cluster_graph_tuples, supercluster)
+}
+
+fn merge_into_supercluster(
+    cluster_graph_pairs: Vec<&ClusterGraphTuple>,
+) -> Result<Graph, anyhow::Error> {
+    let mut boundary_errors = vec![];
+    let mut complete_graph: Graph = Graph::new();
+    let mut complete_graph_map = HashMap::new();
+    cluster_graph_pairs
+        .iter()
+        .for_each(|ClusterGraphTuple(cluster, graph)| {
+            for (id, title) in graph.node_weights() {
+                // only add the internal ones to the map
+                if cluster.namespace_prefix == id.namespace {
+                    let node_idx = complete_graph.add_node((id.clone(), title.to_owned()));
+                    complete_graph_map.insert(id.clone(), node_idx);
+                }
+            }
+        });
+    cluster_graph_pairs
+        .iter()
+        .for_each(|ClusterGraphTuple(cluster, _)| {
+            for TypedEdge {
+                start_id,
+                end_id,
+                kind,
+            } in cluster.edges.iter()
+            {
+                let ids = [start_id, end_id];
+                let idxs = ids.map(|id| complete_graph_map.get(id));
+                ids.iter().zip(idxs).for_each(|(id, idx)| {
+                    if let None = idx {
+                        boundary_errors.push(StructuralError::ClusterBoundary(
+                            cluster.namespace_prefix.clone(),
+                            (*id).clone(),
+                        ));
+                    }
+                });
+                if let [Some(start_idx), Some(end_idx)] = idxs {
+                    complete_graph.add_edge(*start_idx, *end_idx, kind.clone());
+                }
+            }
+        });
+    if boundary_errors.is_empty() {
+        Ok(complete_graph)
+    } else {
+        Err(anyhow::Error::from(StructuralErrorGrouping {
+            components: boundary_errors,
+        }))
+    }
 }
 
 /// Associates the parent path of each supplied path with the path itself.
