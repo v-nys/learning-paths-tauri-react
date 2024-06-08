@@ -93,10 +93,11 @@ fn read_contents<'a>(
         .lock()
         .expect("Should always be able to gain access eventually.");
     app_state.take();
-    read_contents_with_dependencies(paths, file_is_readable, path_is_dir, app_state)
+    read_contents_with_test_dependencies(paths, file_is_readable, path_is_dir, app_state)
 }
 
-fn read_contents_with_dependencies<'a>(
+
+fn read_contents_with_test_dependencies<'a>(
     paths: &'a str,
     file_is_readable: fn(&Path) -> bool,
     directory_is_readable: fn(&Path) -> bool,
@@ -104,7 +105,7 @@ fn read_contents_with_dependencies<'a>(
 ) -> Vec<(&'a str, Result<(Vec<String>, String), String>)> {
     let mut reader = RealFileReader {};
     let (components, supercluster) =
-        read_all_clusters_with_dependencies::<RealFileReader>(paths, &mut reader);
+        read_all_clusters_with_test_dependencies::<RealFileReader>(paths, &mut reader);
     match supercluster.as_ref() {
         Ok(supercluster) => {
             let _ = app_state.insert(supercluster.clone());
@@ -198,7 +199,7 @@ impl FileReader for RealFileReader {
     }
 }
 
-fn read_all_clusters_with_dependencies<'a, T: FileReader>(
+fn read_all_clusters_with_test_dependencies<'a, T: FileReader>(
     paths: &'a str,
     reader: &mut T,
 ) -> (
@@ -412,8 +413,6 @@ fn merge_clusters(
                         }
                     }
                 }
-                // TODO: cycle detection and implied edge detection (in comment_graph) is essentially the same for the complete graph
-                // should move this into a function
                 let toposort_result = toposort(&single_cluster_graph, None);
                 match toposort_result.as_ref() {
                     Err(cycle) => {
@@ -423,8 +422,6 @@ fn merge_clusters(
                     }
                     _ => {}
                 };
-                // TODO: can check for redundant motivations
-                // i.e. motivating a strict predecessor is unncessary when motivating a successor
                 if structural_errors.is_empty() {
                     Ok(ClusterGraphTuple(cluster, single_cluster_graph))
                 } else {
@@ -573,7 +570,7 @@ mod tests {
     };
 
     use crate::{
-        associate_parents_children, comment_cluster, read_all_clusters_with_dependencies,
+        associate_parents_children, comment_cluster, read_all_clusters_with_test_dependencies,
         ClusterGraphTuple,
     };
 
@@ -607,7 +604,7 @@ mod tests {
         let mut reader =
             MockFileReader::new(vec![&Path::new("tests/technicalinfo/contents.lc.yaml")]);
         let (component_analysis, _supercluster_analysis) =
-            read_all_clusters_with_dependencies("_", &mut reader);
+            read_all_clusters_with_test_dependencies("_", &mut reader);
         assert_eq!(component_analysis.len(), 1);
         assert!(component_analysis.get(0).as_ref().is_some());
         component_analysis.into_iter().for_each(|result| {
@@ -626,7 +623,7 @@ mod tests {
             "tests/technicalinfo_cycle/contents.lc.yaml",
         )]);
         let (components_analysis, supercluster_analysis) =
-            read_all_clusters_with_dependencies("_", &mut reader);
+            read_all_clusters_with_test_dependencies("_", &mut reader);
         assert_eq!(reader.calls_made, 1);
         // TODO: could check for specific error type
         assert!(components_analysis
