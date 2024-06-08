@@ -1,3 +1,4 @@
+use lazy_regex::regex;
 use schemars::JsonSchema;
 use serde::Deserialize;
 
@@ -17,13 +18,14 @@ struct Node {
 }
 
 impl Node {
-    fn build(&self, namespace: &str) -> Result<domain::Node, String> {
+    fn build(&self, namespace: &str) -> Result<domain::Node, anyhow::Error> {
+        let identifier_regex = regex!("[a-z][a-z_]*");
         let parts = self.id.split("__").collect::<Vec<_>>();
-        if parts.len() > 1 {
-            Err(format!(
-                "Declared node {} specifies explicit namespace",
-                self.id
-            ))
+        let invalid_part = parts.iter().find(|p| !identifier_regex.is_match(p));
+        if let Some(part) = invalid_part {
+            Err(domain::StructuralError::InvalidIdentifierError(part.to_string()).into())
+        } else if parts.len() > 1 {
+            Err(domain::StructuralError::NodeMultipleNamespace(self.id.to_string()).into())
         } else {
             Ok(domain::Node {
                 node_id: domain::NodeID {
@@ -44,29 +46,48 @@ struct Edge {
 }
 
 impl Edge {
-    fn build(&self, namespace: &str, kind: domain::EdgeType) -> Result<domain::TypedEdge, String> {
+    fn build(
+        &self,
+        namespace: &str,
+        kind: domain::EdgeType,
+    ) -> Result<domain::TypedEdge, anyhow::Error> {
+        let identifier_regex = regex!("[a-z][a-z_]*");
         let mut start_components: Vec<_> = self.start_id.split("__").collect();
         let mut end_components: Vec<_> = self.end_id.split("__").collect();
-        if start_components.len() > 2 {
-            Err(format!(
-                "{} is not a valid start for an edge (too many explicit namespaces)",
-                self.start_id
-            ))
+        let invalid_part = start_components
+            .iter()
+            .chain(end_components.iter())
+            .find(|p| !identifier_regex.is_match(p));
+        if let Some(part) = invalid_part {
+            Err(domain::StructuralError::InvalidIdentifierError(part.to_string()).into())
+        } else if start_components.len() > 2 {
+            Err(domain::StructuralError::EdgeMultipleNamespace(
+                self.start_id.to_string(),
+                self.end_id.to_string(),
+                self.start_id.to_string(),
+            )
+            .into())
         } else if end_components.len() > 2 {
-            Err(format!(
-                "{} is not a valid end for an edge (too many explicit namespaces)",
-                self.end_id
-            ))
+            Err(domain::StructuralError::EdgeMultipleNamespace(
+                self.start_id.to_string(),
+                self.end_id.to_string(),
+                self.end_id.to_string(),
+            )
+            .into())
         } else if start_components.len() == 2 && start_components[0] == namespace {
-            Err(format!(
-                "{} should not be explicitly namespaced in this context",
-                self.start_id
-            ))
+            Err(domain::StructuralError::EdgeMultipleNamespace(
+                self.start_id.to_string(),
+                self.end_id.to_string(),
+                self.start_id.to_string(),
+            )
+            .into())
         } else if end_components.len() == 2 && end_components[0] == namespace {
-            Err(format!(
-                "{} should not be explicitly namespaced in this context",
-                self.end_id
-            ))
+            Err(domain::StructuralError::EdgeMultipleNamespace(
+                self.start_id.to_string(),
+                self.end_id.to_string(),
+                self.end_id.to_string(),
+            )
+            .into())
         } else {
             if start_components.len() == 1 {
                 start_components.insert(0, namespace);
@@ -109,7 +130,7 @@ pub struct ClusterForSerialization {
 }
 
 impl ClusterForSerialization {
-    pub fn build(self, folder_name: String) -> Result<domain::Cluster, String> {
+    pub fn build(self, folder_name: String) -> Result<domain::Cluster, anyhow::Error> {
         // this gives a vector of results
         let nodes: Vec<_> = self.nodes.iter().map(|n| n.build(&folder_name)).collect();
         // turn it into a result for a vector
@@ -129,7 +150,8 @@ impl ClusterForSerialization {
                         .map(|e| e.build(&folder_name, domain::EdgeType::AtLeastOne)),
                 )
                 .collect::<Result<Vec<_>, _>>()?,
-            // FIXME: don't think error is spotted if root is namespaced via __
+            // FIXME: don't think error is spotted if root is namespaced via __ or has invalid
+                // symbols in it
             roots: self
                 .roots
                 .unwrap_or_default()

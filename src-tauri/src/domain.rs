@@ -1,5 +1,6 @@
 use serde::Serialize;
 use std::collections::HashSet;
+use std::fmt;
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub enum EdgeType {
@@ -63,3 +64,41 @@ pub struct Node {
     /// This is not required to be unique at any level.
     pub title: String,
 }
+
+/// An error related to the internal structure of a (syntactically valid, semantically invalid) `Cluster`.
+#[derive(Debug)]
+pub enum StructuralError {
+    DoubleNode(NodeID),                              // creating two nodes with same ID
+    MissingInternalEndpoint(NodeID, NodeID, NodeID), // referring to non-existent node
+    NodeMultipleNamespace(String),                   // creating a node with explicit namespace
+    EdgeMultipleNamespace(String, String, String),   // edge from / to internal node with
+    ClusterBoundary(String, NodeID),                 // cluster, reference
+    InvalidComponentGraph,
+    Cycle(NodeID),
+    DependentRootNode(NodeID, NodeID),
+    UndeclaredRoot(NodeID),
+    IncomingAnyEdge(NodeID, NodeID),
+    OutgoingAllEdge(NodeID, NodeID),
+    InvalidIdentifierError(String),
+}
+
+impl fmt::Display for StructuralError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::DoubleNode(id) => write!(f, "Node defined multiple times: {id}"),
+            Self::MissingInternalEndpoint(start_id, end_id, missing_id) => write!(f, "Node {missing_id} mentioned in edge {start_id} → {end_id} does not exist"),
+            Self::NodeMultipleNamespace(id) => write!(f, "Node is explicitly namespaced (which is not allowed) in its definition: {id}"),
+            Self::EdgeMultipleNamespace(start_id, end_id, namespaced_id) => write!(f, "Node {namespaced_id} mentioned in edge {start_id} → {end_id} is incorrectly namespaced. There should only be one namespace and it should only be explicit if it is not that of the defining cluster."),
+            Self::ClusterBoundary(cluster,reference) => write!(f, "Cluster {} refers to non-existent external node {}", cluster, reference),
+            Self::InvalidComponentGraph => write!(f, "At least one component graph is invalid"),
+            Self::Cycle(id) => write!(f, "Node {} is involved in a cycle", id),
+            Self::DependentRootNode(id, start_id) => write!(f, "Node {} is declared as a root and has at least one incoming edge (from {}). Roots should not have incoming edges.", id, start_id),
+            Self::UndeclaredRoot(id) => write!(f, "Root {} is not declared as a node in the cluster.", id),
+            Self::IncomingAnyEdge(start_id,end_id) => write!(f, "\"At least one\" type edge from {} to {}. These edges can only connect to other clusters in the \"out\" direction.", start_id, end_id),
+            Self::OutgoingAllEdge(start_id,end_id) => write!(f, "\"All\" type edge from {} to {}. These edges can only connect to other clusters in the \"in\" direction.", start_id, end_id),
+            Self::InvalidIdentifierError(identifier) => write!(f, "Invalid identifier {}.", identifier)
+        }
+    }
+}
+
+impl std::error::Error for StructuralError {}

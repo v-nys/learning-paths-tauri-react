@@ -3,8 +3,6 @@
 
 use anyhow;
 use graphviz_rust::{cmd::Format, exec, printer::PrinterContext};
-use petgraph::adj::List;
-use petgraph::visit::IntoNeighbors;
 use petgraph::{
     algo::{
         toposort,
@@ -12,63 +10,19 @@ use petgraph::{
     },
     dot::Dot,
     graph::NodeIndex,
-    visit::{EdgeRef, IntoEdgeReferences, IntoNodeReferences},
+    visit::{EdgeRef, IntoEdgeReferences},
 };
 
 use std::path::PathBuf;
 use std::sync::{Mutex, MutexGuard};
-use std::{
-    collections::{HashMap, HashSet},
-    fmt,
-    fs::File,
-    ops::Index,
-    path::Path,
-};
+use std::{collections::HashMap, fmt, fs::File, ops::Index, path::Path};
 
 mod deserialization;
 mod domain;
 
-use crate::domain::{EdgeType, NodeID, TypedEdge};
+use crate::domain::{EdgeType, NodeID, TypedEdge, StructuralError};
 
 /* Maybe more use of references would be more idiomatic here. */
-
-// TODO: may want to add variant for cluster id / node id / assignment id containing whitespace characters (which is possible in yaml with quoted text)
-/// An error related to the internal structure of a (syntactically valid, semantically invalid) `Cluster`.
-#[derive(Debug)]
-enum StructuralError {
-    DoubleNode(NodeID),                              // creating two nodes with same ID
-    MissingInternalEndpoint(NodeID, NodeID, NodeID), // referring to non-existent node
-    NodeMultipleNamespace(String),                   // creating a node with explicit namespace
-    EdgeMultipleNamespace(String, String, String),   // edge from / to internal node with
-    ClusterBoundary(String, NodeID),                 // cluster, reference
-    InvalidComponentGraph,
-    Cycle(NodeID),
-    DependentRootNode(NodeID, NodeID),
-    UndeclaredRoot(NodeID),
-    IncomingAnyEdge(NodeID, NodeID),
-    OutgoingAllEdge(NodeID, NodeID),
-    // TODO: invalid naming, bv. clusternaam of nodenaam of assignmentnaam met spaties,...
-}
-
-impl fmt::Display for StructuralError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::DoubleNode(id) => write!(f, "Node defined multiple times: {id}"),
-            Self::MissingInternalEndpoint(start_id, end_id, missing_id) => write!(f, "Node {missing_id} mentioned in edge {start_id} → {end_id} does not exist"),
-            Self::NodeMultipleNamespace(id) => write!(f, "Node is explicitly namespaced (which is not allowed) in its definition: {id}"),
-            Self::EdgeMultipleNamespace(start_id, end_id, namespaced_id) => write!(f, "Node {namespaced_id} mentioned in edge {start_id} → {end_id} is explicitly namespaced (which is not allowed if the namespace is that of the current cluster)."),
-            Self::ClusterBoundary(cluster,reference) => write!(f, "Cluster {} refers to non-existent external node {}", cluster, reference),
-            Self::InvalidComponentGraph => write!(f, "At least one component graph is invalid"),
-            Self::Cycle(id) => write!(f, "Node {} is involved in a cycle", id),
-            Self::DependentRootNode(id, start_id) => write!(f, "Node {} is declared as a root and has at least one incoming edge (from {}). Roots should not have incoming edges.", id, start_id),
-            Self::UndeclaredRoot(id) => write!(f, "Root {} is not declared as a node in the cluster.", id),
-            Self::IncomingAnyEdge(start_id,end_id) => write!(f, "\"At least one\" type edge from {} to {}. These edges can only connect to other clusters in the \"out\" direction.", start_id, end_id),
-            Self::OutgoingAllEdge(start_id,end_id) => write!(f, "\"All\" type edge from {} to {}. These edges can only connect to other clusters in the \"in\" direction.", start_id, end_id),
-        }
-    }
-}
-
-impl std::error::Error for StructuralError {}
 
 #[derive(Debug)]
 struct StructuralErrorGrouping {
@@ -136,7 +90,7 @@ fn read_contents<'a>(
         .lock()
         .expect("Should always be able to gain access eventually.");
     app_state.take();
-    let mut reader = RealFileReader {};
+    let reader = RealFileReader {};
     read_contents_with_dependencies(paths, reader, file_is_readable, path_is_dir, app_state)
 }
 
@@ -632,199 +586,6 @@ fn associate_parents_children(
         })
 }
 
-fn subgraph_with_edges(parent: &Graph, predicate: impl Fn(&EdgeData) -> bool) -> Graph {
-    let mut subgraph = Graph::new();
-    let mut node_map = HashMap::new();
-    for edge in parent.edge_references() {
-        if predicate(edge.weight()) {
-            let (source, target) = (edge.source(), edge.target());
-            let new_source = *node_map
-                .entry(source)
-                .or_insert_with(|| subgraph.add_node(parent.node_weight(source).unwrap().clone()));
-            let new_target = *node_map
-                .entry(target)
-                .or_insert_with(|| subgraph.add_node(parent.node_weight(target).unwrap().clone()));
-            subgraph.add_edge(new_source, new_target, edge.weight().clone());
-        }
-    }
-    subgraph
-}
-
-#[tauri::command]
-fn check_learning_path_stateful(
-    nodes: Vec<String>,
-    state: tauri::State<'_, AppState>,
-) -> Vec<String> {
-    let app_state = state
-        .voltron_with_roots
-        .lock()
-        .expect("Should always be able to get app state.");
-    app_state.as_ref().map_or(
-        vec!["No stored result. This should not be possible, because text box should only be shown if there is a complete graph.".to_string()],
-        |existing| {
-        check_learning_path(existing, nodes.iter().map(|s| s.as_str()).collect())
-    })
-}
-
-// factored out because it is needed both for checking learning path and for building zip
-fn dependency_helpers(
-    (voltron, roots): &(Graph, Vec<NodeID>),
-) -> (
-    (Graph, List<(), NodeIndex>, Vec<NodeIndex>, Vec<NodeIndex>),
-    (Graph, List<(), NodeIndex>, Vec<NodeIndex>, Vec<NodeIndex>),
-    Graph,
-) {
-    let is_any_type = |edge: &EdgeData| edge == &EdgeType::AtLeastOne;
-    let is_all_type = |edge: &EdgeData| edge == &EdgeType::All;
-
-    // FIXME: pretty sure I am doing some redundant work here
-    let motivations_graph = subgraph_with_edges(voltron, is_any_type);
-    let dependency_to_dependent_graph = subgraph_with_edges(voltron, is_all_type);
-    let mut dependent_to_dependency_graph = dependency_to_dependent_graph.clone();
-    dependent_to_dependency_graph.reverse();
-    let dependent_to_dependency_toposort_order = toposort(&dependent_to_dependency_graph, None)
-        .expect(
-            "This function should only be called for graphs which have already been cycle-checked.",
-        );
-    let dependency_to_dependent_toposort_order = toposort(&dependency_to_dependent_graph, None)
-        .expect(
-            "This function should only be called for graphs which have already been cycle-checked.",
-        );
-    let (dependent_to_dependency_res, dependent_to_dependency_revmap) =
-        dag_to_toposorted_adjacency_list(
-            &dependent_to_dependency_graph,
-            &dependent_to_dependency_toposort_order,
-        );
-    let (_, dependent_to_dependency_tc) =
-        dag_transitive_reduction_closure(&dependent_to_dependency_res);
-
-    let (dependency_to_dependent_res, dependency_to_dependent_revmap) =
-        dag_to_toposorted_adjacency_list(
-            &dependency_to_dependent_graph,
-            &dependency_to_dependent_toposort_order,
-        );
-    let (_, dependency_to_dependent_tc) =
-        dag_transitive_reduction_closure(&dependency_to_dependent_res);
-
-    return (
-        (
-            dependent_to_dependency_graph,
-            dependent_to_dependency_tc,
-            dependent_to_dependency_revmap,
-            dependent_to_dependency_toposort_order,
-        ),
-        (
-            dependency_to_dependent_graph,
-            dependency_to_dependent_tc,
-            dependency_to_dependent_revmap,
-            dependency_to_dependent_toposort_order,
-        ),
-        motivations_graph,
-    );
-}
-
-fn check_learning_path(
-    voltron_with_roots: &(Graph, Vec<NodeID>),
-    node_ids: Vec<&str>,
-) -> Vec<String> {
-    // TODO: consider combining the &Graph with roots?
-    // might clarify that they belong together
-    // might even refactor the voltronize_clusters function to also return the roots, would be feasible
-    let mut remarks = vec![];
-    let (
-        (
-            dependent_to_dependency_graph,
-            dependent_to_dependency_tc,
-            dependent_to_dependency_revmap,
-            dependent_to_dependency_toposort_order,
-        ),
-        (
-            dependency_to_dependent_graph,
-            dependency_to_dependent_tc,
-            dependency_to_dependent_revmap,
-            dependency_to_dependent_toposort_order,
-        ),
-        motivations_graph,
-    ) = dependency_helpers(voltron_with_roots);
-    let (_, roots) = voltron_with_roots;
-    let roots = roots.iter().map(|r| format!("{}", r)).collect::<Vec<_>>();
-    let mut seen_nodes: HashSet<String> = HashSet::new();
-    for (index, namespaced_id) in node_ids.iter().enumerate() {
-        let human_index = index + 1;
-        if !roots.contains(&namespaced_id.to_string()) {
-            match dependency_to_dependent_graph
-                .node_references()
-                .filter(|(_idx, (node_id, _title))| &format!("{}", node_id) == namespaced_id)
-                .collect::<Vec<_>>()
-                .get(0)
-            {
-                Some(matching_node) => {
-                    let matching_node_idx = matching_node.0.index();
-                    let hard_dependency_ids: HashSet<String> = dependent_to_dependency_tc
-                        .neighbors(dependent_to_dependency_revmap[matching_node_idx])
-                        .map(|ix: NodeIndex| dependent_to_dependency_toposort_order[ix.index()])
-                        .filter_map(|idx| {
-                            dependent_to_dependency_graph
-                                .node_weight(idx)
-                                .map(|(id, _)| format!("{}", id))
-                        })
-                        .collect();
-                    for dependency in hard_dependency_ids.difference(&seen_nodes) {
-                        remarks.push(format!(
-                            "Node {human_index} ({namespaced_id}) has unmet dependency {dependency}."
-                        ));
-                    }
-
-                    let mut dependent_ids: HashSet<String> = dependency_to_dependent_tc
-                        .neighbors(dependency_to_dependent_revmap[matching_node.0.index()])
-                        .map(|ix: NodeIndex| dependency_to_dependent_toposort_order[ix.index()])
-                        .filter_map(|idx| {
-                            dependency_to_dependent_graph
-                                .node_weight(idx)
-                                .map(|(id, _)| format!("{}", id))
-                        })
-                        .collect();
-                    dependent_ids.insert(format!("{}", matching_node.1 .0));
-
-                    let is_motivated = seen_nodes.iter().fold(false, |acc, seen_node| {
-                        acc || {
-                            let motivations_entry = motivations_graph
-                                .node_references()
-                                .find(|node_ref| &format!("{}", node_ref.1 .0) == seen_node);
-                            motivations_entry.is_some_and(|motivations_entry| {
-                                let motivated_by_seen_node: Vec<_> =
-                                    motivations_graph.neighbors(motivations_entry.0).collect();
-                                motivated_by_seen_node.into_iter().any(|idx| {
-                                    let motivated = motivations_graph.node_weight(idx);
-                                    motivated.is_some_and(|weight| {
-                                        dependent_ids.contains(&format!("{}", weight.0))
-                                    })
-                                })
-                            })
-                        }
-                    });
-
-                    if !is_motivated {
-                        remarks.push(format!(
-                            "Node {human_index} ({namespaced_id}) is not motivated by any predecessor, nor are any of its dependents."
-                        ));
-                    }
-                    seen_nodes.insert(format!("{}", matching_node.1 .0));
-                }
-                None => {
-                    remarks.push(format!(
-                        "Node {human_index} ({namespaced_id}) does not occur in the graph."
-                    ));
-                }
-            }
-        } else {
-            seen_nodes.insert(namespaced_id.to_string());
-        }
-    }
-
-    remarks
-}
-
 #[cfg(test)]
 mod tests {
     use std::{
@@ -833,8 +594,8 @@ mod tests {
     };
 
     use crate::{
-        associate_parents_children, check_learning_path, comment_cluster,
-        read_all_clusters_with_dependencies, ClusterGraphTuple,
+        associate_parents_children, comment_cluster, read_all_clusters_with_dependencies,
+        ClusterGraphTuple,
     };
 
     struct MockFileReader<'a> {
@@ -878,111 +639,6 @@ mod tests {
             assert_eq!(reader.calls_made, 1);
             assert_eq!(cluster.edges.len(), 4);
         });
-    }
-
-    #[test]
-    fn check_learning_path_trivial_cluster() {
-        let mut reader =
-            MockFileReader::new(vec![&Path::new("tests/technicalinfo/contents.lc.yaml")]);
-        let (_, voltron_analysis) =
-            read_all_clusters_with_dependencies("technicalinfo", &mut reader, |_| true);
-        let comments = check_learning_path(
-            &voltron_analysis.unwrap(),
-            vec!["technicalinfo__concept_A", "technicalinfo__concept_B"],
-        );
-        assert_eq!(comments,
-            vec![
-                "Node 1 (technicalinfo__concept_A) is not motivated by any predecessor, nor are any of its dependents.",
-                "Node 2 (technicalinfo__concept_B) is not motivated by any predecessor, nor are any of its dependents."
-            ]
-        );
-    }
-
-    #[test]
-    fn check_valid_learning_path_two_small_clusters() {
-        let mut reader = MockFileReader::new(vec![
-            &Path::new("tests/technicalinfo/contents.lc.yaml"),
-            &Path::new("tests/simpleproject/contents.lc.yaml"),
-        ]);
-        // TODO: could avoid writing two paths here...
-        let (_, voltron_analysis) =
-            read_all_clusters_with_dependencies("technicalinfo;simpleproject", &mut reader, |_| {
-                true
-            });
-        assert_eq!(reader.calls_made, 2);
-        let comments = check_learning_path(
-            &voltron_analysis.unwrap(),
-            vec![
-                "simpleproject__introduction",
-                "technicalinfo__concept_A",
-                "technicalinfo__concept_B",
-                "technicalinfo__concept_E",
-                "technicalinfo__concept_C",
-                "simpleproject__implementation",
-            ],
-        );
-        assert!(comments.is_empty());
-    }
-
-    #[test]
-    fn check_invalid_learning_path_two_small_clusters_missing_root() {
-        let mut reader = MockFileReader::new(vec![
-            &Path::new("tests/technicalinfo/contents.lc.yaml"),
-            &Path::new("tests/simpleproject/contents.lc.yaml"),
-        ]);
-        // TODO: could avoid writing two paths here...
-        let (_, voltron_analysis) =
-            read_all_clusters_with_dependencies("technicalinfo;simpleproject", &mut reader, |_| {
-                true
-            });
-        assert_eq!(reader.calls_made, 2);
-        let comments = check_learning_path(
-            &voltron_analysis.unwrap(),
-            vec![
-                "technicalinfo__concept_A",
-                "technicalinfo__concept_B",
-                "technicalinfo__concept_C",
-                "simpleproject__implementation",
-            ],
-        );
-        assert_eq!(comments,
-            vec!["Node 1 (technicalinfo__concept_A) is not motivated by any predecessor, nor are any of its dependents.",
-        "Node 2 (technicalinfo__concept_B) is not motivated by any predecessor, nor are any of its dependents.",
-        "Node 3 (technicalinfo__concept_C) has unmet dependency technicalinfo__concept_E.",
-        "Node 3 (technicalinfo__concept_C) is not motivated by any predecessor, nor are any of its dependents.",
-        "Node 4 (simpleproject__implementation) has unmet dependency technicalinfo__concept_E.",
-        "Node 4 (simpleproject__implementation) is not motivated by any predecessor, nor are any of its dependents."]);
-    }
-
-    #[test]
-    fn check_invalid_learning_path_two_small_clusters_missing_dependency() {
-        let mut reader = MockFileReader::new(vec![
-            &Path::new("tests/technicalinfo/contents.lc.yaml"),
-            &Path::new("tests/simpleproject/contents.lc.yaml"),
-        ]);
-        // TODO: could avoid writing two paths here...
-        let (_, voltron_analysis) =
-            read_all_clusters_with_dependencies("technicalinfo;simpleproject", &mut reader, |_| {
-                true
-            });
-        assert_eq!(reader.calls_made, 2);
-        let comments = check_learning_path(
-            &voltron_analysis.unwrap(),
-            vec![
-                "simpleproject__introduction",
-                "technicalinfo__concept_B",
-                "technicalinfo__concept_E",
-                "technicalinfo__concept_C",
-                "simpleproject__implementation",
-            ],
-        );
-        assert_eq!(
-            comments,
-            vec![
-        "Node 2 (technicalinfo__concept_B) has unmet dependency technicalinfo__concept_A.",
-        "Node 4 (technicalinfo__concept_C) has unmet dependency technicalinfo__concept_A.",
-        "Node 5 (simpleproject__implementation) has unmet dependency technicalinfo__concept_A.",]
-        );
     }
 
     #[test]
@@ -1064,8 +720,7 @@ fn main() {
         .plugin(tauri_plugin_fs_watch::init())
         .invoke_handler(tauri::generate_handler![
             read_contents,
-            associate_parents_children,
-            check_learning_path_stateful
+            associate_parents_children
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
