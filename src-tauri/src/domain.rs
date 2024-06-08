@@ -102,3 +102,14 @@ impl fmt::Display for StructuralError {
 }
 
 impl std::error::Error for StructuralError {}
+
+/// The data associated with a Petgraph node.
+pub type NodeData = (NodeID, String);
+
+/// The data ssociated with a Petgraph edge.
+pub type EdgeData = EdgeType;
+
+/// The specific type of Petgraph graph for this application.
+pub type Graph = petgraph::Graph<NodeData, EdgeData>;
+
+

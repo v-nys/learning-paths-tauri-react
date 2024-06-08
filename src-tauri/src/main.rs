@@ -2,13 +2,12 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 use anyhow;
-use graphviz_rust::{cmd::Format, exec, printer::PrinterContext};
+
 use petgraph::{
     algo::{
         toposort,
         tred::{dag_to_toposorted_adjacency_list, dag_transitive_reduction_closure},
     },
-    dot::Dot,
     graph::NodeIndex,
     visit::{EdgeRef, IntoEdgeReferences},
 };
@@ -19,11 +18,12 @@ use std::{collections::HashMap, fmt, fs::File, ops::Index, path::Path};
 
 mod deserialization;
 mod domain;
+mod rendering;
 
-use crate::domain::{EdgeType, NodeID, TypedEdge, StructuralError};
+use crate::domain::{EdgeType, Graph, NodeID, StructuralError, TypedEdge};
+use crate::rendering::svgify;
 
-/* Maybe more use of references would be more idiomatic here. */
-
+/// A way to bundle multiple structural errors, so they can be signalled simultaneously.
 #[derive(Debug)]
 struct StructuralErrorGrouping {
     components: Vec<StructuralError>,
@@ -48,23 +48,26 @@ impl std::error::Error for StructuralErrorGrouping {
     // source is not mandatory and would be odd here
 }
 
-type NodeData = (NodeID, String);
-type EdgeData = EdgeType;
-type Graph = petgraph::Graph<NodeData, EdgeData>;
-
 #[derive(Debug)]
+// A combination of a `Cluster` and its Petgraph representation.
 struct ClusterGraphTuple(domain::Cluster, Graph);
+
+/// A combination of the comments that apply to a cluster and its SVG representation.
 struct CommentsSvgTuple(Vec<String>, String);
+
+/// The result of reading a Path, along with that Path.
 struct ReadResultForPath(Result<String, std::io::Error>, PathBuf);
+
+/// A supercluster (result of merging normal Clusters) and dependency-free nodes.
+#[derive(Clone)]
+struct RootedSupercluster {
+    graph: Graph,
+    roots: Vec<NodeID>
+}
 
 #[derive(Default)]
 struct AppState {
-    voltron_with_roots: Mutex<Option<(Graph, Vec<NodeID>)>>,
-}
-
-fn node_dot_attributes(_: &Graph, node_ref: (NodeIndex, &NodeData)) -> String {
-    // label specified last is used, so this overrides the auto-generated one
-    format!("label=\"{}\" tooltip=\"{}\"", node_ref.1 .1, node_ref.1 .0)
+    supercluster_with_roots: Mutex<Option<RootedSupercluster>>,
 }
 
 /// Given a sequence of filesystem paths, deserialize the cluster represented by each path and optionally run additional validation.
@@ -86,7 +89,7 @@ fn read_contents<'a>(
     state: tauri::State<'_, AppState>,
 ) -> Vec<(&'a str, Result<(Vec<String>, String), String>)> {
     let mut app_state = state
-        .voltron_with_roots
+        .supercluster_with_roots
         .lock()
         .expect("Should always be able to gain access eventually.");
     app_state.take();
@@ -97,14 +100,14 @@ fn read_contents_with_dependencies<'a>(
     paths: &'a str,
     file_is_readable: fn(&Path) -> bool,
     directory_is_readable: fn(&Path) -> bool,
-    mut app_state: MutexGuard<Option<(Graph, Vec<NodeID>)>>,
+    mut app_state: MutexGuard<Option<RootedSupercluster>>,
 ) -> Vec<(&'a str, Result<(Vec<String>, String), String>)> {
     let mut reader = RealFileReader {};
-    let (components, voltron) =
+    let (components, supercluster) =
         read_all_clusters_with_dependencies::<RealFileReader>(paths, &mut reader);
-    match voltron.as_ref() {
-        Ok(voltron) => {
-            let _ = app_state.insert(voltron.clone());
+    match supercluster.as_ref() {
+        Ok(supercluster) => {
+            let _ = app_state.insert(supercluster.clone());
         }
         _ => {}
     }
@@ -112,10 +115,10 @@ fn read_contents_with_dependencies<'a>(
         .iter()
         .map(|result| result.as_ref().ok().map(|component| svgify(&component.1)))
         .collect();
-    let voltron_svg = voltron
+    let supercluster_svg = supercluster
         .as_ref()
         .ok()
-        .map(|(voltron, _roots)| svgify(voltron));
+        .map(|RootedSupercluster { graph, roots: _ }| svgify(graph));
 
     let paths = paths.split(";");
     let paths_and_components = paths.clone().map(|p| PathBuf::from(p)).zip(&components);
@@ -132,11 +135,11 @@ fn read_contents_with_dependencies<'a>(
             })
         })
         .collect();
-    let mut voltron_comments = vec![];
+    let mut supercluster_comments = vec![];
 
-    match voltron {
-        Ok(ref voltron) => {
-            comment_graph(&voltron.0, &mut voltron_comments);
+    match supercluster {
+        Ok(ref supercluster) => {
+            comment_graph(&supercluster.graph, &mut supercluster_comments);
         }
         _ => {}
     };
@@ -154,11 +157,12 @@ fn read_contents_with_dependencies<'a>(
             )
         })
         .collect();
-    let voltron_tuple = (
-        "Complete graph",
-        voltron.map(|_| CommentsSvgTuple(voltron_comments, voltron_svg.expect(expectation))),
+    let supercluster_tuple = (
+        "Supercluster",
+        supercluster
+            .map(|_| CommentsSvgTuple(supercluster_comments, supercluster_svg.expect(expectation))),
     );
-    path_result_tuples.push(voltron_tuple);
+    path_result_tuples.push(supercluster_tuple);
     let outcome = path_result_tuples
         .into_iter()
         .map(|(path, result)| {
@@ -196,10 +200,10 @@ impl FileReader for RealFileReader {
 
 fn read_all_clusters_with_dependencies<'a, T: FileReader>(
     paths: &'a str,
-    reader: &mut T
+    reader: &mut T,
 ) -> (
     Vec<Result<ClusterGraphTuple, anyhow::Error>>,
-    Result<(Graph, Vec<NodeID>), anyhow::Error>,
+    Result<RootedSupercluster, anyhow::Error>,
 ) {
     let paths = paths.split(";").map(|p| PathBuf::from(p));
     let read_results = paths
@@ -209,31 +213,12 @@ fn read_all_clusters_with_dependencies<'a, T: FileReader>(
             ReadResultForPath(reader.read_to_string(yaml_location.as_path()), p)
         })
         .collect();
-    voltronize_clusters(read_results)
+    merge_clusters(read_results)
 }
 
-fn svgify(graph: &Graph) -> String {
-    let dot = format!(
-        "{:?}",
-        Dot::with_attr_getters(
-            graph,
-            &[],
-            &|_g, g_edge_ref| match g_edge_ref.weight() {
-                EdgeType::All => {
-                    "style=\"solid\"".to_owned()
-                }
-                EdgeType::AtLeastOne => {
-                    "style=\"dashed\"".to_owned()
-                }
-            },
-            &node_dot_attributes
-        )
-    );
-    let g = graphviz_rust::parse(&dot).expect("Assuming petgraph generated valid dot syntax.");
-    exec(g, &mut PrinterContext::default(), vec![Format::Svg.into()])
-        .expect("Assuming valid graph can be rendered into SVG.")
-}
-
+/// Add remarks to a (previously cycle-checked) graph.
+///
+/// Remarks do not indicate structural problems (i.e. the graph makes sense), but should be fixed regardless.
 fn comment_graph(graph: &Graph, remarks: &mut Vec<String>) {
     let toposort_order = toposort(&graph, None).expect(
         "This function should only be called for graphs which have already been cycle-checked.",
@@ -294,15 +279,12 @@ fn comment_cluster(
     remarks
 }
 
-// TODO: need something that will further process the voltronized tuple
-// specifically, need to add comments (missing files, implied edges,...)
-// also need something that will check a learning path (which does not require comments or SVG's)
-
-fn voltronize_clusters(
+/// Deserialize clusters and, if possible, merge them into a supercluster.
+fn merge_clusters(
     read_results: Vec<ReadResultForPath>,
 ) -> (
     Vec<Result<ClusterGraphTuple, anyhow::Error>>,
-    Result<(Graph, Vec<NodeID>), anyhow::Error>,
+    Result<RootedSupercluster, anyhow::Error>,
 ) {
     let mut all_roots: Vec<NodeID> = vec![];
     let clusters = read_results
@@ -430,7 +412,7 @@ fn voltronize_clusters(
                         }
                     }
                 }
-                // TODO: cycle detection and implied edge detection is essentially the same for the complete graph
+                // TODO: cycle detection and implied edge detection (in comment_graph) is essentially the same for the complete graph
                 // should move this into a function
                 let toposort_result = toposort(&single_cluster_graph, None);
                 match toposort_result.as_ref() {
@@ -541,8 +523,9 @@ fn voltronize_clusters(
                         graph.index(cycle.node_id()).0.clone(),
                     ))
                 })
-                .map(|_| (graph, all_roots))
+                .map(|_| RootedSupercluster { graph, roots: all_roots})
         });
+
     (cluster_graph_tuples, complete_graph_result)
 }
 
@@ -590,8 +573,7 @@ mod tests {
     };
 
     use crate::{
-        associate_parents_children, comment_cluster,
-        read_all_clusters_with_dependencies,
+        associate_parents_children, comment_cluster, read_all_clusters_with_dependencies,
         ClusterGraphTuple,
     };
 
@@ -624,7 +606,7 @@ mod tests {
     fn read_trivial_cluster() {
         let mut reader =
             MockFileReader::new(vec![&Path::new("tests/technicalinfo/contents.lc.yaml")]);
-        let (component_analysis, _voltron_analysis) =
+        let (component_analysis, _supercluster_analysis) =
             read_all_clusters_with_dependencies("_", &mut reader);
         assert_eq!(component_analysis.len(), 1);
         assert!(component_analysis.get(0).as_ref().is_some());
@@ -643,14 +625,14 @@ mod tests {
         let mut reader = MockFileReader::new(vec![&Path::new(
             "tests/technicalinfo_cycle/contents.lc.yaml",
         )]);
-        let (components_analysis, voltron_analysis) =
+        let (components_analysis, supercluster_analysis) =
             read_all_clusters_with_dependencies("_", &mut reader);
         assert_eq!(reader.calls_made, 1);
         // TODO: could check for specific error type
         assert!(components_analysis
             .get(0)
             .is_some_and(|analysis| analysis.is_err()));
-        assert!(voltron_analysis.is_err());
+        assert!(supercluster_analysis.is_err());
     }
 
     // TODO: mix of correctly read and incorrectly read results

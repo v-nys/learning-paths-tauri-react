@@ -52,7 +52,7 @@ function findCommonPrefix(words: string[]): string | undefined {
   return words[0].substr(0, i);
 }
 
-const COMPLETE_GRAPH_LABEL = "Complete graph";
+const COMPLETE_GRAPH_LABEL = "Supercluster";
 
 function App() {
 
