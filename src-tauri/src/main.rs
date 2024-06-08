@@ -376,39 +376,19 @@ fn merge_clusters(
                                 .add_node((end_id.clone(), format!("{}", &end_id)));
                             identifier_to_index_map.insert(end_id.clone(), idx);
                         }
-                        match (
-                            identifier_to_index_map.get(&start_id),
-                            identifier_to_index_map.get(&end_id),
-                        ) {
-                            (Some(idx1), Some(idx2)) => {
-                                single_cluster_graph.add_edge(*idx1, *idx2, kind.clone());
-                            }
-                            (Some(_), None) => {
+                        let ids = [start_id, end_id];
+                        let idxs = ids.map(|id| identifier_to_index_map.get(id));
+                        ids.iter().zip(idxs).for_each(|(id, idx)| {
+                            if let None = idx {
                                 structural_errors.push(StructuralError::MissingInternalEndpoint(
                                     start_id.to_owned(),
                                     end_id.to_owned(),
-                                    end_id.to_owned(),
+                                    (*id).to_owned(),
                                 ));
                             }
-                            (None, Some(_)) => {
-                                structural_errors.push(StructuralError::MissingInternalEndpoint(
-                                    start_id.to_owned(),
-                                    end_id.to_owned(),
-                                    start_id.to_owned(),
-                                ));
-                            }
-                            (None, None) => {
-                                structural_errors.push(StructuralError::MissingInternalEndpoint(
-                                    start_id.to_owned(),
-                                    end_id.to_owned(),
-                                    start_id.to_owned(),
-                                ));
-                                structural_errors.push(StructuralError::MissingInternalEndpoint(
-                                    start_id.to_owned(),
-                                    end_id.to_owned(),
-                                    end_id.to_owned(),
-                                ));
-                            }
+                        });
+                        if let [Some(start_idx), Some(end_idx)] = idxs {
+                            single_cluster_graph.add_edge(*start_idx, *end_idx, kind.clone());
                         }
                     }
                 }
