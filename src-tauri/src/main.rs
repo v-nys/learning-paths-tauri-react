@@ -62,7 +62,7 @@ struct ReadResultForPath(Result<String, std::io::Error>, PathBuf);
 #[derive(Clone)]
 struct RootedSupercluster {
     graph: Graph,
-    roots: Vec<NodeID>
+    roots: Vec<NodeID>,
 }
 
 #[derive(Default)]
@@ -95,7 +95,6 @@ fn read_contents<'a>(
     app_state.take();
     read_contents_with_test_dependencies(paths, file_is_readable, path_is_dir, app_state)
 }
-
 
 fn read_contents_with_test_dependencies<'a>(
     paths: &'a str,
@@ -473,35 +472,18 @@ fn merge_clusters(
                         kind,
                     } in cluster.edges.iter()
                     {
-                        match (
-                            complete_graph_map.get(&start_id),
-                            complete_graph_map.get(&end_id),
-                        ) {
-                            (Some(start_idx), Some(end_idx)) => {
-                                complete_graph.add_edge(*start_idx, *end_idx, kind.clone());
-                            }
-                            (Some(_), None) => {
+                        let ids = [start_id, end_id];
+                        let idxs = ids.map(|id| complete_graph_map.get(id));
+                        ids.iter().zip(idxs).for_each(|(id, idx)| {
+                            if let None = idx {
                                 boundary_errors.push(StructuralError::ClusterBoundary(
                                     cluster.namespace_prefix.clone(),
-                                    end_id.clone(),
+                                    (*id).clone(),
                                 ));
                             }
-                            (None, Some(_)) => {
-                                boundary_errors.push(StructuralError::ClusterBoundary(
-                                    cluster.namespace_prefix.clone(),
-                                    start_id.clone(),
-                                ));
-                            }
-                            (None, None) => {
-                                boundary_errors.push(StructuralError::ClusterBoundary(
-                                    cluster.namespace_prefix.clone(),
-                                    end_id.clone(),
-                                ));
-                                boundary_errors.push(StructuralError::ClusterBoundary(
-                                    cluster.namespace_prefix.clone(),
-                                    start_id.clone(),
-                                ));
-                            }
+                        });
+                        if let [Some(start_idx), Some(end_idx)] = idxs {
+                            complete_graph.add_edge(*start_idx, *end_idx, kind.clone());
                         }
                     }
                 });
@@ -520,7 +502,10 @@ fn merge_clusters(
                         graph.index(cycle.node_id()).0.clone(),
                     ))
                 })
-                .map(|_| RootedSupercluster { graph, roots: all_roots})
+                .map(|_| RootedSupercluster {
+                    graph,
+                    roots: all_roots,
+                })
         });
 
     (cluster_graph_tuples, complete_graph_result)
