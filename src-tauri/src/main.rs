@@ -90,20 +90,18 @@ fn read_contents<'a>(
         .lock()
         .expect("Should always be able to gain access eventually.");
     app_state.take();
-    let reader = RealFileReader {};
-    read_contents_with_dependencies(paths, reader, file_is_readable, path_is_dir, app_state)
+    read_contents_with_dependencies(paths, file_is_readable, path_is_dir, app_state)
 }
 
-fn read_contents_with_dependencies<'a, R: FileReader>(
+fn read_contents_with_dependencies<'a>(
     paths: &'a str,
-    mut reader: R,
     file_is_readable: fn(&Path) -> bool,
     directory_is_readable: fn(&Path) -> bool,
     mut app_state: MutexGuard<Option<(Graph, Vec<NodeID>)>>,
 ) -> Vec<(&'a str, Result<(Vec<String>, String), String>)> {
     let mut reader = RealFileReader {};
     let (components, voltron) =
-        read_all_clusters_with_dependencies::<RealFileReader>(paths, &mut reader, file_is_readable);
+        read_all_clusters_with_dependencies::<RealFileReader>(paths, &mut reader);
     match voltron.as_ref() {
         Ok(voltron) => {
             let _ = app_state.insert(voltron.clone());
@@ -118,7 +116,6 @@ fn read_contents_with_dependencies<'a, R: FileReader>(
         .as_ref()
         .ok()
         .map(|(voltron, _roots)| svgify(voltron));
-    // let paths_and_components = paths.split(";").zip(&components);
 
     let paths = paths.split(";");
     let paths_and_components = paths.clone().map(|p| PathBuf::from(p)).zip(&components);
@@ -151,7 +148,7 @@ fn read_contents_with_dependencies<'a, R: FileReader>(
         .map(|(((path, component_result), svg), comments)| {
             (
                 path,
-                component_result.map(|component| {
+                component_result.map(|_| {
                     CommentsSvgTuple(comments.expect(expectation), svg.expect(expectation))
                 }),
             )
@@ -199,8 +196,7 @@ impl FileReader for RealFileReader {
 
 fn read_all_clusters_with_dependencies<'a, T: FileReader>(
     paths: &'a str,
-    reader: &mut T,
-    file_is_readable: fn(&Path) -> bool,
+    reader: &mut T
 ) -> (
     Vec<Result<ClusterGraphTuple, anyhow::Error>>,
     Result<(Graph, Vec<NodeID>), anyhow::Error>,
@@ -594,7 +590,8 @@ mod tests {
     };
 
     use crate::{
-        associate_parents_children, comment_cluster, read_all_clusters_with_dependencies,
+        associate_parents_children, comment_cluster,
+        read_all_clusters_with_dependencies,
         ClusterGraphTuple,
     };
 
@@ -628,7 +625,7 @@ mod tests {
         let mut reader =
             MockFileReader::new(vec![&Path::new("tests/technicalinfo/contents.lc.yaml")]);
         let (component_analysis, _voltron_analysis) =
-            read_all_clusters_with_dependencies("_", &mut reader, |_| true);
+            read_all_clusters_with_dependencies("_", &mut reader);
         assert_eq!(component_analysis.len(), 1);
         assert!(component_analysis.get(0).as_ref().is_some());
         component_analysis.into_iter().for_each(|result| {
@@ -647,7 +644,7 @@ mod tests {
             "tests/technicalinfo_cycle/contents.lc.yaml",
         )]);
         let (components_analysis, voltron_analysis) =
-            read_all_clusters_with_dependencies("_", &mut reader, |_| true);
+            read_all_clusters_with_dependencies("_", &mut reader);
         assert_eq!(reader.calls_made, 1);
         // TODO: could check for specific error type
         assert!(components_analysis
