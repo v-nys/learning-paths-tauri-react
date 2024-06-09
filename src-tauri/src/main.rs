@@ -312,23 +312,12 @@ fn merge_clusters(
         .collect();
 
     // step 3: turn a vector of entirely Ok results into a a single Ok result
-    // couldn't I just
-    let cluster_graph_pairs_result =
-        cluster_graph_tuples
-            .iter()
-            .try_fold(Vec::new(), |mut vec, elem| match elem {
-                Err(_) => Err(anyhow::Error::from(StructuralError::InvalidComponentGraph)),
-                Ok(cgt) => {
-                    vec.push(cgt);
-                    Ok(vec)
-                }
-            });
-    /* can I simplify along these lines?
     let cluster_graph_pairs_result: Result<Vec<&ClusterDAGRootsTriple>, anyhow::Error> =
        cluster_graph_tuples
            .iter()
-           .collect::<Result<Vec<_>,anyhow::Error>>()
-           .map_err(|_| anyhow::Error::from(StructuralError::InvalidComponentGraph));*/
+           .map(Result::as_ref)
+           .collect::<Result<_,_>>()
+           .map_err(|_| StructuralError::InvalidComponentGraph.into());
 
     // step 4: compute the supercluster
     let supercluster = cluster_graph_pairs_result
