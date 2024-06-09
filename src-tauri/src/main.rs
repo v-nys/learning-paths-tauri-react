@@ -49,8 +49,8 @@ impl std::error::Error for StructuralErrorGrouping {
 }
 
 #[derive(Debug)]
-// A combination of a `Cluster` and its Petgraph representation.
-struct ClusterGraphTuple(domain::Cluster, Graph);
+// A combination of a `Cluster`, its Petgraph representation and its roots.
+struct ClusterDAGRootsTriple(domain::Cluster, Graph, Vec<NodeID>);
 
 /// A combination of the comments that apply to a cluster and its SVG representation.
 struct CommentsSvgTuple(Vec<String>, String);
@@ -203,7 +203,7 @@ fn read_all_clusters_with_test_dependencies<'a, T: FileReader>(
     paths: &'a str,
     reader: &mut T,
 ) -> (
-    Vec<Result<ClusterGraphTuple, anyhow::Error>>,
+    Vec<Result<ClusterDAGRootsTriple, anyhow::Error>>,
     Result<RootedSupercluster, anyhow::Error>,
 ) {
     let paths = paths.split(";").map(|p| PathBuf::from(p));
@@ -284,10 +284,9 @@ fn comment_cluster(
 fn merge_clusters(
     read_results: Vec<ReadResultForPath>,
 ) -> (
-    Vec<Result<ClusterGraphTuple, anyhow::Error>>,
+    Vec<Result<ClusterDAGRootsTriple, anyhow::Error>>,
     Result<RootedSupercluster, anyhow::Error>,
 ) {
-    let mut all_roots: Vec<NodeID> = vec![];
     // step 1: get individual clusters
     let clusters = read_results
         .into_iter()
@@ -309,108 +308,7 @@ fn merge_clusters(
         });
     // step 2: associate individual clusters with separate Petgraph graphs
     let cluster_graph_tuples: Vec<_> = clusters
-        .map(|result| {
-            result.and_then(|cluster: domain::Cluster| {
-                // Petgraph uses its own indexing system
-                // so map own node identifiers to Petgraph indexes
-                let mut identifier_to_index_map = std::collections::HashMap::new();
-                let mut single_cluster_graph = Graph::new();
-                let mut structural_errors: Vec<StructuralError> = vec![];
-                for node in &cluster.nodes {
-                    if !identifier_to_index_map.contains_key(&node.node_id) {
-                        let idx = single_cluster_graph
-                            .add_node((node.node_id.clone(), node.title.clone()));
-                        identifier_to_index_map.insert(node.node_id.clone(), idx);
-                    } else {
-                        structural_errors.push(StructuralError::DoubleNode(node.node_id.clone()));
-                    }
-                }
-                cluster.roots.iter().for_each(|root| {
-                    if !identifier_to_index_map.contains_key(&root) {
-                        structural_errors.push(StructuralError::UndeclaredRoot(root.clone()));
-                    }
-                    all_roots.push(root.clone());
-                });
-                // build the single-cluster graph and check for structural errors at the same time
-                for TypedEdge {
-                    start_id,
-                    end_id,
-                    kind,
-                } in &cluster.edges
-                {
-                    let mut can_add = true;
-                    if cluster.roots.contains(end_id) {
-                        structural_errors.push(StructuralError::DependentRootNode(
-                            end_id.to_owned(),
-                            start_id.to_owned(),
-                        ));
-                        can_add = false;
-                    }
-                    if start_id.namespace != cluster.namespace_prefix
-                        && *kind == EdgeType::AtLeastOne
-                    {
-                        structural_errors.push(StructuralError::IncomingAnyEdge(
-                            start_id.to_owned(),
-                            end_id.to_owned(),
-                        ));
-                        can_add = false;
-                    } else if end_id.namespace != cluster.namespace_prefix && *kind == EdgeType::All
-                    {
-                        structural_errors.push(StructuralError::OutgoingAllEdge(
-                            start_id.to_owned(),
-                            end_id.to_owned(),
-                        ));
-                        can_add = false;
-                    }
-                    if can_add {
-                        if start_id.namespace != cluster.namespace_prefix
-                            && !identifier_to_index_map.contains_key(&start_id)
-                        {
-                            let idx = single_cluster_graph
-                                .add_node((start_id.clone(), format!("{}", &start_id)));
-                            identifier_to_index_map.insert(start_id.clone(), idx);
-                        }
-                        if end_id.namespace != cluster.namespace_prefix
-                            && !identifier_to_index_map.contains_key(&end_id)
-                        {
-                            let idx = single_cluster_graph
-                                .add_node((end_id.clone(), format!("{}", &end_id)));
-                            identifier_to_index_map.insert(end_id.clone(), idx);
-                        }
-                        let ids = [start_id, end_id];
-                        let idxs = ids.map(|id| identifier_to_index_map.get(id));
-                        ids.iter().zip(idxs).for_each(|(id, idx)| {
-                            if let None = idx {
-                                structural_errors.push(StructuralError::MissingInternalEndpoint(
-                                    start_id.to_owned(),
-                                    end_id.to_owned(),
-                                    (*id).to_owned(),
-                                ));
-                            }
-                        });
-                        if let [Some(start_idx), Some(end_idx)] = idxs {
-                            single_cluster_graph.add_edge(*start_idx, *end_idx, kind.clone());
-                        }
-                    }
-                }
-                let toposort_result = toposort(&single_cluster_graph, None);
-                match toposort_result.as_ref() {
-                    Err(cycle) => {
-                        structural_errors.push(StructuralError::Cycle(
-                            single_cluster_graph.index(cycle.node_id()).0.clone(),
-                        ));
-                    }
-                    _ => {}
-                };
-                if structural_errors.is_empty() {
-                    Ok(ClusterGraphTuple(cluster, single_cluster_graph))
-                } else {
-                    Err(anyhow::Error::from(StructuralErrorGrouping {
-                        components: structural_errors,
-                    }))
-                }
-            })
-        })
+        .map(|result| result.and_then(associate_with_dag))
         .collect();
 
     // step 3: turn a vector of entirely Ok results into a a single Ok result
@@ -426,7 +324,7 @@ fn merge_clusters(
                 }
             });
     /* can I simplify along these lines?
-    let cluster_graph_pairs_result: Result<Vec<&ClusterGraphTuple>, anyhow::Error> =
+    let cluster_graph_pairs_result: Result<Vec<&ClusterDAGRootsTriple>, anyhow::Error> =
        cluster_graph_tuples
            .iter()
            .collect::<Result<Vec<_>,anyhow::Error>>()
@@ -434,8 +332,15 @@ fn merge_clusters(
 
     // step 4: compute the supercluster
     let supercluster = cluster_graph_pairs_result
-        .and_then(merge_into_supercluster)
-        .and_then(|graph| {
+        .and_then(|triples| {
+            merge_into_supercluster(&triples).map(|graph| {
+                (
+                    graph,
+                    triples.iter().flat_map(|triple| triple.2.clone()).collect(),
+                )
+            })
+        })
+        .and_then(|(graph, all_roots)| {
             toposort(&graph, None)
                 .map_err(|cycle| {
                     anyhow::Error::from(StructuralError::Cycle(
@@ -444,6 +349,8 @@ fn merge_clusters(
                 })
                 .map(|_| RootedSupercluster {
                     graph,
+                    // TODO: all_roots can be obtained by mapping over the ClusterDAGRootsTriples to
+                    // get the roots and then just joining all of them
                     roots: all_roots,
                 })
         });
@@ -451,15 +358,116 @@ fn merge_clusters(
     (cluster_graph_tuples, supercluster)
 }
 
+fn associate_with_dag(cluster: domain::Cluster) -> Result<ClusterDAGRootsTriple, anyhow::Error> {
+    let mut all_roots: Vec<NodeID> = vec![];
+    // Petgraph uses its own indexing system
+    // so map own node identifiers to Petgraph indexes
+    let mut identifier_to_index_map = std::collections::HashMap::new();
+    let mut single_cluster_graph = Graph::new();
+    let mut structural_errors: Vec<StructuralError> = vec![];
+    for node in &cluster.nodes {
+        if !identifier_to_index_map.contains_key(&node.node_id) {
+            let idx = single_cluster_graph.add_node((node.node_id.clone(), node.title.clone()));
+            identifier_to_index_map.insert(node.node_id.clone(), idx);
+        } else {
+            structural_errors.push(StructuralError::DoubleNode(node.node_id.clone()));
+        }
+    }
+    cluster.roots.iter().for_each(|root| {
+        if !identifier_to_index_map.contains_key(&root) {
+            structural_errors.push(StructuralError::UndeclaredRoot(root.clone()));
+        }
+        all_roots.push(root.clone());
+    });
+    // build the single-cluster graph and check for structural errors at the same time
+    for TypedEdge {
+        start_id,
+        end_id,
+        kind,
+    } in &cluster.edges
+    {
+        let mut can_add = true;
+        if cluster.roots.contains(end_id) {
+            structural_errors.push(StructuralError::DependentRootNode(
+                end_id.to_owned(),
+                start_id.to_owned(),
+            ));
+            can_add = false;
+        }
+        if start_id.namespace != cluster.namespace_prefix && *kind == EdgeType::AtLeastOne {
+            structural_errors.push(StructuralError::IncomingAnyEdge(
+                start_id.to_owned(),
+                end_id.to_owned(),
+            ));
+            can_add = false;
+        } else if end_id.namespace != cluster.namespace_prefix && *kind == EdgeType::All {
+            structural_errors.push(StructuralError::OutgoingAllEdge(
+                start_id.to_owned(),
+                end_id.to_owned(),
+            ));
+            can_add = false;
+        }
+        if can_add {
+            if start_id.namespace != cluster.namespace_prefix
+                && !identifier_to_index_map.contains_key(&start_id)
+            {
+                let idx =
+                    single_cluster_graph.add_node((start_id.clone(), format!("{}", &start_id)));
+                identifier_to_index_map.insert(start_id.clone(), idx);
+            }
+            if end_id.namespace != cluster.namespace_prefix
+                && !identifier_to_index_map.contains_key(&end_id)
+            {
+                let idx = single_cluster_graph.add_node((end_id.clone(), format!("{}", &end_id)));
+                identifier_to_index_map.insert(end_id.clone(), idx);
+            }
+            let ids = [start_id, end_id];
+            let idxs = ids.map(|id| identifier_to_index_map.get(id));
+            ids.iter().zip(idxs).for_each(|(id, idx)| {
+                if let None = idx {
+                    structural_errors.push(StructuralError::MissingInternalEndpoint(
+                        start_id.to_owned(),
+                        end_id.to_owned(),
+                        (*id).to_owned(),
+                    ));
+                }
+            });
+            if let [Some(start_idx), Some(end_idx)] = idxs {
+                single_cluster_graph.add_edge(*start_idx, *end_idx, kind.clone());
+            }
+        }
+    }
+    let toposort_result = toposort(&single_cluster_graph, None);
+    match toposort_result.as_ref() {
+        Err(cycle) => {
+            structural_errors.push(StructuralError::Cycle(
+                single_cluster_graph.index(cycle.node_id()).0.clone(),
+            ));
+        }
+        _ => {}
+    };
+    if structural_errors.is_empty() {
+        Ok(ClusterDAGRootsTriple(
+            cluster,
+            single_cluster_graph,
+            all_roots,
+        ))
+    } else {
+        Err(anyhow::Error::from(StructuralErrorGrouping {
+            components: structural_errors,
+        }))
+    }
+}
+
 fn merge_into_supercluster(
-    cluster_graph_pairs: Vec<&ClusterGraphTuple>,
+    cluster_graph_pairs: &Vec<&ClusterDAGRootsTriple>,
 ) -> Result<Graph, anyhow::Error> {
     let mut boundary_errors = vec![];
     let mut complete_graph: Graph = Graph::new();
     let mut complete_graph_map = HashMap::new();
     cluster_graph_pairs
         .iter()
-        .for_each(|ClusterGraphTuple(cluster, graph)| {
+        .for_each(|ClusterDAGRootsTriple(cluster, graph, _)| {
             for (id, title) in graph.node_weights() {
                 // only add the internal ones to the map
                 if cluster.namespace_prefix == id.namespace {
@@ -470,7 +478,7 @@ fn merge_into_supercluster(
         });
     cluster_graph_pairs
         .iter()
-        .for_each(|ClusterGraphTuple(cluster, _)| {
+        .for_each(|ClusterDAGRootsTriple(cluster, _, _)| {
             for TypedEdge {
                 start_id,
                 end_id,
@@ -546,7 +554,7 @@ mod tests {
 
     use crate::{
         associate_parents_children, comment_cluster, read_all_clusters_with_test_dependencies,
-        ClusterGraphTuple,
+        ClusterDAGRootsTriple,
     };
 
     struct MockFileReader<'a> {
@@ -583,7 +591,8 @@ mod tests {
         assert_eq!(component_analysis.len(), 1);
         assert!(component_analysis.get(0).as_ref().is_some());
         component_analysis.into_iter().for_each(|result| {
-            let ClusterGraphTuple(cluster, graph) = result.expect("There should be a result here.");
+            let ClusterDAGRootsTriple(cluster, graph, _roots) =
+                result.expect("There should be a result here.");
             let comments =
                 comment_cluster(&cluster, &graph, &PathBuf::from("_"), |_| true, |_| true);
             assert!(comments.is_empty());
