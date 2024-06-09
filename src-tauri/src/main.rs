@@ -306,18 +306,19 @@ fn merge_clusters(
                 }),
             Err(e) => Err(anyhow::Error::new(e)),
         });
+
     // step 2: associate individual clusters with separate Petgraph graphs
     let cluster_graph_tuples: Vec<_> = clusters
         .map(|result| result.and_then(associate_with_dag))
         .collect();
 
-    // step 3: turn a vector of entirely Ok results into a a single Ok result
+    // step 3: get a result for a whole vector
     let cluster_graph_pairs_result: Result<Vec<&ClusterDAGRootsTriple>, anyhow::Error> =
-       cluster_graph_tuples
-           .iter()
-           .map(Result::as_ref)
-           .collect::<Result<_,_>>()
-           .map_err(|_| StructuralError::InvalidComponentGraph.into());
+        cluster_graph_tuples
+            .iter()
+            .map(Result::as_ref)
+            .collect::<Result<_, _>>()
+            .map_err(|_| StructuralError::InvalidComponentGraph.into());
 
     // step 4: compute the supercluster
     let supercluster = cluster_graph_pairs_result
@@ -338,12 +339,9 @@ fn merge_clusters(
                 })
                 .map(|_| RootedSupercluster {
                     graph,
-                    // TODO: all_roots can be obtained by mapping over the ClusterDAGRootsTriples to
-                    // get the roots and then just joining all of them
                     roots: all_roots,
                 })
         });
-
     (cluster_graph_tuples, supercluster)
 }
 
@@ -397,23 +395,18 @@ fn associate_with_dag(cluster: domain::Cluster) -> Result<ClusterDAGRootsTriple,
             can_add = false;
         }
         if can_add {
-            if start_id.namespace != cluster.namespace_prefix
-                && !identifier_to_index_map.contains_key(&start_id)
-            {
-                let idx =
-                    single_cluster_graph.add_node((start_id.clone(), format!("{}", &start_id)));
-                identifier_to_index_map.insert(start_id.clone(), idx);
-            }
-            if end_id.namespace != cluster.namespace_prefix
-                && !identifier_to_index_map.contains_key(&end_id)
-            {
-                let idx = single_cluster_graph.add_node((end_id.clone(), format!("{}", &end_id)));
-                identifier_to_index_map.insert(end_id.clone(), idx);
-            }
             let ids = [start_id, end_id];
+            ids.iter().for_each(|id| {
+                if id.namespace != cluster.namespace_prefix
+                    && !identifier_to_index_map.contains_key(&id)
+                {
+                    let idx = single_cluster_graph.add_node(((*id).clone(), format!("{}", &id)));
+                    identifier_to_index_map.insert((*id).clone(), idx);
+                }
+            });
             let idxs = ids.map(|id| identifier_to_index_map.get(id));
             ids.iter().zip(idxs).for_each(|(id, idx)| {
-                if let None = idx {
+                if idx.is_none() {
                     structural_errors.push(StructuralError::MissingInternalEndpoint(
                         start_id.to_owned(),
                         end_id.to_owned(),
@@ -442,9 +435,10 @@ fn associate_with_dag(cluster: domain::Cluster) -> Result<ClusterDAGRootsTriple,
             all_roots,
         ))
     } else {
-        Err(anyhow::Error::from(StructuralErrorGrouping {
+        Err(StructuralErrorGrouping {
             components: structural_errors,
-        }))
+        }
+        .into())
     }
 }
 
@@ -492,9 +486,10 @@ fn merge_into_supercluster(
     if boundary_errors.is_empty() {
         Ok(complete_graph)
     } else {
-        Err(anyhow::Error::from(StructuralErrorGrouping {
+        Err(StructuralErrorGrouping {
             components: boundary_errors,
-        }))
+        }
+        .into())
     }
 }
 
