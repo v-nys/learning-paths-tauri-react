@@ -20,7 +20,7 @@ mod deserialization;
 mod domain;
 mod rendering;
 
-use crate::domain::{EdgeType, Graph, NodeID, StructuralError, TypedEdge, EdgeData};
+use crate::domain::{EdgeData, EdgeType, Graph, NodeID, StructuralError, TypedEdge};
 use crate::rendering::svgify;
 
 /// A way to bundle multiple structural errors, so they can be signalled simultaneously.
@@ -219,27 +219,22 @@ fn read_all_clusters_with_test_dependencies<'a, T: FileReader>(
 
 fn subgraph_with_edges(parent: &Graph, predicate: impl Fn(&EdgeData) -> bool) -> Graph {
     let mut subgraph = Graph::new();
-    let mut node_map = HashMap::new();
-    for node in parent.node_references() {
-        let new_index = subgraph.add_node(node.1.clone());
-        node_map.insert(node.0, new_index);
-    }
-    for edge in parent.edge_references() {
-        if predicate(edge.weight()) {
-            let (source, target) = (edge.source(), edge.target());
-            let new_source = *node_map
-                .entry(source)
-                .or_insert_with(|| subgraph.add_node(parent.node_weight(source).unwrap().clone()));
-            let new_target = *node_map
-                .entry(target)
-                .or_insert_with(|| subgraph.add_node(parent.node_weight(target).unwrap().clone()));
+    let mut node_map = parent
+        .node_references()
+        .map(|(index_in_parent, node_data)| (index_in_parent, subgraph.add_node(node_data.clone())))
+        .collect::<HashMap<_, _>>();
+
+    parent
+        .edge_references()
+        .filter(|edge| predicate(edge.weight()))
+        .for_each(|edge| {
+            let new_source = node_map[&edge.source()];
+            let new_target = node_map[&edge.target()];
             subgraph.add_edge(new_source, new_target, edge.weight().clone());
-        }
-    }
+        });
+
     subgraph
 }
-
-
 
 /// Add remarks to a (previously cycle-checked) graph.
 ///
