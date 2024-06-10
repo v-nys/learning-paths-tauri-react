@@ -8,9 +8,8 @@ Requires graphviz to be installed on your system.
 
 If you are running Nix with flakes, just run `nix develop` and `npm run tauri dev` should work fine from that shell.
 
-## Recommended IDE Setup
-
-- [VS Code](https://code.visualstudio.com/) + [Tauri](https://marketplace.visualstudio.com/items?itemName=tauri-apps.tauri-vscode) + [rust-analyzer](https://marketplace.visualstudio.com/items?itemName=rust-lang.rust-analyzer)
+## Development
+Git hooks are versioned, in the `hooks` folder. Symlink them to enable.
 
 ## Troubleshooting
 May require environment variable `WEBKIT_DISABLE_DMABUF_RENDERER` set to `1`.
