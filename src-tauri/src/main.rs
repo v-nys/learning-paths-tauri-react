@@ -219,7 +219,7 @@ fn read_all_clusters_with_test_dependencies<'a, T: FileReader>(
 
 fn subgraph_with_edges(parent: &Graph, predicate: impl Fn(&EdgeData) -> bool) -> Graph {
     let mut subgraph = Graph::new();
-    let mut node_map = parent
+    let node_map = parent
         .node_references()
         .map(|(index_in_parent, node_data)| (index_in_parent, subgraph.add_node(node_data.clone())))
         .collect::<HashMap<_, _>>();
@@ -236,13 +236,42 @@ fn subgraph_with_edges(parent: &Graph, predicate: impl Fn(&EdgeData) -> bool) ->
     subgraph
 }
 
+/// Flip both direction and type of "all"-edges.
+fn flip_all_type_edges(graph: &Graph) -> Graph {
+    let mut new_graph = Graph::new();
+    let node_map: Vec<_> = graph
+        .node_indices()
+        .map(|n| new_graph.add_node(graph[n].clone()))
+        .collect();
+    for edge in graph.edge_references() {
+        let source = edge.source();
+        let target = edge.target();
+        let weight = edge.weight();
+
+        match weight {
+            EdgeType::All => {
+                new_graph.add_edge(
+                    node_map[target.index()],
+                    node_map[source.index()],
+                    EdgeType::AtLeastOne,
+                );
+            }
+            _ => {
+                new_graph.add_edge(
+                    node_map[source.index()],
+                    node_map[target.index()],
+                    weight.clone(),
+                );
+            }
+        }
+    }
+    new_graph
+}
+
 /// Add remarks to a (previously cycle-checked) graph.
 ///
 /// Remarks do not indicate structural problems (i.e. the graph makes sense), but should be fixed regardless.
 fn comment_graph(graph: &Graph, remarks: &mut Vec<String>) {
-    let toposort_order = toposort(&graph, None).expect(
-        "This function should only be called for graphs which have already been cycle-checked.",
-    );
     /* assume the following notation:
      * ⇒ means the relationship "is a necessary dependency of" (directly expressed by "all"-type)
      * → means "is an interchangeable dependency of" (directly expressed by "any"-type)
@@ -261,22 +290,47 @@ fn comment_graph(graph: &Graph, remarks: &mut Vec<String>) {
      * it adds an implied edge that would be seen by the previous 2 steps
      * so a fixpoint computation might be a good idea here
      * 4 should be checked after the fixpoint computation
-     *
-     * and to detect all redundant edges?
-     * simple, slow approach: see if removing them has any effect on the final outcome
-     * can't just perform transitive reduction because there are two types of edges...
-     *
-     *
      */
-    let (res, _revmap): (_, Vec<NodeIndex>) =
-        dag_to_toposorted_adjacency_list(&graph, &toposort_order);
+
+    // rough implementation of rule 1 ("rough" because rule 3 is not currently implemented)
+    let is_all_type = |edge: &EdgeData| edge == &EdgeType::All;
+    let all_type_subgraph = subgraph_with_edges(graph, is_all_type);
+
+    let order = toposort(&all_type_subgraph, None)
+        .expect("If parent graph was cycle-checked, subgraph should be cycle-free.");
+    note_redundant_edges(&all_type_subgraph, order, "\"all\"-type", remarks);
+    // rough implementation of rule 2
+    let flipped_graph = flip_all_type_edges(&graph);
+    let is_at_least_one_type = |edge: &EdgeData| edge == &EdgeType::AtLeastOne;
+    let flipped_graph = subgraph_with_edges(&flipped_graph, is_at_least_one_type);
+    let toposort_order = toposort(&flipped_graph, None);
+    match toposort_order {
+        Ok(order) => {
+            note_redundant_edges(&flipped_graph, order, "\"at least one\"-type", remarks);
+        }
+        Err(_cycle) => {
+            remarks.push("Checking for redundant \"at least one\" edges introduces a cycle and cannot be performed here. Probably indicates a structural issue, but this situation still needs further examination.".to_owned());
+        }
+    }
+}
+
+/// Add remarks indicating the redundant edges (i.e. not present in transitive reduction).
+/// Note that this function does not examine the type of edges, that is up to the caller.
+fn note_redundant_edges(
+    graph: &Graph,
+    order: Vec<NodeIndex>,
+    description: &str,
+    remarks: &mut Vec<String>,
+) {
+    let (res, _revmap): (_, Vec<NodeIndex>) = dag_to_toposorted_adjacency_list(graph, &order);
     let (tr, _tc) = dag_transitive_reduction_closure(&res);
     for edge in res.edge_references() {
         let source = edge.source();
         let target = edge.target();
         if !tr.contains_edge(source, target) {
             remarks.push(format!(
-                "Redundant edge! {} -> {}",
+                "Redundant {} edge {} -> {}",
+                description,
                 graph
                     .node_weight(source)
                     .expect("Edge exists, so node does too.")
@@ -581,8 +635,8 @@ mod tests {
     };
 
     use crate::{
-        associate_parents_children, comment_cluster, read_all_clusters_with_test_dependencies,
-        ClusterDAGRootsTriple,
+        associate_parents_children, comment_cluster, comment_graph,
+        read_all_clusters_with_test_dependencies, ClusterDAGRootsTriple,
     };
 
     struct MockFileReader<'a> {
@@ -699,6 +753,69 @@ mod tests {
                 ]
             )]))
         );
+    }
+
+    #[test]
+    #[ignore]
+    fn detect_redundant_hard_dependency() {
+        /* FIXME
+         * Here, A → C being considered a redundant "at least one"-type makes sense.
+         * The problem is that it does not exist in the original graph.
+         * So only the ones that actually exist in the original graph should be considered.
+         * Should rewrite so that comment is not inserted directly,
+         * but problem edges are returned?
+         */
+        let mut reader = MockFileReader::new(vec![&Path::new(
+            "tests/clusterwithredundantharddependency/contents.lc.yaml",
+        )]);
+        let (component_analysis, _supercluster_analysis) =
+            read_all_clusters_with_test_dependencies("_", &mut reader);
+        assert_eq!(component_analysis.len(), 1);
+        assert!(component_analysis.get(0).as_ref().is_some());
+        component_analysis.into_iter().for_each(|result| {
+            let ClusterDAGRootsTriple(_cluster, graph, _roots) =
+                result.expect("There should be a result here.");
+            let mut comments = vec![];
+            comment_graph(&graph, &mut comments);
+            comments = dbg!(comments);
+            assert_eq!(comments.len(), 1);
+            assert_eq!(
+                vec!["Redundant \"all\"-type edge clusterwithredundantharddependency__concept_A -> clusterwithredundantharddependency__concept_C".to_owned()],
+                comments
+            );
+            assert_eq!(reader.calls_made, 1);
+        });
+    }
+
+
+    #[test]
+    #[ignore]
+    fn detect_redundant_soft_dependency() {
+        /* FIXME
+         * Here, we have A → B, A → C, B ⇒ C
+         * So that should transform into A → B, A → C, C → B
+         * Currently says A → C is redundant, but should say A → B is redundant...
+         */
+        let mut reader = MockFileReader::new(vec![&Path::new(
+            "tests/clusterwithredundantsoftdependency/contents.lc.yaml",
+        )]);
+        let (component_analysis, _supercluster_analysis) =
+            read_all_clusters_with_test_dependencies("_", &mut reader);
+        assert_eq!(component_analysis.len(), 1);
+        assert!(component_analysis.get(0).as_ref().is_some());
+        component_analysis.into_iter().for_each(|result| {
+            let ClusterDAGRootsTriple(_cluster, graph, _roots) =
+                result.expect("There should be a result here.");
+            let mut comments = vec![];
+            comment_graph(&graph, &mut comments);
+            comments = dbg!(comments);
+            assert_eq!(comments.len(), 1);
+            assert_eq!(
+                vec!["Redundant \"at least one\"-type edge clusterwithredundantsoftdependency__concept_A -> clusterwithredundantsoftdependency__concept_B".to_owned()],
+                comments
+            );
+            assert_eq!(reader.calls_made, 1);
+        });
     }
 }
 
