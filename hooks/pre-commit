@@ -1,3 +1,3 @@
 #!/bin/sh
 echo "running develop command";
-# nix develop --command bash -c "echo \"entering directory\" && cd src-tauri && echo \"running tests\" && cargo test ";
+nix develop --command bash -c "echo \"entering directory\" && cd src-tauri && echo \"running tests\" && cargo test ";

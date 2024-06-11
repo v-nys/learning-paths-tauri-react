@@ -769,14 +769,12 @@ mod tests {
     }
 
     #[test]
-    #[ignore]
     fn associate_bad_path() {
         let result = associate_parents_children("/home/user/folder1;folder2");
         assert_eq!(result, Err(Path::new("folder2")));
     }
 
     #[test]
-    #[ignore]
     fn associate_valid_paths() {
         let result = associate_parents_children("/home/user/folder1;/var/folder2");
         assert_eq!(
@@ -792,7 +790,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore]
     fn associate_parent_multiple_children() {
         let result = associate_parents_children("/home/user/folder1;/home/user/folder2");
         assert_eq!(
