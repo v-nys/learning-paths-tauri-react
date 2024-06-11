@@ -363,49 +363,24 @@ fn filter_redundant_edges<'a>(
 ) -> Vec<TypedEdge> {
     let (res, revmap) = dag_to_toposorted_adjacency_list(graph, &order);
     let (tr, _tc) = dag_transitive_reduction_closure(&res);
-    
-    // top is of type NodeIndex<DefaultIx>
-    // let top = graph.add_node(todo!("just infer"));
-    
-    /* can use revmap to get back indices in the original graph from indices in res
-    use petgraph::prelude::*;
-use petgraph::graph::DefaultIx;
-use petgraph::visit::IntoNeighbors;
-use petgraph::algo::tred::dag_to_toposorted_adjacency_list;
-
-let mut g = Graph::<&str, (), Directed, DefaultIx>::new();
-let second = g.add_node("second child");
-let top = g.add_node("top");
-let first = g.add_node("first child");
-g.extend_with_edges(&[(top, second), (top, first), (first, second)]);
-
-let toposort = vec![top, first, second];
-
-let (res, revmap) = dag_to_toposorted_adjacency_list(&g, &toposort);
-
-// let's compute the children of top in topological order
-let children: Vec<NodeIndex> = res
-    .neighbors(revmap[top.index()])
-    .map(|ix: NodeIndex| toposort[ix.index()])
-    .collect();
-assert_eq!(children, vec![first, second]) 
-     */
     let redundant_edges: Vec<_> = res
         .edge_references()
         .filter(|edge| !tr.contains_edge(edge.source(), edge.target()))
         .map(|edge| {
-            let source = edge.source(); // TODO: use revmap, because we need index from the original
-            let target = edge.target(); // TODO: use revmap, because we need index from the original
+            let source: NodeIndex<DefaultIx> = edge.source();
+            let source_rev = revmap[source.index()];
+            let target = edge.target();
+            let target_rev = revmap[target.index()];
             TypedEdge {
             start_id: graph
-                .node_weight(source)
+                .node_weight(source_rev)
                 .expect(
                     "Edge was already established to be in the graph, so endpoint must be, too.",
                 )
                 .0
                 .clone(),
             end_id: graph
-                .node_weight(target) // FIXME: use revmap
+                .node_weight(target_rev)
                 .expect(
                     "Edge was already established to be in the graph, so endpoint must be, too.",
                 )
