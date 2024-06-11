@@ -4,6 +4,7 @@
 use anyhow;
 
 use petgraph::{
+    adj::EdgeReference,
     algo::{
         toposort,
         tred::{dag_to_toposorted_adjacency_list, dag_transitive_reduction_closure},
@@ -295,12 +296,13 @@ fn comment_graph(graph: &Graph, remarks: &mut Vec<String>) {
     // rough implementation of rule 1 ("rough" because rule 3 is not currently implemented)
     let is_all_type = |edge: &EdgeData| edge == &EdgeType::All;
     let all_type_subgraph = subgraph_with_edges(graph, is_all_type);
-
     let order = toposort(&all_type_subgraph, None)
         .expect("If parent graph was cycle-checked, subgraph should be cycle-free.");
-    note_redundant_edges(&all_type_subgraph, order, "\"all\"-type", remarks);
+    //note_redundant_edges(&all_type_subgraph, order, "\"all\"-type", remarks);
+    let redundant_edges = filter_redundant_edges(&all_type_subgraph, order, EdgeType::All);
+
     // rough implementation of rule 2
-    let flipped_graph = flip_all_type_edges(&graph);
+    /*let flipped_graph = flip_all_type_edges(&graph);
     let is_at_least_one_type = |edge: &EdgeData| edge == &EdgeType::AtLeastOne;
     let flipped_graph = subgraph_with_edges(&flipped_graph, is_at_least_one_type);
     let toposort_order = toposort(&flipped_graph, None);
@@ -311,7 +313,7 @@ fn comment_graph(graph: &Graph, remarks: &mut Vec<String>) {
         Err(_cycle) => {
             remarks.push("Checking for redundant \"at least one\" edges introduces a cycle and cannot be performed here. Probably indicates a structural issue, but this situation still needs further examination.".to_owned());
         }
-    }
+    }*/
 }
 
 /// Add remarks indicating the redundant edges (i.e. not present in transitive reduction).
@@ -342,6 +344,25 @@ fn note_redundant_edges(
             ));
         }
     }
+}
+
+fn filter_redundant_edges<'a>(
+    graph: &'a Graph,
+    order: Vec<NodeIndex>,
+    implied_kind: EdgeType // applying TR removes weights
+) -> Vec<TypedEdge> {
+    let (res, _revmap): (_, Vec<NodeIndex>) = dag_to_toposorted_adjacency_list(graph, &order);
+    let (tr, _tc) = dag_transitive_reduction_closure(&res);
+    let redundant_edges: Vec<_> = res
+        .edge_references()
+        .filter(|edge| !tr.contains_edge(edge.source(), edge.target()))
+        .map(|edge| TypedEdge {
+            start_id: graph.node_weight(edge.source()),
+            end_id: graph.node_weight(edge.target()),
+            kind: implied_kind.clone()
+        })
+        .collect();
+    redundant_edges
 }
 
 fn comment_cluster(
@@ -756,7 +777,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore]
     fn detect_redundant_hard_dependency() {
         /* FIXME
          * Here, A → C being considered a redundant "at least one"-type makes sense.
@@ -768,8 +788,10 @@ mod tests {
         let mut reader = MockFileReader::new(vec![&Path::new(
             "tests/clusterwithredundantharddependency/contents.lc.yaml",
         )]);
-        let (component_analysis, _supercluster_analysis) =
-            read_all_clusters_with_test_dependencies("_", &mut reader);
+        let (component_analysis, _supercluster_analysis) = read_all_clusters_with_test_dependencies(
+            "clusterwithredundantharddependency",
+            &mut reader,
+        );
         assert_eq!(component_analysis.len(), 1);
         assert!(component_analysis.get(0).as_ref().is_some());
         component_analysis.into_iter().for_each(|result| {
@@ -787,7 +809,6 @@ mod tests {
         });
     }
 
-
     #[test]
     #[ignore]
     fn detect_redundant_soft_dependency() {
@@ -799,8 +820,10 @@ mod tests {
         let mut reader = MockFileReader::new(vec![&Path::new(
             "tests/clusterwithredundantsoftdependency/contents.lc.yaml",
         )]);
-        let (component_analysis, _supercluster_analysis) =
-            read_all_clusters_with_test_dependencies("_", &mut reader);
+        let (component_analysis, _supercluster_analysis) = read_all_clusters_with_test_dependencies(
+            "clusterwithredundantsoftdependency",
+            &mut reader,
+        );
         assert_eq!(component_analysis.len(), 1);
         assert!(component_analysis.get(0).as_ref().is_some());
         component_analysis.into_iter().for_each(|result| {
