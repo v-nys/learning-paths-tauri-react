@@ -13,3 +13,8 @@ any_type_edges:
     end_id: concept_B
   - start_id: concept_A
     end_id: concept_C
+
+# dus A -> B, A -> C, B => C
+# A -> B is dan overbodig
+
+# flippen => levert: A -> B, A -> C, C -> B
