@@ -1,6 +1,7 @@
 pub mod plugins {
     use libloading::{Library, Symbol};
     use std::collections::VecDeque;
+    use std::fmt;
     pub trait Plugin {
         fn get_name(&self) -> &str;
         fn get_version(&self) -> &str;
@@ -12,14 +13,21 @@ pub mod plugins {
         _lib: Library, // Holds the library to ensure it lives as long as the plugin
     }
 
+    impl fmt::Debug for PluginContainer {
+        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+            f.debug_struct("PluginContainer")
+                .field("plugin_name", &self.plugin.get_name())
+                .field("plugin_version", &self.plugin.get_version())
+                .finish()
+        }
+    }
+
     // Q: why VecDeque, specifically?
-    pub fn load_plugins() -> VecDeque<PluginContainer> {
+    pub fn load_plugins(paths: Vec<String>) -> VecDeque<PluginContainer> {
         let mut plugins = VecDeque::new();
-        /*TODO: have plugins declared somewhere that makes sense
-        clusters can assume the use of specific plugins (name (possibly with alias) and exact version) in specific order?
-        so each cluster should declare its own list of plugins, and this should work on a per-cluster basis (but there are "whole-course" plugins, too, which should be run later) */
+        paths.iter().for_each(|path| {
         unsafe {
-            let lib = Library::new("/home/vincentn/Projects/poc-assignments-plugin/target/release/libpoc_assignments_plugin.so")
+            let lib = Library::new(path)
                           .expect("Failed to load library");
             let constructor: Symbol<unsafe extern "C" fn() -> *mut dyn Plugin> =
                 lib.get(b"create_plugin").expect("Failed to find symbol");
@@ -28,7 +36,7 @@ pub mod plugins {
                 plugin: Box::from_raw(plugin),
                 _lib: lib,
             });
-        }
+        }});
         plugins
     }
 }

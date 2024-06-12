@@ -1,4 +1,5 @@
 use lazy_regex::regex;
+use learning_paths_tauri_react::plugins::load_plugins;
 use schemars::JsonSchema;
 use serde::de::{self, MapAccess, Visitor};
 use serde::Deserialize;
@@ -6,6 +7,7 @@ use serde::Deserializer;
 use serde_yaml::Value;
 use std::collections::HashMap;
 use std::fmt;
+use std::rc::Rc;
 
 use crate::domain;
 
@@ -198,6 +200,7 @@ pub struct ClusterForSerialization {
     any_type_edges: Option<Vec<Edge>>,
     /// IDs of `Node`s with no dependencies whatsoever, i.e. the only `Node`s which can be accessed unconditionally.
     roots: Option<Vec<String>>,
+    plugin_paths: Option<Vec<String>>,
 }
 
 impl ClusterForSerialization {
@@ -232,6 +235,7 @@ impl ClusterForSerialization {
                     local_id: root_string,
                 })
                 .collect(),
+            plugins: Rc::new(load_plugins(self.plugin_paths.unwrap_or_default())),
         })
     }
 }

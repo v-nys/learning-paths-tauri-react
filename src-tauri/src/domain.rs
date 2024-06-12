@@ -1,7 +1,9 @@
 use serde::Serialize;
-use std::collections::{HashSet, HashMap};
+use std::collections::{HashSet, HashMap, VecDeque};
 use serde_yaml::Value;
 use std::fmt;
+use learning_paths_tauri_react::plugins::PluginContainer;
+use std::rc::Rc;
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub enum EdgeType {
@@ -35,6 +37,7 @@ pub struct Cluster {
     pub nodes: Vec<Node>,
     pub edges: Vec<TypedEdge>,
     pub roots: Vec<NodeID>,
+    pub plugins: Rc<VecDeque<PluginContainer>> // Rc makes it possible to derive Clone
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize)]

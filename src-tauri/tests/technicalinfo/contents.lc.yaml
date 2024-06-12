@@ -24,3 +24,5 @@ all_type_edges:
     end_id: concept_D
   - start_id: concept_Q
     end_id: concept_C
+plugin_paths:
+  - "/home/vincentn/Projects/poc-assignments-plugin/target/release/libpoc_assignments_plugin.so"
