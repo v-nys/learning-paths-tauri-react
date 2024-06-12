@@ -1,11 +1,16 @@
 use lazy_regex::regex;
 use schemars::JsonSchema;
+use serde::de::{self, MapAccess, Visitor};
 use serde::Deserialize;
+use serde::Deserializer;
+use serde_yaml::Value;
+use std::collections::HashMap;
+use std::fmt;
 
 use crate::domain;
 
 /// Deserialization counterpart for the domain concept `Node`.
-#[derive(Deserialize, Clone, Debug, JsonSchema)]
+#[derive(Clone, Debug)]
 struct Node {
     /// An ID should be locally unique inside a `Cluster` and is used to refer to a node inside its `Cluster`.
     ///
@@ -15,6 +20,71 @@ struct Node {
     ///
     /// This is not required to be unique at any level.
     title: String,
+    extension_fields: HashMap<String, Value>,
+}
+
+impl<'de> Deserialize<'de> for Node {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        struct NodeVisitor;
+
+        impl<'de> Visitor<'de> for NodeVisitor {
+            type Value = Node;
+
+            fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+                formatter.write_str("struct Node")
+            }
+
+            fn visit_map<V>(self, mut map: V) -> Result<Node, V::Error>
+            where
+                V: MapAccess<'de>,
+            {
+                let mut id = None;
+                let mut title = None;
+                let mut extension_fields = HashMap::new();
+
+                while let Some(key) = map.next_key::<String>()? {
+                    match key.as_str() {
+                        "id" => {
+                            if id.is_some() {
+                                return Err(de::Error::duplicate_field("id"));
+                            }
+                            id = Some(map.next_value()?);
+                        }
+                        "title" => {
+                            if title.is_some() {
+                                return Err(de::Error::duplicate_field("title"));
+                            }
+                            title = Some(map.next_value()?);
+                        }
+                        _ => {
+                            if extension_fields.contains_key(&key) {
+                                // can't use provided duplicate_field function here
+                                // that expects a &'static str and &key does not have that lifetime
+                                return Err(de::Error::custom(format!(
+                                    "duplicate field: {}",
+                                    &key
+                                )));
+                            }
+                            extension_fields.insert(key, map.next_value()?);
+                        }
+                    }
+                }
+
+                let id = id.ok_or_else(|| de::Error::missing_field("id"))?;
+                let title = title.ok_or_else(|| de::Error::missing_field("title"))?;
+                Ok(Node {
+                    id,
+                    title,
+                    extension_fields,
+                })
+            }
+        }
+
+        deserializer.deserialize_map(NodeVisitor)
+    }
 }
 
 impl Node {
@@ -33,6 +103,7 @@ impl Node {
                     local_id: self.id.clone(),
                 },
                 title: self.title.clone(),
+                extension_fields: self.extension_fields.clone(),
             })
         }
     }
@@ -116,7 +187,7 @@ impl Edge {
 /// which it is serialized.
 /// It uses disjoint, optional sets of edges because that saves a lot of repetition when writing in
 /// a data format.
-#[derive(Deserialize, Clone, JsonSchema)]
+#[derive(Deserialize, Clone)]
 #[serde(deny_unknown_fields)]
 pub struct ClusterForSerialization {
     /// Units of information inside this `Cluster`.
@@ -151,7 +222,7 @@ impl ClusterForSerialization {
                 )
                 .collect::<Result<Vec<_>, _>>()?,
             // FIXME: don't think error is spotted if root is namespaced via __ or has invalid
-                // symbols in it
+            // symbols in it
             roots: self
                 .roots
                 .unwrap_or_default()

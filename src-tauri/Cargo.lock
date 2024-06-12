@@ -1632,6 +1632,7 @@ dependencies = [
  "anyhow",
  "graphviz-rust",
  "lazy-regex",
+ "libloading",
  "petgraph",
  "schemars",
  "serde",
@@ -1650,6 +1651,16 @@ name = "libc"
 version = "0.2.144"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2b00cc1c228a6782d0f076e7b232802e0c5689d41bb5df366f2a6b6621cfdfe1"
+
+[[package]]
+name = "libloading"
+version = "0.8.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0c2a198fb6b0eada2a8df47933734e6d35d350665a33a3593d7164fa52c75c19"
+dependencies = [
+ "cfg-if",
+ "windows-targets 0.48.0",
+]
 
 [[package]]
 name = "line-wrap"

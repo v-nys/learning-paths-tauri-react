@@ -1,5 +1,6 @@
 use serde::Serialize;
-use std::collections::HashSet;
+use std::collections::{HashSet, HashMap};
+use serde_yaml::Value;
 use std::fmt;
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
@@ -63,6 +64,7 @@ pub struct Node {
     ///
     /// This is not required to be unique at any level.
     pub title: String,
+    pub extension_fields: HashMap<String, Value>
 }
 
 /// An error related to the internal structure of a (syntactically valid, semantically invalid) `Cluster`.

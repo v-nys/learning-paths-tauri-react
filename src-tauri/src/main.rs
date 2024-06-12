@@ -3,6 +3,7 @@
 
 use anyhow;
 
+use learning_paths_tauri_react::plugins::load_plugins;
 use petgraph::adj::IndexType;
 use petgraph::{
     adj::EdgeReference,
@@ -400,6 +401,9 @@ fn comment_cluster(
     file_is_readable: fn(&Path) -> bool,
     directory_is_readable: fn(&Path) -> bool,
 ) -> Vec<String> {
+    // FIXME: should not be loaded here, should happen in surrounding scope
+    // but this can act as a POC
+    let plugins = load_plugins();
     let mut remarks: Vec<String> = vec![];
     let cluster_path = Path::new(cluster_path);
     cluster.nodes.iter().for_each(|n| {
@@ -422,6 +426,13 @@ fn comment_cluster(
                 ));
             }
         }
+        n.extension_fields.iter().for_each(|(k, _v)| {
+            if !plugins.iter().any(|p| {
+                p.plugin.can_process_extension_field(k)
+            }) {
+                remarks.push(format!("No plugin able to process field {}", k));
+            }
+        });
     });
     comment_graph(&graph, &mut remarks);
     remarks
