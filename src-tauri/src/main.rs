@@ -403,14 +403,33 @@ fn comment_cluster(
     let mut remarks: Vec<String> = vec![];
     let cluster_path = Path::new(cluster_path);
     cluster.nodes.iter().for_each(|n| {
-        if !directory_is_readable(&cluster_path.join(&n.node_id.local_id).as_path()) {
+        let node_dir_is_readable =
+            directory_is_readable(&cluster_path.join(&n.node_id.local_id).as_path());
+        if !node_dir_is_readable {
             remarks.push(format!(
                 "{} should contain a child directory {}.",
                 cluster_path.to_string_lossy(),
                 n.node_id.local_id
             ));
         } else {
-            // note: will have to reorganize if any plugins are added to generate contents.html
+            // a node-preprocessing plugin would go here
+            // an example could be a plugin that generates contents.html from other format
+            n.extension_fields.iter().for_each(|(k, _v)| {
+                if !cluster
+                    .plugins
+                    .iter()
+                    .any(|p| p.plugin.can_process_extension_field(k))
+                {
+                    remarks.push(format!("No plugin able to process field {}", k));
+                }
+                /* else (for now), run further analysis using the plugin
+                 * e.g. for assignments:
+                 * try to further decode value (from the key-value pair)
+                 * signal any syntax issues
+                 * if there are none, check whether assignments are found on specified paths
+                 * could include optional model_solution part and everything
+                 */
+            });
             if !file_is_readable(
                 &cluster_path
                     .join(&n.node_id.local_id)
@@ -423,13 +442,6 @@ fn comment_cluster(
                 ));
             }
         }
-        n.extension_fields.iter().for_each(|(k, _v)| {
-            if !cluster.plugins.iter().any(|p| {
-                p.plugin.can_process_extension_field(k)
-            }) {
-                remarks.push(format!("No plugin able to process field {}", k));
-            }
-        });
     });
     comment_graph(&graph, &mut remarks);
     remarks
