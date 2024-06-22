@@ -414,13 +414,13 @@ fn comment_cluster(
         } else {
             // a node-preprocessing plugin would go here
             // an example could be a plugin that generates contents.html from other format
-            n.extension_fields.iter().for_each(|(k, _v)| {
-                if !cluster
-                    .plugins
-                    .iter()
-                    .any(|p| p.plugin.can_process_extension_field(k))
-                {
-                    remarks.push(format!("No plugin able to process field {}", k));
+            n.extension_fields.iter().for_each(|(k, v)| {
+                let field_processor = cluster.plugins.iter().find(|p| p.plugin.can_process_extension_field(k));
+                match field_processor {
+                    Some(field_processor) => {
+                        field_processor.plugin.process_extension_field(k, v, &mut remarks);
+                    },
+                    None => remarks.push(format!("No plugin able to process field {}", k))
                 }
                 /* else (for now), run further analysis using the plugin
                  * e.g. for assignments:

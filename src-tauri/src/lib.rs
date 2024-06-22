@@ -1,14 +1,20 @@
 pub mod plugins {
+    use serde_yaml::Value;
     use libloading::{Library, Symbol};
     use std::collections::VecDeque;
     use std::fmt;
     pub trait Plugin {
         fn get_name(&self) -> &str;
         fn get_version(&self) -> &str;
+        // TODO: consider dropping this method
+        // could arguably signal inability to do this via distinct error
         fn can_process_extension_field(&self, field_name: &str) -> bool;
+        fn process_extension_field(&self, field_name: &str, value: &Value, remarks: &mut Vec<String>);
     }
 
     pub struct PluginContainer {
+        // TODO: can I implement Deref or something so methods can be called directly on the
+        // container?
         pub plugin: Box<dyn Plugin>,
         _lib: Library, // Holds the library to ensure it lives as long as the plugin
     }
