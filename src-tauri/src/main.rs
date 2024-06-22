@@ -402,7 +402,12 @@ fn comment_cluster(
 ) -> Vec<String> {
     let mut remarks: Vec<String> = vec![];
     let cluster_path = Path::new(cluster_path);
+    cluster.pre_cluster_plugins.iter().for_each(|p| {
+        p.plugin.process_cluster(cluster_path);
+    });
+    println!("Back in main code.");
     cluster.nodes.iter().for_each(|n| {
+        println!("Dealing with node {}", n.node_id);
         let node_dir_is_readable =
             directory_is_readable(&cluster_path.join(&n.node_id.local_id).as_path());
         if !node_dir_is_readable {
@@ -415,7 +420,7 @@ fn comment_cluster(
             // a node-preprocessing plugin would go here
             // an example could be a plugin that generates contents.html from other format
             n.extension_fields.iter().for_each(|(k, v)| {
-                let field_processor = cluster.plugins.iter().find(|p| p.plugin.can_process_extension_field(k));
+                let field_processor = cluster.node_plugins.iter().find(|p| p.plugin.can_process_extension_field(k));
                 match field_processor {
                     Some(field_processor) => {
                         field_processor.plugin.process_extension_field(&cluster_path, &n.node_id.local_id, k, v, &mut remarks);
@@ -423,14 +428,15 @@ fn comment_cluster(
                     None => remarks.push(format!("No plugin able to process field {}", k))
                 }
             });
+            println!("Processed extension fields.");
             if !file_is_readable(
                 &cluster_path
                     .join(&n.node_id.local_id)
-                    .join("contents.md")
+                    .join("contents.html")
                     .as_path(),
             ) {
                 remarks.push(format!(
-                    "Directory for node {} should contain a contents.md file.",
+                    "Directory for node {} should contain a contents.html file.",
                     n.node_id.local_id
                 ));
             }
@@ -728,6 +734,7 @@ mod tests {
 
     #[test]
     #[ignore] // will require some reorganizing...
+              // should only use "dummy plugins" here that are supplied with the code?
     fn read_trivial_cluster() {
         let mut reader =
             MockFileReader::new(vec![&Path::new("tests/technicalinfo/contents.lc.yaml")]);

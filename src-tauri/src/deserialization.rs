@@ -200,7 +200,8 @@ pub struct ClusterForSerialization {
     any_type_edges: Option<Vec<Edge>>,
     /// IDs of `Node`s with no dependencies whatsoever, i.e. the only `Node`s which can be accessed unconditionally.
     roots: Option<Vec<String>>,
-    plugin_paths: Option<Vec<String>>,
+    pre_cluster_plugin_paths: Option<Vec<String>>,
+    node_plugin_paths: Option<Vec<String>>,
 }
 
 impl ClusterForSerialization {
@@ -235,7 +236,8 @@ impl ClusterForSerialization {
                     local_id: root_string,
                 })
                 .collect(),
-            plugins: Rc::new(load_plugins(self.plugin_paths.unwrap_or_default())),
+            pre_cluster_plugins: Rc::new(load_plugins(self.pre_cluster_plugin_paths.unwrap_or_default())),
+            node_plugins: Rc::new(load_plugins(self.node_plugin_paths.unwrap_or_default())),
         })
     }
 }

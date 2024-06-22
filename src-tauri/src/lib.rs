@@ -4,6 +4,7 @@ pub mod plugins {
     use std::collections::VecDeque;
     use std::path::Path;
     use std::fmt;
+
     pub trait Plugin {
         fn get_name(&self) -> &str;
         fn get_version(&self) -> &str;
@@ -11,6 +12,7 @@ pub mod plugins {
         // could arguably signal inability to do this via distinct error
         fn can_process_extension_field(&self, field_name: &str) -> bool;
         fn process_extension_field(&self, cluster_path: &Path, node_id: &str, field_name: &str, value: &Value, remarks: &mut Vec<String>);
+        fn process_cluster(&self, cluster_path: &Path);
     }
 
     pub struct PluginContainer {

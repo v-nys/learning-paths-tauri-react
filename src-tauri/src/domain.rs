@@ -37,7 +37,9 @@ pub struct Cluster {
     pub nodes: Vec<Node>,
     pub edges: Vec<TypedEdge>,
     pub roots: Vec<NodeID>,
-    pub plugins: Rc<VecDeque<PluginContainer>> // Rc makes it possible to derive Clone
+    // TODO: better to have separate plugin types?
+    pub pre_cluster_plugins: Rc<VecDeque<PluginContainer>>, // Rc makes it possible to derive Clone
+    pub node_plugins: Rc<VecDeque<PluginContainer>>
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize)]
