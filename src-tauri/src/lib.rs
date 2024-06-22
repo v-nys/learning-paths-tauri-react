@@ -4,6 +4,7 @@ pub mod plugins {
     use std::collections::VecDeque;
     use std::path::Path;
     use std::fmt;
+    use std::ops::Deref;
 
     pub trait Plugin {
         fn get_name(&self) -> &str;
@@ -51,6 +52,24 @@ pub mod plugins {
                 .finish()
         }
     }
+
+    impl Deref for NodeProcessingPluginContainer {
+        type Target = Box<dyn NodeProcessingPlugin>;
+        
+        fn deref(&self) -> &Self::Target {
+            &self.plugin
+        }
+    }
+
+    impl Deref for ClusterProcessingPluginContainer {
+        type Target = Box<dyn ClusterProcessingPlugin>;
+        
+        fn deref(&self) -> &Self::Target {
+            &self.plugin
+        }
+    }
+
+
 
     // Q: why VecDeque, specifically?
     pub fn load_node_processing_plugins(paths: Vec<String>) -> VecDeque<NodeProcessingPluginContainer> {

@@ -403,7 +403,7 @@ fn comment_cluster(
     let mut remarks: Vec<String> = vec![];
     let cluster_path = Path::new(cluster_path);
     cluster.pre_cluster_plugins.iter().for_each(|p| {
-        p.plugin.process_cluster(cluster_path);
+        p.process_cluster(cluster_path);
     });
     println!("Back in main code.");
     cluster.nodes.iter().for_each(|n| {
@@ -420,10 +420,10 @@ fn comment_cluster(
             // a node-preprocessing plugin would go here
             // an example could be a plugin that generates contents.html from other format
             n.extension_fields.iter().for_each(|(k, v)| {
-                let field_processor = cluster.node_plugins.iter().find(|p| p.plugin.can_process_extension_field(k));
+                let field_processor = cluster.node_plugins.iter().find(|p| p.can_process_extension_field(k));
                 match field_processor {
                     Some(field_processor) => {
-                        field_processor.plugin.process_extension_field(&cluster_path, &n.node_id.local_id, k, v, &mut remarks);
+                        field_processor.process_extension_field(&cluster_path, &n.node_id.local_id, k, v, &mut remarks);
                     },
                     None => remarks.push(format!("No plugin able to process field {}", k))
                 }
