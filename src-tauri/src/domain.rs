@@ -2,7 +2,7 @@ use serde::Serialize;
 use std::collections::{HashSet, HashMap, VecDeque};
 use serde_yaml::Value;
 use std::fmt;
-use learning_paths_tauri_react::plugins::PluginContainer;
+use learning_paths_tauri_react::plugins::{NodeProcessingPluginContainer, ClusterProcessingPluginContainer};
 use std::rc::Rc;
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
@@ -37,9 +37,8 @@ pub struct Cluster {
     pub nodes: Vec<Node>,
     pub edges: Vec<TypedEdge>,
     pub roots: Vec<NodeID>,
-    // TODO: better to have separate plugin types?
-    pub pre_cluster_plugins: Rc<VecDeque<PluginContainer>>, // Rc makes it possible to derive Clone
-    pub node_plugins: Rc<VecDeque<PluginContainer>>
+    pub pre_cluster_plugins: Rc<VecDeque<ClusterProcessingPluginContainer>>, // Rc makes it possible to derive Clone
+    pub node_plugins: Rc<VecDeque<NodeProcessingPluginContainer>>
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize)]

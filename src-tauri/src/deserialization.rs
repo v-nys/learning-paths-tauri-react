@@ -1,5 +1,5 @@
 use lazy_regex::regex;
-use learning_paths_tauri_react::plugins::load_plugins;
+use learning_paths_tauri_react::plugins::{load_node_processing_plugins, load_cluster_processing_plugins};
 use schemars::JsonSchema;
 use serde::de::{self, MapAccess, Visitor};
 use serde::Deserialize;
@@ -236,8 +236,8 @@ impl ClusterForSerialization {
                     local_id: root_string,
                 })
                 .collect(),
-            pre_cluster_plugins: Rc::new(load_plugins(self.pre_cluster_plugin_paths.unwrap_or_default())),
-            node_plugins: Rc::new(load_plugins(self.node_plugin_paths.unwrap_or_default())),
+            pre_cluster_plugins: Rc::new(load_cluster_processing_plugins(self.pre_cluster_plugin_paths.unwrap_or_default())),
+            node_plugins: Rc::new(load_node_processing_plugins(self.node_plugin_paths.unwrap_or_default())),
         })
     }
 }
