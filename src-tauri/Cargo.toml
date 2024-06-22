@@ -16,7 +16,7 @@ tauri-build = { version = "1", features = [] }
 tauri = { version = "1", features = ["shell-open", "window-all"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-tauri-plugin-fs-watch = { git = "https://github.com/tauri-apps/plugins-workspace", branch = "dev" }
+tauri-plugin-fs-watch = { git = "https://github.com/tauri-apps/plugins-workspace", rev = "dce0f02bc571128308c30278cde3233f341e6a50" }
 petgraph = { version = "0.6", features = [ "serde-1" ] }
 graphviz-rust = "0.6"
 serde_yaml = "0.9"

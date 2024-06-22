@@ -3151,7 +3151,7 @@ dependencies = [
 [[package]]
 name = "tauri-plugin-fs-watch"
 version = "0.0.0"
-source = "git+https://github.com/tauri-apps/plugins-workspace?branch=dev#dce0f02bc571128308c30278cde3233f341e6a50"
+source = "git+https://github.com/tauri-apps/plugins-workspace?rev=dce0f02bc571128308c30278cde3233f341e6a50#dce0f02bc571128308c30278cde3233f341e6a50"
 dependencies = [
  "log",
  "notify",
