@@ -1,4 +1,5 @@
 pub mod plugins {
+    use std::collections::HashSet;
     use libloading::{Library, Symbol};
     use paste;
     use serde_yaml::Value;
@@ -6,11 +7,20 @@ pub mod plugins {
     use std::fmt;
     use std::fmt::Debug;
     use std::ops::Deref;
-    use std::path::Path;
+    use std::path::{Path,PathBuf};
+
+    pub enum Artifact {
+        TopLevel(PathBuf),
+        Cluster(String,PathBuf),
+        Node(String,String,PathBuf)
+    }
 
     pub trait Plugin {
         fn get_name(&self) -> &str;
         fn get_version(&self) -> &str;
+        fn artifacts(&self) -> HashSet<Artifact> {
+            HashSet::new()
+        }
     }
 
     pub trait NodeProcessingPlugin: Plugin {
