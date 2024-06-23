@@ -23,14 +23,11 @@ pub mod plugins {
     }
 
     pub struct NodeProcessingPluginContainer {
-        // TODO: can I implement Deref or something so methods can be called directly on the
-        // container? Think so.
         pub plugin: Box<dyn NodeProcessingPlugin>,
         _lib: Library, // Holds the library to ensure it lives as long as the plugin
     }
 
     pub struct ClusterProcessingPluginContainer {
-        // TODO: see above
         pub plugin: Box<dyn ClusterProcessingPlugin>,
         _lib: Library,
     }
@@ -68,8 +65,6 @@ pub mod plugins {
             &self.plugin
         }
     }
-
-
 
     // Q: why VecDeque, specifically?
     pub fn load_node_processing_plugins(paths: Vec<String>) -> VecDeque<NodeProcessingPluginContainer> {
