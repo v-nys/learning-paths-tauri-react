@@ -2,6 +2,8 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 use anyhow;
+use learning_paths_tauri_react::plugins::Artifact;
+use std::collections::HashSet;
 
 use petgraph::adj::IndexType;
 use petgraph::{
@@ -26,6 +28,9 @@ mod rendering;
 
 use crate::domain::{EdgeData, EdgeType, Graph, NodeID, StructuralError, TypedEdge};
 use crate::rendering::svgify;
+
+type SVGSource = String;
+type Comment = String;
 
 /// A way to bundle multiple structural errors, so they can be signalled simultaneously.
 #[derive(Debug)]
@@ -57,7 +62,7 @@ impl std::error::Error for StructuralErrorGrouping {
 struct ClusterDAGRootsTriple(domain::Cluster, Graph, Vec<NodeID>);
 
 /// A combination of the comments that apply to a cluster and its SVG representation.
-struct CommentsSvgTuple(Vec<String>, String);
+struct CommentsSvgTuple(Vec<String>, SVGSource);
 
 /// The result of reading a Path, along with that Path.
 struct ReadResultForPath(Result<String, std::io::Error>, PathBuf);
@@ -71,7 +76,7 @@ struct RootedSupercluster {
 
 #[derive(Default)]
 struct AppState {
-    supercluster_with_roots: Mutex<Option<RootedSupercluster>>,
+    supercluster_with_roots: Mutex<Option<(RootedSupercluster, HashSet<Artifact>)>>,
 }
 
 /// Given a sequence of filesystem paths, deserialize the cluster represented by each path and optionally run additional validation.
@@ -104,17 +109,21 @@ fn read_contents_with_test_dependencies<'a>(
     paths: &'a str,
     file_is_readable: fn(&Path) -> bool,
     directory_is_readable: fn(&Path) -> bool,
-    mut app_state: MutexGuard<Option<RootedSupercluster>>,
-) -> Vec<(&'a str, Result<(Vec<String>, String), String>)> {
+    mut app_state: MutexGuard<Option<(RootedSupercluster, HashSet<Artifact>)>>,
+) -> Vec<(&'a str, Result<(Vec<Comment>, SVGSource), String>)> {
+    // in result, first str is "path" (but can also be "supercluster")
     let mut reader = RealFileReader {};
-    let (components, supercluster) =
+    // step 1: just get and combine data structures
+    let (components, supercluster): (Vec<Result<ClusterDAGRootsTriple,_>>, Result<RootedSupercluster,_>) =
         read_all_clusters_with_test_dependencies::<RealFileReader>(paths, &mut reader);
     match supercluster.as_ref() {
         Ok(supercluster) => {
-            let _ = app_state.insert(supercluster.clone());
+            // TODO: insert actual artifacts, can only happen later in the process
+            let _ = app_state.insert((supercluster.clone(), HashSet::new()));
         }
         _ => {}
     }
+    // step 2: render to SVG
     let components_svgs: Vec<_> = components
         .iter()
         .map(|result| result.as_ref().ok().map(|component| svgify(&component.1)))
@@ -124,14 +133,15 @@ fn read_contents_with_test_dependencies<'a>(
         .ok()
         .map(|RootedSupercluster { graph, roots: _ }| svgify(graph));
 
+    // step 3: link each path to a bunch of comments
     let paths = paths.split(";");
-    let paths_and_components = paths.clone().map(|p| PathBuf::from(p)).zip(&components);
-    let components_comments: Vec<_> = paths_and_components
+    let paths_and_component_graphs = paths.clone().map(|p| PathBuf::from(p)).zip(&components);
+    let components_comments: Vec<_> = paths_and_component_graphs
         .map(|(path, result)| {
-            result.as_ref().ok().map(|component| {
+            result.as_ref().ok().map(|ClusterDAGRootsTriple(cluster, graph, _roots)| {
                 comment_cluster(
-                    &component.0,
-                    &component.1,
+                    cluster,
+                    graph,
                     &path,
                     file_is_readable,
                     directory_is_readable,
@@ -140,13 +150,10 @@ fn read_contents_with_test_dependencies<'a>(
         })
         .collect();
     let mut supercluster_comments = vec![];
-
-    match supercluster {
-        Ok(ref supercluster) => {
+    if let Ok(ref supercluster) = supercluster {
             comment_graph(&supercluster.graph, &mut supercluster_comments);
-        }
-        _ => {}
-    };
+    }
+
     let expectation = "Should only be None if component_result is Err.";
     let mut path_result_tuples: Vec<_> = paths
         .zip(components)
