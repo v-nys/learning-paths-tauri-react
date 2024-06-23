@@ -27,6 +27,7 @@ walkdir = "2.4.0"
 yaml2json-rs = "0.4.0"
 lazy-regex = "3.1.0"
 libloading = "0.8.3"
+paste = "1.0.15"
 
 [features]
 # this feature is used for production builds or when `devPath` points to the filesystem
