@@ -1,12 +1,12 @@
 pub mod plugins {
     use libloading::{Library, Symbol};
+    use paste;
     use serde_yaml::Value;
     use std::collections::VecDeque;
     use std::fmt;
     use std::fmt::Debug;
     use std::ops::Deref;
     use std::path::Path;
-    use paste;
 
     pub trait Plugin {
         fn get_name(&self) -> &str;
@@ -60,63 +60,54 @@ pub mod plugins {
     macro_rules! implement_deref_for_container {
         ($plugin_trait:ident) => {
             paste::paste! {
-                impl Deref for [<$plugin_trait Container>] {
-                    type Target = Box<dyn $plugin_trait>;
+                    impl Deref for [<$plugin_trait Container>] {
+                        type Target = Box<dyn $plugin_trait>;
 
-        fn deref(&self) -> &Self::Target {
-            &self.plugin
-        }                    
+            fn deref(&self) -> &Self::Target {
+                &self.plugin
+            }
 
+                    }
+                }
+        };
+    }
+
+    macro_rules! define_load_function {
+        ($plugin_trait:ident, $load_function_name:ident) => {
+            paste::paste! {
+                // Q: why VecDeque, specifically?
+                pub fn $load_function_name(
+                    paths: Vec<String>,
+                ) -> VecDeque<[<$plugin_trait Container>]> {
+                    let mut plugins = VecDeque::new();
+                    paths.iter().for_each(|path| unsafe {
+                        let lib = Library::new(path).expect("Failed to load library");
+                        let constructor: Symbol<unsafe extern "C" fn() -> *mut dyn $plugin_trait> =
+                            lib.get(b"create_plugin").expect("Failed to find symbol");
+                        let plugin = constructor();
+                        plugins.push_back([<$plugin_trait Container>] {
+                            plugin: Box::from_raw(plugin),
+                            _lib: lib,
+                        });
+                    });
+                    plugins
                 }
             }
         };
     }
 
     macro_rules! add_plugin_boilerplate {
-        ($plugin_trait:ident) => {
+        // TODO: could do without second parameter via proc macro
+        ($plugin_trait:ident, $load_function_name:ident) => {
             paste::paste! {
                 define_plugin_container!($plugin_trait);
                 implement_debug_for_container!($plugin_trait);
                 implement_deref_for_container!($plugin_trait);
+                define_load_function!($plugin_trait,$load_function_name);
             }
         };
     }
 
-    add_plugin_boilerplate!(NodeProcessingPlugin);
-    add_plugin_boilerplate!(ClusterProcessingPlugin);
-
-    // Q: why VecDeque, specifically?
-    pub fn load_node_processing_plugins(
-        paths: Vec<String>,
-    ) -> VecDeque<NodeProcessingPluginContainer> {
-        let mut plugins = VecDeque::new();
-        paths.iter().for_each(|path| unsafe {
-            let lib = Library::new(path).expect("Failed to load library");
-            let constructor: Symbol<unsafe extern "C" fn() -> *mut dyn NodeProcessingPlugin> =
-                lib.get(b"create_plugin").expect("Failed to find symbol");
-            let plugin = constructor();
-            plugins.push_back(NodeProcessingPluginContainer {
-                plugin: Box::from_raw(plugin),
-                _lib: lib,
-            });
-        });
-        plugins
-    }
-
-    pub fn load_cluster_processing_plugins(
-        paths: Vec<String>,
-    ) -> VecDeque<ClusterProcessingPluginContainer> {
-        let mut plugins = VecDeque::new();
-        paths.iter().for_each(|path| unsafe {
-            let lib = Library::new(path).expect("Failed to load library");
-            let constructor: Symbol<unsafe extern "C" fn() -> *mut dyn ClusterProcessingPlugin> =
-                lib.get(b"create_plugin").expect("Failed to find symbol");
-            let plugin = constructor();
-            plugins.push_back(ClusterProcessingPluginContainer {
-                plugin: Box::from_raw(plugin),
-                _lib: lib,
-            });
-        });
-        plugins
-    }
+    add_plugin_boilerplate!(NodeProcessingPlugin, load_node_processing_plugins);
+    add_plugin_boilerplate!(ClusterProcessingPlugin, load_cluster_processing_plugins);
 }
