@@ -1,37 +1,36 @@
+pub mod domain;
+
 pub mod plugins {
-    use std::collections::HashSet;
     use libloading::{Library, Symbol};
     use paste;
     use serde_yaml::Value;
+    use std::collections::HashSet;
     use std::collections::VecDeque;
     use std::fmt;
     use std::fmt::Debug;
     use std::ops::Deref;
-    use std::path::{Path,PathBuf};
-
+    use std::path::{Path, PathBuf};
+    use crate::domain;
 
     #[derive(PartialEq, Eq, Hash)]
     pub enum Artifact {
         TopLevel(PathBuf),
-        Cluster(String,PathBuf),
+        Cluster(String, PathBuf),
         // can I make this a NodeID instead?
-        Node(String,String,PathBuf),
+        Node(String, String, PathBuf),
         // same here for first two Strings
-        NodeExtension(String,String,String,PathBuf)
+        NodeExtension(String, String, String, PathBuf),
     }
 
     pub trait Plugin {
         fn get_name(&self) -> &str;
         fn get_version(&self) -> &str;
-        fn artifacts(&self) -> HashSet<Artifact> {
-            HashSet::new()
-        }
     }
 
     #[derive(Debug)]
     pub enum NodeProcessingError {
         CannotProcessFieldType,
-        WrappedError(anyhow::Error)
+        Remarks(Vec<String>),
     }
 
     impl NodeProcessingError {
@@ -39,7 +38,7 @@ pub mod plugins {
         pub fn indicates_inability_to_process_field(&self) -> bool {
             match self {
                 Self::CannotProcessFieldType => true,
-                _ => false
+                _ => false,
             }
         }
     }
@@ -48,11 +47,10 @@ pub mod plugins {
         fn process_extension_field(
             &self,
             cluster_path: &Path,
-            node_id: &str,
+            node: &domain::Node,
             field_name: &str,
             value: &Value,
-            remarks: &mut Vec<String>,
-        ) -> Result<HashSet<Artifact>,NodeProcessingError>;
+        ) -> Result<HashSet<Artifact>, NodeProcessingError>;
     }
 
     pub trait ClusterProcessingPlugin: Plugin {

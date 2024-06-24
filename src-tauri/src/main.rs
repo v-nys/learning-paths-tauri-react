@@ -5,17 +5,14 @@ use anyhow;
 use learning_paths_tauri_react::plugins::{Artifact, NodeProcessingError, NodeProcessingPlugin};
 use std::collections::HashSet;
 
-use petgraph::adj::IndexType;
 use petgraph::{
-    adj::EdgeReference,
     algo::{
         toposort,
         tred::{dag_to_toposorted_adjacency_list, dag_transitive_reduction_closure},
     },
     csr::DefaultIx,
-    data::DataMap,
     graph::NodeIndex,
-    visit::{EdgeRef, IntoEdgeReferences, IntoEdges, IntoNodeReferences},
+    visit::{EdgeRef, IntoEdgeReferences, IntoNodeReferences},
 };
 
 use std::path::PathBuf;
@@ -23,10 +20,10 @@ use std::sync::{Mutex, MutexGuard};
 use std::{collections::HashMap, fmt, fs::File, ops::Index, path::Path};
 
 mod deserialization;
-mod domain;
 mod rendering;
 
-use crate::domain::{EdgeData, EdgeType, Graph, NodeID, StructuralError, TypedEdge};
+use learning_paths_tauri_react::domain;
+use learning_paths_tauri_react::domain::{EdgeData, EdgeType, Graph, NodeID, StructuralError, TypedEdge};
 use crate::rendering::svgify;
 
 type SVGSource = String;
@@ -442,10 +439,9 @@ fn process_and_comment_cluster(
                     .map(|p| {
                         p.process_extension_field(
                             &cluster_path,
-                            &n.node_id.local_id,
+                            n,
                             k,
-                            v,
-                            &mut remarks,
+                            v
                         )
                     })
                     .find(|p| {
@@ -455,9 +451,14 @@ fn process_and_comment_cluster(
                     });
                 match first_processing_result {
                     Some(Ok(extension_artifacts)) => {
-                        // TODO: move extension_artifacts into artifacts
+                        for artifact in extension_artifacts {
+                            artifacts.insert(artifact);
+                        }
                     },
-                    Some(Err(e)) => { remarks.push(format!("Extension field error: {:?}", e)); },
+                    Some(Err(NodeProcessingError::Remarks(additional_remarks))) => {
+                        remarks.extend(additional_remarks.into_iter());
+                    },
+                    Some(Err(NodeProcessingError::CannotProcessFieldType)) => { unreachable!("This indicates an inability to prcess the field, which is checked earlier."); },
                     None => { remarks.push(format!("No plugin able to process field {}", k)) }
                 }
             });

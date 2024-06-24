@@ -2,7 +2,7 @@ use serde::Serialize;
 use std::collections::{HashSet, HashMap, VecDeque};
 use serde_yaml::Value;
 use std::fmt;
-use learning_paths_tauri_react::plugins::{NodeProcessingPluginContainer, ClusterProcessingPluginContainer};
+use super::plugins::{NodeProcessingPluginContainer, ClusterProcessingPluginContainer};
 use std::rc::Rc;
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
