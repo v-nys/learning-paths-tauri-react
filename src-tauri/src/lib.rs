@@ -9,10 +9,15 @@ pub mod plugins {
     use std::ops::Deref;
     use std::path::{Path,PathBuf};
 
+
+    #[derive(PartialEq, Eq, Hash)]
     pub enum Artifact {
         TopLevel(PathBuf),
         Cluster(String,PathBuf),
-        Node(String,String,PathBuf)
+        // can I make this a NodeID instead?
+        Node(String,String,PathBuf),
+        // same here for first two Strings
+        NodeExtension(String,String,String,PathBuf)
     }
 
     pub trait Plugin {
@@ -23,10 +28,23 @@ pub mod plugins {
         }
     }
 
+    #[derive(Debug)]
+    pub enum NodeProcessingError {
+        CannotProcessFieldType,
+        WrappedError(anyhow::Error)
+    }
+
+    impl NodeProcessingError {
+        // this is here because I cannot derive Eq on NodeProcessingError
+        pub fn indicates_inability_to_process_field(&self) -> bool {
+            match self {
+                Self::CannotProcessFieldType => true,
+                _ => false
+            }
+        }
+    }
+
     pub trait NodeProcessingPlugin: Plugin {
-        // TODO: consider dropping this method
-        // could arguably signal inability to do this via distinct error
-        fn can_process_extension_field(&self, field_name: &str) -> bool;
         fn process_extension_field(
             &self,
             cluster_path: &Path,
@@ -34,7 +52,7 @@ pub mod plugins {
             field_name: &str,
             value: &Value,
             remarks: &mut Vec<String>,
-        );
+        ) -> Result<HashSet<Artifact>,NodeProcessingError>;
     }
 
     pub trait ClusterProcessingPlugin: Plugin {

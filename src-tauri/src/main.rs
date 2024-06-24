@@ -2,7 +2,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 use anyhow;
-use learning_paths_tauri_react::plugins::Artifact;
+use learning_paths_tauri_react::plugins::{Artifact, NodeProcessingError, NodeProcessingPlugin};
 use std::collections::HashSet;
 
 use petgraph::adj::IndexType;
@@ -114,8 +114,10 @@ fn read_contents_with_test_dependencies<'a>(
     // in result, first str is "path" (but can also be "supercluster")
     let mut reader = RealFileReader {};
     // step 1: just get and combine data structures
-    let (components, supercluster): (Vec<Result<ClusterDAGRootsTriple,_>>, Result<RootedSupercluster,_>) =
-        read_all_clusters_with_test_dependencies::<RealFileReader>(paths, &mut reader);
+    let (components, supercluster): (
+        Vec<Result<ClusterDAGRootsTriple, _>>,
+        Result<RootedSupercluster, _>,
+    ) = read_all_clusters_with_test_dependencies::<RealFileReader>(paths, &mut reader);
     match supercluster.as_ref() {
         Ok(supercluster) => {
             // TODO: insert actual artifacts, can only happen later in the process
@@ -134,24 +136,30 @@ fn read_contents_with_test_dependencies<'a>(
         .map(|RootedSupercluster { graph, roots: _ }| svgify(graph));
 
     // step 3: link each path to a bunch of comments
+    // this involves running extensions, so collect their outputs in one go
     let paths = paths.split(";");
     let paths_and_component_graphs = paths.clone().map(|p| PathBuf::from(p)).zip(&components);
+    let mut artifacts = HashSet::new();
     let components_comments: Vec<_> = paths_and_component_graphs
         .map(|(path, result)| {
-            result.as_ref().ok().map(|ClusterDAGRootsTriple(cluster, graph, _roots)| {
-                comment_cluster(
-                    cluster,
-                    graph,
-                    &path,
-                    file_is_readable,
-                    directory_is_readable,
-                )
-            })
+            result
+                .as_ref()
+                .ok()
+                .map(|ClusterDAGRootsTriple(cluster, graph, _roots)| {
+                    process_and_comment_cluster(
+                        cluster,
+                        graph,
+                        &path,
+                        file_is_readable,
+                        directory_is_readable,
+                        &mut artifacts,
+                    )
+                })
         })
         .collect();
     let mut supercluster_comments = vec![];
     if let Ok(ref supercluster) = supercluster {
-            comment_graph(&supercluster.graph, &mut supercluster_comments);
+        comment_graph(&supercluster.graph, &mut supercluster_comments);
     }
 
     let expectation = "Should only be None if component_result is Err.";
@@ -174,6 +182,8 @@ fn read_contents_with_test_dependencies<'a>(
             .map(|_| CommentsSvgTuple(supercluster_comments, supercluster_svg.expect(expectation))),
     );
     path_result_tuples.push(supercluster_tuple);
+    // translate into simpler data types
+    // nothing pertaining to the archive happens here
     let outcome = path_result_tuples
         .into_iter()
         .map(|(path, result)| {
@@ -400,21 +410,20 @@ fn filter_redundant_edges<'a>(
     redundant_edges
 }
 
-fn comment_cluster(
+fn process_and_comment_cluster(
     cluster: &domain::Cluster,
     graph: &Graph,
     cluster_path: &PathBuf,
     file_is_readable: fn(&Path) -> bool,
     directory_is_readable: fn(&Path) -> bool,
+    artifacts: &mut HashSet<Artifact>,
 ) -> Vec<String> {
     let mut remarks: Vec<String> = vec![];
     let cluster_path = Path::new(cluster_path);
     cluster.pre_cluster_plugins.iter().for_each(|p| {
         p.process_cluster(cluster_path);
     });
-    println!("Back in main code.");
     cluster.nodes.iter().for_each(|n| {
-        println!("Dealing with node {}", n.node_id);
         let node_dir_is_readable =
             directory_is_readable(&cluster_path.join(&n.node_id.local_id).as_path());
         if !node_dir_is_readable {
@@ -424,27 +433,50 @@ fn comment_cluster(
                 n.node_id.local_id
             ));
         } else {
-            // a node-preprocessing plugin would go here
-            // an example could be a plugin that generates contents.html from other format
             n.extension_fields.iter().for_each(|(k, v)| {
-                let field_processor = cluster.node_plugins.iter().find(|p| p.can_process_extension_field(k));
-                match field_processor {
-                    Some(field_processor) => {
-                        field_processor.process_extension_field(&cluster_path, &n.node_id.local_id, k, v, &mut remarks);
+                let first_processing_result = cluster
+                    .node_plugins
+                    .iter()
+                    // note that Rust iterators are lazy
+                    // so only the first runnable field processor has side-effects
+                    .map(|p| {
+                        p.process_extension_field(
+                            &cluster_path,
+                            &n.node_id.local_id,
+                            k,
+                            v,
+                            &mut remarks,
+                        )
+                    })
+                    .find(|p| {
+                        p.is_ok()
+                            || p.as_ref()
+                                .is_err_and(|e| !e.indicates_inability_to_process_field())
+                    });
+                match first_processing_result {
+                    Some(Ok(extension_artifacts)) => {
+                        // TODO: move extension_artifacts into artifacts
                     },
-                    None => remarks.push(format!("No plugin able to process field {}", k))
+                    Some(Err(e)) => { remarks.push(format!("Extension field error: {:?}", e)); },
+                    None => { remarks.push(format!("No plugin able to process field {}", k)) }
                 }
             });
-            println!("Processed extension fields.");
-            if !file_is_readable(
-                &cluster_path
-                    .join(&n.node_id.local_id)
-                    .join("contents.html")
-                    .as_path(),
-            ) {
+
+            let contents_file_path = &cluster_path
+                .join(&n.node_id.local_id)
+                .join("contents.html")
+                .as_path()
+                .to_owned();
+            if !file_is_readable(contents_file_path) {
                 remarks.push(format!(
                     "Directory for node {} should contain a contents.html file.",
                     n.node_id.local_id
+                ));
+            } else {
+                artifacts.insert(Artifact::Node(
+                    cluster.namespace_prefix.to_owned(),
+                    n.node_id.local_id.to_owned(),
+                    contents_file_path.to_path_buf(),
                 ));
             }
         }
@@ -705,12 +737,12 @@ fn associate_parents_children(
 #[cfg(test)]
 mod tests {
     use std::{
-        collections::HashMap,
+        collections::{HashMap, HashSet},
         path::{Path, PathBuf},
     };
 
     use crate::{
-        associate_parents_children, comment_cluster, comment_graph,
+        associate_parents_children, comment_graph, process_and_comment_cluster,
         read_all_clusters_with_test_dependencies, ClusterDAGRootsTriple,
     };
 
@@ -747,13 +779,20 @@ mod tests {
             MockFileReader::new(vec![&Path::new("tests/technicalinfo/contents.lc.yaml")]);
         let (component_analysis, _supercluster_analysis) =
             read_all_clusters_with_test_dependencies("_", &mut reader);
+        let mut artifacts = HashSet::new();
         assert_eq!(component_analysis.len(), 1);
         assert!(component_analysis.get(0).as_ref().is_some());
         component_analysis.into_iter().for_each(|result| {
             let ClusterDAGRootsTriple(cluster, graph, _roots) =
                 result.expect("There should be a result here.");
-            let comments =
-                comment_cluster(&cluster, &graph, &PathBuf::from("_"), |_| true, |_| true);
+            let comments = process_and_comment_cluster(
+                &cluster,
+                &graph,
+                &PathBuf::from("_"),
+                |_| true,
+                |_| true,
+                &mut artifacts,
+            );
             let expected_comments: Vec<String> = vec![];
             assert_eq!(comments, expected_comments);
             assert_eq!(reader.calls_made, 1);
