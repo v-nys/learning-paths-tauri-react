@@ -2,8 +2,8 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 use anyhow;
-use learning_paths_tauri_react::plugins::{Artifact, NodeProcessingError, NodeProcessingPlugin};
-use std::collections::HashSet;
+use learning_paths_tauri_react::plugins::{ArtifactMapping, NodeProcessingError, NodeProcessingPlugin};
+use std::{collections::HashSet, str::FromStr};
 
 use petgraph::{
     algo::{
@@ -73,7 +73,7 @@ struct RootedSupercluster {
 
 #[derive(Default)]
 struct AppState {
-    supercluster_with_roots: Mutex<Option<(RootedSupercluster, HashSet<Artifact>)>>,
+    supercluster_with_roots: Mutex<Option<(RootedSupercluster, HashSet<ArtifactMapping>)>>,
 }
 
 /// Given a sequence of filesystem paths, deserialize the cluster represented by each path and optionally run additional validation.
@@ -106,7 +106,7 @@ fn read_contents_with_test_dependencies<'a>(
     paths: &'a str,
     file_is_readable: fn(&Path) -> bool,
     directory_is_readable: fn(&Path) -> bool,
-    mut app_state: MutexGuard<Option<(RootedSupercluster, HashSet<Artifact>)>>,
+    mut app_state: MutexGuard<Option<(RootedSupercluster, HashSet<ArtifactMapping>)>>,
 ) -> Vec<(&'a str, Result<(Vec<Comment>, SVGSource), String>)> {
     // in result, first str is "path" (but can also be "supercluster")
     let mut reader = RealFileReader {};
@@ -193,6 +193,7 @@ fn read_contents_with_test_dependencies<'a>(
             )
         })
         .collect();
+    dbg!(artifacts);
     outcome
 }
 
@@ -413,7 +414,7 @@ fn process_and_comment_cluster(
     cluster_path: &PathBuf,
     file_is_readable: fn(&Path) -> bool,
     directory_is_readable: fn(&Path) -> bool,
-    artifacts: &mut HashSet<Artifact>,
+    artifacts: &mut HashSet<ArtifactMapping>,
 ) -> Vec<String> {
     let mut remarks: Vec<String> = vec![];
     let cluster_path = Path::new(cluster_path);
@@ -474,11 +475,10 @@ fn process_and_comment_cluster(
                     n.node_id.local_id
                 ));
             } else {
-                artifacts.insert(Artifact::Node(
-                    cluster.namespace_prefix.to_owned(),
-                    n.node_id.local_id.to_owned(),
-                    contents_file_path.to_path_buf(),
-                ));
+                artifacts.insert(ArtifactMapping {
+                    local_file: contents_file_path.to_path_buf(),
+                    root_relative_target_dir: PathBuf::from(format!("{}/{}", cluster.namespace_prefix, n.node_id.local_id))
+                });
             }
         }
     });
