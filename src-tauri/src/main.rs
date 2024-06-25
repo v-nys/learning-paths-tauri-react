@@ -2,8 +2,12 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 use anyhow;
-use learning_paths_tauri_react::plugins::{Artifact, NodeProcessingError, NodeProcessingPlugin};
-use std::collections::HashSet;
+use learning_paths_tauri_react::plugins::{
+    ArtifactMapping, NodeProcessingError, NodeProcessingPlugin,
+};
+use petgraph::adj::List;
+use petgraph::visit::IntoNeighbors;
+use std::{collections::HashSet, str::FromStr};
 
 use petgraph::{
     algo::{
@@ -22,9 +26,11 @@ use std::{collections::HashMap, fmt, fs::File, ops::Index, path::Path};
 mod deserialization;
 mod rendering;
 
-use learning_paths_tauri_react::domain;
-use learning_paths_tauri_react::domain::{EdgeData, EdgeType, Graph, NodeID, StructuralError, TypedEdge};
 use crate::rendering::svgify;
+use learning_paths_tauri_react::domain;
+use learning_paths_tauri_react::domain::{
+    EdgeData, EdgeType, Graph, NodeID, StructuralError, TypedEdge,
+};
 
 type SVGSource = String;
 type Comment = String;
@@ -73,7 +79,7 @@ struct RootedSupercluster {
 
 #[derive(Default)]
 struct AppState {
-    supercluster_with_roots: Mutex<Option<(RootedSupercluster, HashSet<Artifact>)>>,
+    supercluster_with_roots: Mutex<Option<(RootedSupercluster, HashSet<ArtifactMapping>)>>,
 }
 
 /// Given a sequence of filesystem paths, deserialize the cluster represented by each path and optionally run additional validation.
@@ -106,7 +112,7 @@ fn read_contents_with_test_dependencies<'a>(
     paths: &'a str,
     file_is_readable: fn(&Path) -> bool,
     directory_is_readable: fn(&Path) -> bool,
-    mut app_state: MutexGuard<Option<(RootedSupercluster, HashSet<Artifact>)>>,
+    mut app_state: MutexGuard<Option<(RootedSupercluster, HashSet<ArtifactMapping>)>>,
 ) -> Vec<(&'a str, Result<(Vec<Comment>, SVGSource), String>)> {
     // in result, first str is "path" (but can also be "supercluster")
     let mut reader = RealFileReader {};
@@ -193,6 +199,7 @@ fn read_contents_with_test_dependencies<'a>(
             )
         })
         .collect();
+    dbg!(artifacts);
     outcome
 }
 
@@ -413,7 +420,7 @@ fn process_and_comment_cluster(
     cluster_path: &PathBuf,
     file_is_readable: fn(&Path) -> bool,
     directory_is_readable: fn(&Path) -> bool,
-    artifacts: &mut HashSet<Artifact>,
+    artifacts: &mut HashSet<ArtifactMapping>,
 ) -> Vec<String> {
     let mut remarks: Vec<String> = vec![];
     let cluster_path = Path::new(cluster_path);
@@ -474,11 +481,10 @@ fn process_and_comment_cluster(
                     n.node_id.local_id
                 ));
             } else {
-                artifacts.insert(Artifact::Node(
-                    cluster.namespace_prefix.to_owned(),
-                    n.node_id.local_id.to_owned(),
-                    contents_file_path.to_path_buf(),
-                ));
+                artifacts.insert(ArtifactMapping {
+                    local_file: contents_file_path.to_path_buf(),
+                    root_relative_target_dir: PathBuf::from(format!("{}/{}", cluster.namespace_prefix, n.node_id.local_id))
+                });
             }
         }
     });
@@ -938,13 +944,189 @@ mod tests {
     }
 }
 
+#[tauri::command]
+fn check_learning_path_stateful(
+    nodes: Vec<String>,
+    state: tauri::State<'_, AppState>,
+) -> Vec<String> {
+    let app_state = state
+        .supercluster_with_roots
+        .lock()
+        .expect("Should always be able to get app state.");
+    app_state.as_ref().map_or(
+        vec!["No stored result. This should not be possible, because text box should only be shown if there is a complete graph.".to_string()],
+        |existing| {
+        check_learning_path(&existing.0, nodes.iter().map(|s| s.as_str()).collect())
+    })
+}
+
+// factored out because it is needed both for checking learning path and for building zip
+fn dependency_helpers(
+    supercluster_with_roots: &RootedSupercluster,
+) -> (
+    (Graph, List<(), NodeIndex>, Vec<NodeIndex>, Vec<NodeIndex>),
+    (Graph, List<(), NodeIndex>, Vec<NodeIndex>, Vec<NodeIndex>),
+    Graph,
+) {
+    let supercluster = &supercluster_with_roots.graph;
+    let is_any_type = |edge: &EdgeData| edge == &EdgeType::AtLeastOne;
+    let is_all_type = |edge: &EdgeData| edge == &EdgeType::All;
+
+    let motivations_graph = subgraph_with_edges(&supercluster, is_any_type);
+    let dependency_to_dependent_graph = subgraph_with_edges(&supercluster, is_all_type);
+    let mut dependent_to_dependency_graph = dependency_to_dependent_graph.clone();
+    dependent_to_dependency_graph.reverse();
+    let dependent_to_dependency_toposort_order = toposort(&dependent_to_dependency_graph, None)
+        .expect(
+            "This function should only be called for graphs which have already been cycle-checked.",
+        );
+    let dependency_to_dependent_toposort_order = toposort(&dependency_to_dependent_graph, None)
+        .expect(
+            "This function should only be called for graphs which have already been cycle-checked.",
+        );
+    let (dependent_to_dependency_res, dependent_to_dependency_revmap) =
+        dag_to_toposorted_adjacency_list(
+            &dependent_to_dependency_graph,
+            &dependent_to_dependency_toposort_order,
+        );
+    let (_, dependent_to_dependency_tc) =
+        dag_transitive_reduction_closure(&dependent_to_dependency_res);
+
+    let (dependency_to_dependent_res, dependency_to_dependent_revmap) =
+        dag_to_toposorted_adjacency_list(
+            &dependency_to_dependent_graph,
+            &dependency_to_dependent_toposort_order,
+        );
+    let (_, dependency_to_dependent_tc) =
+        dag_transitive_reduction_closure(&dependency_to_dependent_res);
+
+    return (
+        (
+            dependent_to_dependency_graph,
+            dependent_to_dependency_tc,
+            dependent_to_dependency_revmap,
+            dependent_to_dependency_toposort_order,
+        ),
+        (
+            dependency_to_dependent_graph,
+            dependency_to_dependent_tc,
+            dependency_to_dependent_revmap,
+            dependency_to_dependent_toposort_order,
+        ),
+        motivations_graph,
+    );
+}
+
+fn check_learning_path(
+    supercluster_with_roots: &RootedSupercluster,
+    node_ids: Vec<&str>,
+) -> Vec<String> {
+    let mut remarks = vec![];
+    let (
+        (
+            dependent_to_dependency_graph,
+            dependent_to_dependency_tc,
+            dependent_to_dependency_revmap,
+            dependent_to_dependency_toposort_order,
+        ),
+        (
+            dependency_to_dependent_graph,
+            dependency_to_dependent_tc,
+            dependency_to_dependent_revmap,
+            dependency_to_dependent_toposort_order,
+        ),
+        motivations_graph,
+    ) = dependency_helpers(supercluster_with_roots);
+    let mut seen_nodes = HashSet::new();
+    for (index, namespaced_id) in node_ids.iter().enumerate() {
+        let namespaced_id = domain::NodeID::from_two_part_string(namespaced_id);
+        let human_index = index + 1;
+        if let Ok(namespaced_id) = namespaced_id {
+            if !supercluster_with_roots.roots.contains(&namespaced_id) {
+                match dependency_to_dependent_graph
+                    .node_references()
+                    .filter(|(idx, weight)| weight.0 == namespaced_id)
+                    .collect::<Vec<_>>()
+                    .get(0)
+                {
+                    Some(matching_node) => {
+                        let matching_node_idx = matching_node.0.index();
+                        let hard_dependency_ids: HashSet<NodeID> = dependent_to_dependency_tc
+                            .neighbors(dependent_to_dependency_revmap[matching_node_idx])
+                            .map(|ix: NodeIndex| dependent_to_dependency_toposort_order[ix.index()])
+                            .filter_map(|idx| {
+                                dependent_to_dependency_graph
+                                    .node_weight(idx)
+                                    .map(|(id, _)| id.clone())
+                            })
+                            .collect();
+                        for dependency in hard_dependency_ids.difference(&seen_nodes) {
+                            remarks.push(format!(
+                            "Node {human_index} ({namespaced_id}) has unmet dependency {dependency}."
+                        ));
+                        }
+
+                        let mut dependent_ids: HashSet<NodeID> = dependency_to_dependent_tc
+                            .neighbors(dependency_to_dependent_revmap[matching_node.0.index()])
+                            .map(|ix: NodeIndex| dependency_to_dependent_toposort_order[ix.index()])
+                            .filter_map(|idx| {
+                                dependency_to_dependent_graph
+                                    .node_weight(idx)
+                                    .map(|(id, _)| id.clone())
+                            })
+                            .collect();
+                        dependent_ids.insert(matching_node.1 .0.clone());
+
+                        let is_motivated = seen_nodes.iter().fold(false, |acc, seen_node| {
+                            acc || {
+                                let motivations_entry = motivations_graph
+                                    .node_references()
+                                    .find(|node_ref| &node_ref.1 .0 == seen_node);
+                                motivations_entry.is_some_and(|motivations_entry| {
+                                    let motivated_by_seen_node: Vec<_> =
+                                        motivations_graph.neighbors(motivations_entry.0).collect();
+                                    motivated_by_seen_node.into_iter().any(|idx| {
+                                        let motivated = motivations_graph.node_weight(idx);
+                                        motivated
+                                            .is_some_and(|weight| dependent_ids.contains(&weight.0))
+                                    })
+                                })
+                            }
+                        });
+
+                        if !is_motivated {
+                            remarks.push(format!(
+                            "Node {human_index} ({namespaced_id}) is not motivated by any predecessor, nor are any of its dependents."
+                        ));
+                        }
+                        seen_nodes.insert(matching_node.1 .0.clone());
+                    }
+                    None => {
+                        remarks.push(format!(
+                            "Node {human_index} ({namespaced_id}) does not occur in the graph."
+                        ));
+                    }
+                }
+            } else {
+                seen_nodes.insert(namespaced_id);
+            }
+        }
+        else {
+            remarks.push(format!("{:#?}", namespaced_id))
+        }
+    }
+
+    remarks
+}
+
 fn main() {
     tauri::Builder::default()
         .manage(AppState::default())
         .plugin(tauri_plugin_fs_watch::init())
         .invoke_handler(tauri::generate_handler![
             read_contents,
-            associate_parents_children
+            associate_parents_children,
+            check_learning_path_stateful,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

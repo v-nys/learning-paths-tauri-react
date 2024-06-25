@@ -1,8 +1,9 @@
+use super::plugins::{ClusterProcessingPluginContainer, NodeProcessingPluginContainer};
+use lazy_regex::regex;
 use serde::Serialize;
-use std::collections::{HashSet, HashMap, VecDeque};
 use serde_yaml::Value;
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::fmt;
-use super::plugins::{NodeProcessingPluginContainer, ClusterProcessingPluginContainer};
 use std::rc::Rc;
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
@@ -38,7 +39,7 @@ pub struct Cluster {
     pub edges: Vec<TypedEdge>,
     pub roots: Vec<NodeID>,
     pub pre_cluster_plugins: Rc<VecDeque<ClusterProcessingPluginContainer>>, // Rc makes it possible to derive Clone
-    pub node_plugins: Rc<VecDeque<NodeProcessingPluginContainer>>
+    pub node_plugins: Rc<VecDeque<NodeProcessingPluginContainer>>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize)]
@@ -57,6 +58,28 @@ impl std::fmt::Display for NodeID {
     }
 }
 
+impl NodeID {
+    pub fn from_two_part_string(string: &str) -> Result<NodeID, StructuralError> {
+        let identifier_regex = regex!("[a-z][a-z_]*");
+        let parts = string.split("__").collect::<Vec<_>>();
+        let invalid_part = parts.iter().find(|p| !identifier_regex.is_match(p));
+        if let Some(part) = invalid_part {
+            Err(StructuralError::InvalidIdentifierError(part.to_string()).into())
+        }
+        else if parts.len() == 1 {
+            Err(StructuralError::NodeMissingNamespace(string.to_string()).into())
+        }
+        else if parts.len() > 2 {
+            Err(StructuralError::NodeMultipleNamespace(string.to_string()).into())
+        } else {
+            Ok(NodeID {
+                namespace: parts[0].to_owned(),
+                local_id: parts[1].to_owned(),
+            })
+        }
+    }
+}
+
 /// A single unit of learning material.
 ///
 /// A `Node` represents knowledge that can be processed as one whole.
@@ -68,7 +91,7 @@ pub struct Node {
     ///
     /// This is not required to be unique at any level.
     pub title: String,
-    pub extension_fields: HashMap<String, Value>
+    pub extension_fields: HashMap<String, Value>,
 }
 
 /// An error related to the internal structure of a (syntactically valid, semantically invalid) `Cluster`.
@@ -76,8 +99,9 @@ pub struct Node {
 pub enum StructuralError {
     DoubleNode(NodeID),                              // creating two nodes with same ID
     MissingInternalEndpoint(NodeID, NodeID, NodeID), // referring to non-existent node
-    NodeMultipleNamespace(String),                   // creating a node with explicit namespace
-    EdgeMultipleNamespace(String, String, String),   // edge from / to internal node with
+    NodeMissingNamespace(String),
+    NodeMultipleNamespace(String),
+    EdgeMultipleNamespace(String, String, String),   // edge from / to internal node with ...
     ClusterBoundary(String, NodeID),                 // cluster, reference
     InvalidComponentGraph,
     Cycle(NodeID),
@@ -93,7 +117,8 @@ impl fmt::Display for StructuralError {
         match self {
             Self::DoubleNode(id) => write!(f, "Node defined multiple times: {id}"),
             Self::MissingInternalEndpoint(start_id, end_id, missing_id) => write!(f, "Node {missing_id} mentioned in edge {start_id} → {end_id} does not exist"),
-            Self::NodeMultipleNamespace(id) => write!(f, "Node is explicitly namespaced (which is not allowed) in its definition: {id}"),
+            Self::NodeMissingNamespace(id) => write!(f, "Node lacks a namespace: {id}"),
+            Self::NodeMultipleNamespace(id) => write!(f, "Node has multiple namespaces: {id}"),
             Self::EdgeMultipleNamespace(start_id, end_id, namespaced_id) => write!(f, "Node {namespaced_id} mentioned in edge {start_id} → {end_id} is incorrectly namespaced. There should only be one namespace and it should only be explicit if it is not that of the defining cluster."),
             Self::ClusterBoundary(cluster,reference) => write!(f, "Cluster {} refers to non-existent external node {}", cluster, reference),
             Self::InvalidComponentGraph => write!(f, "At least one component graph is invalid"),
@@ -117,5 +142,3 @@ pub type EdgeData = EdgeType;
 
 /// The specific type of Petgraph graph for this application.
 pub type Graph = petgraph::Graph<NodeData, EdgeData>;
-
-

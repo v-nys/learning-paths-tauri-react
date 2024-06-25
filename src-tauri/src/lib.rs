@@ -1,6 +1,7 @@
 pub mod domain;
 
 pub mod plugins {
+    use crate::domain;
     use libloading::{Library, Symbol};
     use paste;
     use serde_yaml::Value;
@@ -10,16 +11,11 @@ pub mod plugins {
     use std::fmt::Debug;
     use std::ops::Deref;
     use std::path::{Path, PathBuf};
-    use crate::domain;
 
-    #[derive(PartialEq, Eq, Hash)]
-    pub enum Artifact {
-        TopLevel(PathBuf),
-        Cluster(String, PathBuf),
-        // can I make this a NodeID instead?
-        Node(String, String, PathBuf),
-        // same here for first two Strings
-        NodeExtension(String, String, String, PathBuf),
+    #[derive(PartialEq, Eq, Hash, Debug)]
+    pub struct ArtifactMapping {
+        pub local_file: PathBuf,
+        pub root_relative_target_dir: PathBuf
     }
 
     pub trait Plugin {
@@ -50,11 +46,14 @@ pub mod plugins {
             node: &domain::Node,
             field_name: &str,
             value: &Value,
-        ) -> Result<HashSet<Artifact>, NodeProcessingError>;
+        ) -> Result<HashSet<ArtifactMapping>, NodeProcessingError>;
     }
 
     pub trait ClusterProcessingPlugin: Plugin {
-        fn process_cluster(&self, cluster_path: &Path);
+        fn process_cluster(
+            &self,
+            cluster_path: &Path,
+        ) -> Result<HashSet<ArtifactMapping>, anyhow::Error>;
     }
 
     macro_rules! define_plugin_container {

@@ -1,5 +1,7 @@
 use lazy_regex::regex;
-use learning_paths_tauri_react::plugins::{load_node_processing_plugins, load_cluster_processing_plugins};
+use learning_paths_tauri_react::plugins::{
+    load_cluster_processing_plugins, load_node_processing_plugins,
+};
 use schemars::JsonSchema;
 use serde::de::{self, MapAccess, Visitor};
 use serde::Deserialize;
@@ -91,23 +93,13 @@ impl<'de> Deserialize<'de> for Node {
 
 impl Node {
     fn build(&self, namespace: &str) -> Result<domain::Node, anyhow::Error> {
-        let identifier_regex = regex!("[a-z][a-z_]*");
-        let parts = self.id.split("__").collect::<Vec<_>>();
-        let invalid_part = parts.iter().find(|p| !identifier_regex.is_match(p));
-        if let Some(part) = invalid_part {
-            Err(domain::StructuralError::InvalidIdentifierError(part.to_string()).into())
-        } else if parts.len() > 1 {
-            Err(domain::StructuralError::NodeMultipleNamespace(self.id.to_string()).into())
-        } else {
-            Ok(domain::Node {
-                node_id: domain::NodeID {
-                    namespace: namespace.to_owned(),
-                    local_id: self.id.clone(),
-                },
-                title: self.title.clone(),
-                extension_fields: self.extension_fields.clone(),
-            })
-        }
+        let effective_id = format!("{}__{}", namespace, self.id);
+        let id = domain::NodeID::from_two_part_string(&effective_id)?;
+        Ok(domain::Node {
+            node_id: id,
+            title: self.title.clone(),
+            extension_fields: self.extension_fields.clone(),
+        })
     }
 }
 
@@ -236,8 +228,12 @@ impl ClusterForSerialization {
                     local_id: root_string,
                 })
                 .collect(),
-            pre_cluster_plugins: Rc::new(load_cluster_processing_plugins(self.pre_cluster_plugin_paths.unwrap_or_default())),
-            node_plugins: Rc::new(load_node_processing_plugins(self.node_plugin_paths.unwrap_or_default())),
+            pre_cluster_plugins: Rc::new(load_cluster_processing_plugins(
+                self.pre_cluster_plugin_paths.unwrap_or_default(),
+            )),
+            node_plugins: Rc::new(load_node_processing_plugins(
+                self.node_plugin_paths.unwrap_or_default(),
+            )),
         })
     }
 }
