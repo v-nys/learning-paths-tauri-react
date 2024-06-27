@@ -134,7 +134,6 @@ fn read_contents_with_test_dependencies<'a>(
     ) = read_all_clusters_with_test_dependencies::<RealFileReader>(paths, &mut reader);
     match supercluster.as_ref() {
         Ok(supercluster) => {
-            // TODO: insert actual artifacts, can only happen later in the process
             let _ = app_state.insert((supercluster.clone(), HashSet::new()));
         }
         _ => {}
@@ -171,6 +170,12 @@ fn read_contents_with_test_dependencies<'a>(
                 })
         })
         .collect();
+    match supercluster.as_ref() {
+        Ok(supercluster) => {
+            let _ = app_state.insert((supercluster.clone(), artifacts));
+        },
+        _ => {}
+    }
     let mut supercluster_comments = vec![];
     if let Ok(ref supercluster) = supercluster {
         comment_graph(&supercluster.graph, &mut supercluster_comments);
@@ -210,7 +215,6 @@ fn read_contents_with_test_dependencies<'a>(
             )
         })
         .collect();
-    dbg!(artifacts);
     outcome
 }
 
@@ -329,7 +333,6 @@ fn comment_graph(graph: &Graph, remarks: &mut Vec<String>) {
      */
 
     // rough implementation of rule 1 ("rough" because rule 3 is not currently implemented)
-    println!("Applying rule 1");
     let is_all_type = |edge: &EdgeData| edge == &EdgeType::All;
     let all_type_subgraph = subgraph_with_edges(graph, is_all_type);
     let order = toposort(&all_type_subgraph, None)
@@ -343,7 +346,6 @@ fn comment_graph(graph: &Graph, remarks: &mut Vec<String>) {
     });
 
     // rough implementation of rule 2
-    println!("Applying rule 2");
     let flipped_graph = flip_all_type_edges(&graph);
     /*let is_at_least_one_type = |edge: &EdgeData| edge == &EdgeType::AtLeastOne;
     let flipped_graph = subgraph_with_edges(&flipped_graph, is_at_least_one_type);*/
@@ -1025,11 +1027,13 @@ fn build_zip(paths: &'_ str, state: tauri::State<'_, AppState>) -> Result<PathBu
         .compression_method(CompressionMethod::Stored)
         .unix_permissions(0o755);
     let mut buffer = Vec::new();
+    let artifacts = dbg!(artifacts);
     for ArtifactMapping {
         local_file,
         root_relative_target_dir,
     } in artifacts
     {
+        println!("Adding to zip: {}", local_file.to_string_lossy());
         zip.start_file(
             root_relative_target_dir
                 .join(
@@ -1039,7 +1043,8 @@ fn build_zip(paths: &'_ str, state: tauri::State<'_, AppState>) -> Result<PathBu
                 )
                 .to_string_lossy(),
             options,
-        ).map_err(|e| e.to_string())?;
+        )
+        .map_err(|e| e.to_string())?;
         let mut file = File::open(local_file).map_err(|e| e.to_string())?;
         file.read_to_end(&mut buffer).map_err(|e| e.to_string())?;
         zip.write_all(&buffer).map_err(|e| e.to_string())?;
