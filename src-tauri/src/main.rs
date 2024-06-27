@@ -1,13 +1,18 @@
 // Prevents additional console window on Windows in release, DO NOT REMOVE!!
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
-
 use anyhow;
 use learning_paths_tauri_react::plugins::{
     ArtifactMapping, NodeProcessingError, NodeProcessingPlugin,
 };
 use petgraph::adj::List;
 use petgraph::visit::IntoNeighbors;
+use serde::Serialize;
+use std::io::{Read, Write};
 use std::{collections::HashSet, str::FromStr};
+use walkdir::{DirEntry, WalkDir};
+use yaml2json_rs::Yaml2Json;
+use zip::write::FileOptions;
+use zip::{CompressionMethod, ZipWriter};
 
 use petgraph::{
     algo::{
@@ -39,6 +44,12 @@ type Comment = String;
 #[derive(Debug)]
 struct StructuralErrorGrouping {
     components: Vec<StructuralError>,
+}
+
+#[derive(Debug, Serialize)]
+struct UnlockingCondition {
+    allOf: HashSet<String>,
+    oneOf: HashSet<String>,
 }
 
 impl fmt::Display for StructuralErrorGrouping {
@@ -426,6 +437,21 @@ fn process_and_comment_cluster(
     let cluster_path = Path::new(cluster_path);
     cluster.pre_cluster_plugins.iter().for_each(|p| {
         p.process_cluster(cluster_path);
+        let contents_path = cluster_path.join("contents.lc.yaml");
+        // TODO: use a generic approach to paths
+        let cluster_contents = std::fs::read_to_string(&contents_path)
+            .expect("Has to be there. Deal with absence later.");
+        let yaml2json = Yaml2Json::new(yaml2json_rs::Style::PRETTY);
+        let json_contents = yaml2json.document_to_string(&cluster_contents);
+        // TODO: use a generic approach to paths
+        std::fs::write(
+            &cluster_path.join("contents.lc.json"),
+            json_contents.expect("Conversion should not be an issue"),
+        );
+        artifacts.insert(ArtifactMapping {
+            local_file: cluster_path.join("contents.lc.json"),
+            root_relative_target_dir: PathBuf::from(cluster.namespace_prefix.clone()),
+        });
     });
     cluster.nodes.iter().for_each(|n| {
         let node_dir_is_readable =
@@ -944,6 +970,92 @@ mod tests {
     }
 }
 
+fn add_dir_to_zip(
+    iterator: &mut dyn Iterator<Item = DirEntry>,
+    prefix: &str, // i.e. the directory
+    zip: &mut ZipWriter<File>,
+) -> zip::result::ZipResult<()> {
+    let options = FileOptions::default()
+        // i.e. no actual compression!
+        .compression_method(CompressionMethod::Stored)
+        .unix_permissions(0o755);
+
+    let mut buffer = Vec::new();
+    for entry in iterator {
+        let path = entry.path();
+        // TODO: fix unwraps
+        let name = path
+            .strip_prefix(Path::new(prefix).parent().unwrap())
+            .unwrap();
+        // Write file or directory explicitly
+        // Some unzip tools unzip files with directory paths correctly, some do not!
+        if path.is_file() {
+            #[allow(deprecated)]
+            zip.start_file_from_path(name, options)?;
+            let mut f = File::open(path)?;
+            f.read_to_end(&mut buffer)?;
+            zip.write_all(&buffer)?;
+            buffer.clear();
+        } else if !name.as_os_str().is_empty() {
+            // Only if not root! Avoids path spec / warning
+            // and mapname conversion failed error on unzip
+            #[allow(deprecated)]
+            zip.add_directory_from_path(name, options)?;
+        }
+    }
+    Result::Ok(())
+}
+
+#[tauri::command]
+fn build_zip(paths: &'_ str, state: tauri::State<'_, AppState>) -> Result<PathBuf, String> {
+    let zip_path = std::path::Path::new("archive.zip");
+    let zip_file = std::fs::File::create(zip_path).map_err(|e| e.to_string())?;
+    // copy clusters into zipped folder
+    let absolute_cluster_dirs = paths.split(";");
+    let mut zip = zip::ZipWriter::new(zip_file);
+
+    let mutex_guard = state
+        .supercluster_with_roots
+        .lock()
+        .expect("Should always be able to gain access eventually.");
+    let (supercluster, artifacts) = mutex_guard
+        .as_ref()
+        .expect("Should only be possible to invoke this command when there is a supercluster.");
+    let options = FileOptions::default()
+        .compression_method(CompressionMethod::Stored)
+        .unix_permissions(0o755);
+    let mut buffer = Vec::new();
+    for ArtifactMapping {
+        local_file,
+        root_relative_target_dir,
+    } in artifacts
+    {
+        zip.start_file(
+            root_relative_target_dir
+                .join(
+                    local_file
+                        .file_name()
+                        .expect("Artifacts should be files, not directories."),
+                )
+                .to_string_lossy(),
+            options,
+        ).map_err(|e| e.to_string())?;
+        let mut file = File::open(local_file).map_err(|e| e.to_string())?;
+        file.read_to_end(&mut buffer).map_err(|e| e.to_string())?;
+        zip.write_all(&buffer).map_err(|e| e.to_string())?;
+        buffer.clear();
+    }
+
+    // TODO
+    // serialize supercluster
+    // see version control
+    // try to factor out serialization
+
+    zip.finish()
+        .map(|_| zip_path.to_path_buf())
+        .map_err(|ze| ze.to_string())
+}
+
 #[tauri::command]
 fn check_learning_path_stateful(
     nodes: Vec<String>,
@@ -1110,8 +1222,7 @@ fn check_learning_path(
             } else {
                 seen_nodes.insert(namespaced_id);
             }
-        }
-        else {
+        } else {
             remarks.push(format!("{:#?}", namespaced_id))
         }
     }
@@ -1127,6 +1238,7 @@ fn main() {
             read_contents,
             associate_parents_children,
             check_learning_path_stateful,
+            build_zip,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
