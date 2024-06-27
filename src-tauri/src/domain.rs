@@ -65,11 +65,9 @@ impl NodeID {
         let invalid_part = parts.iter().find(|p| !identifier_regex.is_match(p));
         if let Some(part) = invalid_part {
             Err(StructuralError::InvalidIdentifierError(part.to_string()).into())
-        }
-        else if parts.len() == 1 {
+        } else if parts.len() == 1 {
             Err(StructuralError::NodeMissingNamespace(string.to_string()).into())
-        }
-        else if parts.len() > 2 {
+        } else if parts.len() > 2 {
             Err(StructuralError::NodeMultipleNamespace(string.to_string()).into())
         } else {
             Ok(NodeID {
@@ -101,8 +99,8 @@ pub enum StructuralError {
     MissingInternalEndpoint(NodeID, NodeID, NodeID), // referring to non-existent node
     NodeMissingNamespace(String),
     NodeMultipleNamespace(String),
-    EdgeMultipleNamespace(String, String, String),   // edge from / to internal node with ...
-    ClusterBoundary(String, NodeID),                 // cluster, reference
+    EdgeMultipleNamespace(String, String, String), // edge from / to internal node with ...
+    ClusterBoundary(String, NodeID),               // cluster, reference
     InvalidComponentGraph,
     Cycle(NodeID),
     DependentRootNode(NodeID, NodeID),

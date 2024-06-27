@@ -24,5 +24,6 @@ dist-ssr
 *.sw?
 
 # Application output
+archive
 archive.zip
 *.lc.json

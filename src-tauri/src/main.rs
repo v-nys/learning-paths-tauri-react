@@ -48,6 +48,12 @@ struct StructuralErrorGrouping {
 
 #[derive(Debug, Serialize)]
 struct UnlockingCondition {
+    allOf: HashSet<NodeID>,
+    oneOf: HashSet<NodeID>,
+}
+
+#[derive(Serialize)]
+struct ReadableUnlockingCondition {
     allOf: HashSet<String>,
     oneOf: HashSet<String>,
 }
@@ -173,7 +179,7 @@ fn read_contents_with_test_dependencies<'a>(
     match supercluster.as_ref() {
         Ok(supercluster) => {
             let _ = app_state.insert((supercluster.clone(), artifacts));
-        },
+        }
         _ => {}
     }
     let mut supercluster_comments = vec![];
@@ -440,12 +446,10 @@ fn process_and_comment_cluster(
     cluster.pre_cluster_plugins.iter().for_each(|p| {
         p.process_cluster(cluster_path);
         let contents_path = cluster_path.join("contents.lc.yaml");
-        // TODO: use a generic approach to paths
         let cluster_contents = std::fs::read_to_string(&contents_path)
             .expect("Has to be there. Deal with absence later.");
         let yaml2json = Yaml2Json::new(yaml2json_rs::Style::PRETTY);
         let json_contents = yaml2json.document_to_string(&cluster_contents);
-        // TODO: use a generic approach to paths
         std::fs::write(
             &cluster_path.join("contents.lc.json"),
             json_contents.expect("Conversion should not be an issue"),
@@ -972,42 +976,6 @@ mod tests {
     }
 }
 
-fn add_dir_to_zip(
-    iterator: &mut dyn Iterator<Item = DirEntry>,
-    prefix: &str, // i.e. the directory
-    zip: &mut ZipWriter<File>,
-) -> zip::result::ZipResult<()> {
-    let options = FileOptions::default()
-        // i.e. no actual compression!
-        .compression_method(CompressionMethod::Stored)
-        .unix_permissions(0o755);
-
-    let mut buffer = Vec::new();
-    for entry in iterator {
-        let path = entry.path();
-        // TODO: fix unwraps
-        let name = path
-            .strip_prefix(Path::new(prefix).parent().unwrap())
-            .unwrap();
-        // Write file or directory explicitly
-        // Some unzip tools unzip files with directory paths correctly, some do not!
-        if path.is_file() {
-            #[allow(deprecated)]
-            zip.start_file_from_path(name, options)?;
-            let mut f = File::open(path)?;
-            f.read_to_end(&mut buffer)?;
-            zip.write_all(&buffer)?;
-            buffer.clear();
-        } else if !name.as_os_str().is_empty() {
-            // Only if not root! Avoids path spec / warning
-            // and mapname conversion failed error on unzip
-            #[allow(deprecated)]
-            zip.add_directory_from_path(name, options)?;
-        }
-    }
-    Result::Ok(())
-}
-
 #[tauri::command]
 fn build_zip(paths: &'_ str, state: tauri::State<'_, AppState>) -> Result<PathBuf, String> {
     let zip_path = std::path::Path::new("archive.zip");
@@ -1027,7 +995,6 @@ fn build_zip(paths: &'_ str, state: tauri::State<'_, AppState>) -> Result<PathBu
         .compression_method(CompressionMethod::Stored)
         .unix_permissions(0o755);
     let mut buffer = Vec::new();
-    let artifacts = dbg!(artifacts);
     for ArtifactMapping {
         local_file,
         root_relative_target_dir,
@@ -1051,11 +1018,167 @@ fn build_zip(paths: &'_ str, state: tauri::State<'_, AppState>) -> Result<PathBu
         buffer.clear();
     }
 
-    // TODO
-    // serialize supercluster
-    // see version control
-    // try to factor out serialization
+    // TODO: factor this out?
+    {
+        let (supercluster, roots) = (&supercluster.graph, &supercluster.roots);
 
+        // graph without nodes would not be valid
+        let mut serialized = "nodes:\n".to_string();
+        supercluster.node_weights().for_each(|(id, title)| {
+            serialized.push_str(&format!("  - id: {}\n", id));
+            serialized.push_str(&format!("    title: {}\n", title));
+        });
+        // misschien gebruik maken van partition op edge_references?
+        let all_type_edges: Vec<_> = supercluster
+            .edge_references()
+            .filter(|e| e.weight() == &EdgeType::All)
+            .map(|e| {
+                Option::zip(
+                    supercluster.node_weight(e.source()),
+                    supercluster.node_weight(e.target()),
+                )
+                .map(|(n1, n2)| (n1.0.clone(), n2.0.clone()))
+            })
+            .flatten()
+            .collect();
+        let any_type_edges: Vec<_> = supercluster
+            .edge_references()
+            .filter(|e| e.weight() == &EdgeType::AtLeastOne)
+            .map(|e| {
+                Option::zip(
+                    supercluster.node_weight(e.source()),
+                    supercluster.node_weight(e.target()),
+                )
+                .map(|(n1, n2)| (n1.0.clone(), n2.0.clone()))
+            })
+            .flatten()
+            .collect();
+        if all_type_edges.len() > 0 {
+            serialized.push_str("all_type_edges:\n");
+            all_type_edges.iter().for_each(|(id1, id2)| {
+                serialized.push_str(&format!("  - start_id: {}\n", id1));
+                serialized.push_str(&format!("    end_id: {}\n", id2));
+            })
+        }
+        if any_type_edges.len() > 0 {
+            serialized.push_str("any_type_edges:\n");
+            any_type_edges.iter().for_each(|(id1, id2)| {
+                serialized.push_str(&format!("  - start_id: {}\n", id1));
+                serialized.push_str(&format!("    end_id: {}\n", id2));
+            })
+        }
+        if roots.len() > 0 {
+            serialized.push_str("roots:\n");
+            roots.iter().for_each(|root| {
+                serialized.push_str(&format!("  - {}\n", root));
+            });
+        }
+
+        zip.start_file("serialized_complete_graph.yaml", options);
+        zip.write(serialized.as_bytes());
+    }
+
+    let (
+        (
+            dependent_to_dependency_graph,
+            dependent_to_dependency_tc,
+            dependent_to_dependency_revmap,
+            dependent_to_dependency_toposort_order,
+        ),
+        (
+            dependency_to_dependent_graph,
+            dependency_to_dependent_tc,
+            dependency_to_dependent_revmap,
+            dependency_to_dependent_toposort_order,
+        ),
+        motivations_graph,
+    ) = dependency_helpers(supercluster);
+    let mut unlocking_conditions: HashMap<NodeID, Option<UnlockingCondition>> = HashMap::new();
+    let roots = &supercluster.roots;
+    supercluster.graph.node_references().for_each(
+        |(supercluster_node_index, (supercluster_node_id, _))| {
+            if roots.contains(supercluster_node_id) {
+                unlocking_conditions.insert(supercluster_node_id.clone(), None);
+            } else {
+                // dependent_to... uses a subgraph, so indexes are different!
+                // matching_node = "all-type" graph counterpart to the current Voltron node
+                let matching_nodes = dependency_to_dependent_graph
+                    .node_references()
+                    .filter(|(idx, weight)| &weight.0 == supercluster_node_id)
+                    .collect::<Vec<_>>();
+                let matching_node = matching_nodes
+                    .get(0)
+                    .expect("Subgraph should contain all the Voltron nodes.");
+                let matching_node_idx = matching_node.0.index();
+                // denk dat dit strenger is dan nodig
+                // dependent_to_dependency_tc betekent dat we *alle* harde dependencies zullen oplijsten
+                // kan dit beperken tot enkel directe dependencies
+                // i.e. de neighbors in dependent_to_depency_graph (neighbors = bereikbaar in één gerichte hop)
+                let hard_dependency_ids: HashSet<NodeID> = dependent_to_dependency_tc
+                    .neighbors(dependent_to_dependency_revmap[matching_node_idx])
+                    .map(|ix: NodeIndex| dependent_to_dependency_toposort_order[ix.index()])
+                    .filter_map(|idx| {
+                        dependent_to_dependency_graph
+                            .node_weight(idx)
+                            .map(|(id, _)| id.clone())
+                    })
+                    .collect();
+                let mut dependent_ids: HashSet<NodeID> = dependency_to_dependent_tc
+                    .neighbors(dependency_to_dependent_revmap[matching_node.0.index()])
+                    .map(|ix: NodeIndex| dependency_to_dependent_toposort_order[ix.index()])
+                    .filter_map(|idx| {
+                        dependency_to_dependent_graph
+                            .node_weight(idx)
+                            .map(|(id, _)| id.clone())
+                    })
+                    .collect();
+                dependent_ids.insert(matching_node.1 .0.clone());
+                let soft_dependency_ids = motivations_graph
+                    .node_references()
+                    .filter_map(|potential_motivator| {
+                        let neighbors: HashSet<NodeID> = motivations_graph
+                            .neighbors(potential_motivator.0)
+                            .filter_map(|motivator_index| {
+                                motivations_graph
+                                    .node_weight(motivator_index)
+                                    .map(|(id, title)| id.to_owned())
+                            })
+                            .collect();
+                        if neighbors.is_disjoint(&dependent_ids) {
+                            None
+                        } else {
+                            Some(potential_motivator.1 .0.to_owned())
+                        }
+                    })
+                    .collect();
+                unlocking_conditions.insert(
+                    supercluster_node_id.clone(),
+                    Some(UnlockingCondition {
+                        allOf: hard_dependency_ids,
+                        oneOf: soft_dependency_ids,
+                    }),
+                );
+            }
+        },
+    );
+    let representation: HashMap<_, _> = unlocking_conditions
+        .iter()
+        .map(|(k, v)| {
+            (
+                format!("{}", k),
+                v.as_ref().map(|condition| ReadableUnlockingCondition {
+                    allOf: condition.allOf.iter().map(|node_id| format!("{}", node_id)).collect(),
+                    oneOf: condition.oneOf.iter().map(|node_id| format!("{}", node_id)).collect(),
+                }),
+            )
+        })
+        .collect();
+    zip.start_file("unlocking_conditions.json", options);
+    zip.write(
+        serde_json::to_string_pretty(&representation)
+            .unwrap()
+            .as_bytes(),
+    );
     zip.finish()
         .map(|_| zip_path.to_path_buf())
         .map_err(|ze| ze.to_string())
@@ -1210,7 +1333,6 @@ fn check_learning_path(
                                 })
                             }
                         });
-
                         if !is_motivated {
                             remarks.push(format!(
                             "Node {human_index} ({namespaced_id}) is not motivated by any predecessor, nor are any of its dependents."
