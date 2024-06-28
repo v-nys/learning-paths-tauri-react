@@ -445,19 +445,23 @@ fn process_and_comment_cluster(
     let cluster_path = Path::new(cluster_path);
     cluster.pre_cluster_plugins.iter().for_each(|p| {
         p.process_cluster(cluster_path);
-        let contents_path = cluster_path.join("contents.lc.yaml");
-        let cluster_contents = std::fs::read_to_string(&contents_path)
-            .expect("Has to be there. Deal with absence later.");
-        let yaml2json = Yaml2Json::new(yaml2json_rs::Style::PRETTY);
-        let json_contents = yaml2json.document_to_string(&cluster_contents);
-        std::fs::write(
-            &cluster_path.join("contents.lc.json"),
-            json_contents.expect("Conversion should not be an issue"),
-        );
-        artifacts.insert(ArtifactMapping {
-            local_file: cluster_path.join("contents.lc.json"),
-            root_relative_target_dir: PathBuf::from(cluster.namespace_prefix.clone()),
-        });
+    });
+    let contents_path = cluster_path.join("contents.lc.yaml");
+    let cluster_contents =
+        std::fs::read_to_string(&contents_path).expect("Has to be there. Deal with absence later.");
+    let yaml2json = Yaml2Json::new(yaml2json_rs::Style::PRETTY);
+    let json_contents = yaml2json.document_to_string(&cluster_contents);
+    std::fs::write(
+        &cluster_path.join("contents.lc.json"),
+        json_contents.expect("Conversion should not be an issue"),
+    );
+    artifacts.insert(ArtifactMapping {
+        local_file: cluster_path.join("contents.lc.yaml"),
+        root_relative_target_dir: PathBuf::from(cluster.namespace_prefix.clone()),
+    });
+     artifacts.insert(ArtifactMapping {
+        local_file: cluster_path.join("contents.lc.json"),
+        root_relative_target_dir: PathBuf::from(cluster.namespace_prefix.clone()),
     });
     cluster.nodes.iter().for_each(|n| {
         let node_dir_is_readable =
@@ -1167,8 +1171,16 @@ fn build_zip(paths: &'_ str, state: tauri::State<'_, AppState>) -> Result<PathBu
             (
                 format!("{}", k),
                 v.as_ref().map(|condition| ReadableUnlockingCondition {
-                    allOf: condition.allOf.iter().map(|node_id| format!("{}", node_id)).collect(),
-                    oneOf: condition.oneOf.iter().map(|node_id| format!("{}", node_id)).collect(),
+                    allOf: condition
+                        .allOf
+                        .iter()
+                        .map(|node_id| format!("{}", node_id))
+                        .collect(),
+                    oneOf: condition
+                        .oneOf
+                        .iter()
+                        .map(|node_id| format!("{}", node_id))
+                        .collect(),
                 }),
             )
         })
