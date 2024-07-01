@@ -186,6 +186,12 @@ fn read_contents_with_test_dependencies<'a>(
     if let Ok(ref supercluster) = supercluster {
         comment_graph(&supercluster.graph, &mut supercluster_comments);
     }
+    let number_of_components_with_pre_zip_plugins =
+        components.iter().filter_map(|c| c.as_ref().ok()).count();
+    if number_of_components_with_pre_zip_plugins > 1 {
+        supercluster_comments
+            .push("Multiple clusters define pre-zip plugins. This is not allowed.".to_owned());
+    }
 
     let expectation = "Should only be None if component_result is Err.";
     let mut path_result_tuples: Vec<_> = paths
@@ -459,7 +465,7 @@ fn process_and_comment_cluster(
         local_file: cluster_path.join("contents.lc.yaml"),
         root_relative_target_dir: PathBuf::from(cluster.namespace_prefix.clone()),
     });
-     artifacts.insert(ArtifactMapping {
+    artifacts.insert(ArtifactMapping {
         local_file: cluster_path.join("contents.lc.json"),
         root_relative_target_dir: PathBuf::from(cluster.namespace_prefix.clone()),
     });
@@ -1004,7 +1010,6 @@ fn build_zip(paths: &'_ str, state: tauri::State<'_, AppState>) -> Result<PathBu
         root_relative_target_dir,
     } in artifacts
     {
-        println!("Adding to zip: {}", local_file.to_string_lossy());
         zip.start_file(
             root_relative_target_dir
                 .join(
