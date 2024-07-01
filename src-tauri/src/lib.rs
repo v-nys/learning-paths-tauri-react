@@ -56,6 +56,15 @@ pub mod plugins {
         ) -> Result<HashSet<ArtifactMapping>, anyhow::Error>;
     }
 
+    pub trait PreZipPlugin: Plugin {
+        fn process_project(
+            &self,
+            cluster_paths: Vec<&Path>,
+        ) -> Result<HashSet<ArtifactMapping>, anyhow::Error>;
+    }
+
+
+
     macro_rules! define_plugin_container {
         ($plugin_trait:ident) => {
             paste::paste! {
@@ -135,4 +144,5 @@ pub mod plugins {
 
     add_plugin_boilerplate!(NodeProcessingPlugin, load_node_processing_plugins);
     add_plugin_boilerplate!(ClusterProcessingPlugin, load_cluster_processing_plugins);
+    add_plugin_boilerplate!(PreZipPlugin, load_pre_zip_plugins);
 }
