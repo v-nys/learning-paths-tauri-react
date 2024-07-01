@@ -240,9 +240,6 @@ impl ClusterForSerialization {
             pre_zip_plugin_paths: self
                 .pre_zip_plugin_paths
                 .unwrap_or_default()
-                .iter()
-                .map(PathBuf::from)
-                .collect(),
         })
     }
 }

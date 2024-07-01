@@ -2,7 +2,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 use anyhow;
 use learning_paths_tauri_react::plugins::{
-    ArtifactMapping, NodeProcessingError, NodeProcessingPlugin,
+    load_pre_zip_plugins, ArtifactMapping, NodeProcessingError, NodeProcessingPlugin,
 };
 use petgraph::adj::List;
 use petgraph::visit::IntoNeighbors;
@@ -96,7 +96,8 @@ struct RootedSupercluster {
 
 #[derive(Default)]
 struct AppState {
-    supercluster_with_roots: Mutex<Option<(RootedSupercluster, HashSet<ArtifactMapping>)>>,
+    supercluster_with_roots:
+        Mutex<Option<(RootedSupercluster, HashSet<ArtifactMapping>, Vec<String>)>>,
 }
 
 /// Given a sequence of filesystem paths, deserialize the cluster represented by each path and optionally run additional validation.
@@ -129,7 +130,7 @@ fn read_contents_with_test_dependencies<'a>(
     paths: &'a str,
     file_is_readable: fn(&Path) -> bool,
     directory_is_readable: fn(&Path) -> bool,
-    mut app_state: MutexGuard<Option<(RootedSupercluster, HashSet<ArtifactMapping>)>>,
+    mut app_state: MutexGuard<Option<(RootedSupercluster, HashSet<ArtifactMapping>, Vec<String>)>>,
 ) -> Vec<(&'a str, Result<(Vec<Comment>, SVGSource), String>)> {
     // in result, first str is "path" (but can also be "supercluster")
     let mut reader = RealFileReader {};
@@ -140,7 +141,7 @@ fn read_contents_with_test_dependencies<'a>(
     ) = read_all_clusters_with_test_dependencies::<RealFileReader>(paths, &mut reader);
     match supercluster.as_ref() {
         Ok(supercluster) => {
-            let _ = app_state.insert((supercluster.clone(), HashSet::new()));
+            let _ = app_state.insert((supercluster.clone(), HashSet::new(), vec![]));
         }
         _ => {}
     }
@@ -176,23 +177,31 @@ fn read_contents_with_test_dependencies<'a>(
                 })
         })
         .collect();
+    let mut supercluster_comments = vec![];
     match supercluster.as_ref() {
         Ok(supercluster) => {
-            let _ = app_state.insert((supercluster.clone(), artifacts));
+            let state_contents = app_state.insert((supercluster.clone(), artifacts, vec![]));
+            let pre_zip_plugin_vectors: Vec<_> = components
+                .iter()
+                .filter_map(|c| c.as_ref().ok().map(|triple| &triple.0.pre_zip_plugin_paths))
+                .collect();
+            if pre_zip_plugin_vectors.len() > 1usize {
+                supercluster_comments.push(
+                    "Multiple clusters define pre-zip plugins. This is not allowed.".to_owned(),
+                );
+            } else {
+                state_contents.2 = pre_zip_plugin_vectors
+                    .iter()
+                    .flat_map(|c| c.iter())
+                    .map(|p| p.clone())
+                    .collect();
+            }
         }
         _ => {}
     }
-    let mut supercluster_comments = vec![];
     if let Ok(ref supercluster) = supercluster {
         comment_graph(&supercluster.graph, &mut supercluster_comments);
     }
-    let number_of_components_with_pre_zip_plugins =
-        components.iter().filter_map(|c| c.as_ref().ok()).count();
-    if number_of_components_with_pre_zip_plugins > 1 {
-        supercluster_comments
-            .push("Multiple clusters define pre-zip plugins. This is not allowed.".to_owned());
-    }
-
     let expectation = "Should only be None if component_result is Err.";
     let mut path_result_tuples: Vec<_> = paths
         .zip(components)
@@ -991,16 +1000,20 @@ fn build_zip(paths: &'_ str, state: tauri::State<'_, AppState>) -> Result<PathBu
     let zip_path = std::path::Path::new("archive.zip");
     let zip_file = std::fs::File::create(zip_path).map_err(|e| e.to_string())?;
     // copy clusters into zipped folder
-    let absolute_cluster_dirs = paths.split(";");
+    let absolute_cluster_dirs: Vec<_> = paths.split(";").map(PathBuf::from).collect();
     let mut zip = zip::ZipWriter::new(zip_file);
 
     let mutex_guard = state
         .supercluster_with_roots
         .lock()
         .expect("Should always be able to gain access eventually.");
-    let (supercluster, artifacts) = mutex_guard
+    let (supercluster, artifacts, pre_zip_plugin_paths) = mutex_guard
         .as_ref()
         .expect("Should only be possible to invoke this command when there is a supercluster.");
+    let pre_zip_plugins = load_pre_zip_plugins(pre_zip_plugin_paths.iter().map(|p| p.clone()).collect());
+    for pre_zip_plugin in pre_zip_plugins {
+        pre_zip_plugin.process_project(absolute_cluster_dirs.iter().map(|pb| pb.as_path()).collect());
+    }
     let options = FileOptions::default()
         .compression_method(CompressionMethod::Stored)
         .unix_permissions(0o755);

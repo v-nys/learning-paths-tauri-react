@@ -41,7 +41,7 @@ pub struct Cluster {
     pub roots: Vec<NodeID>,
     pub pre_cluster_plugins: Rc<VecDeque<ClusterProcessingPluginContainer>>, // Rc makes it possible to derive Clone
     pub node_plugins: Rc<VecDeque<NodeProcessingPluginContainer>>,
-    pub pre_zip_plugin_paths: Vec<PathBuf>
+    pub pre_zip_plugin_paths: Vec<String>
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize)]
