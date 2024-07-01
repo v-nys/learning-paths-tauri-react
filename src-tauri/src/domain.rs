@@ -4,6 +4,7 @@ use serde::Serialize;
 use serde_yaml::Value;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::fmt;
+use std::path::PathBuf;
 use std::rc::Rc;
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
@@ -40,6 +41,7 @@ pub struct Cluster {
     pub roots: Vec<NodeID>,
     pub pre_cluster_plugins: Rc<VecDeque<ClusterProcessingPluginContainer>>, // Rc makes it possible to derive Clone
     pub node_plugins: Rc<VecDeque<NodeProcessingPluginContainer>>,
+    pub pre_zip_plugin_paths: Vec<PathBuf>
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize)]

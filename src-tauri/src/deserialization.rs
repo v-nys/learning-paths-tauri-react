@@ -9,7 +9,9 @@ use serde::Deserializer;
 use serde_yaml::Value;
 use std::collections::HashMap;
 use std::fmt;
+use std::path::PathBuf;
 use std::rc::Rc;
+use std::str::FromStr;
 
 use crate::domain;
 
@@ -194,6 +196,7 @@ pub struct ClusterForSerialization {
     roots: Option<Vec<String>>,
     pre_cluster_plugin_paths: Option<Vec<String>>,
     node_plugin_paths: Option<Vec<String>>,
+    pre_zip_plugin_paths: Option<Vec<String>>,
 }
 
 impl ClusterForSerialization {
@@ -234,6 +237,12 @@ impl ClusterForSerialization {
             node_plugins: Rc::new(load_node_processing_plugins(
                 self.node_plugin_paths.unwrap_or_default(),
             )),
+            pre_zip_plugin_paths: self
+                .pre_zip_plugin_paths
+                .unwrap_or_default()
+                .iter()
+                .map(PathBuf::from)
+                .collect(),
         })
     }
 }
