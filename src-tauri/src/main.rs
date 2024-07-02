@@ -478,6 +478,11 @@ fn process_and_comment_cluster(
         local_file: cluster_path.join("contents.lc.json"),
         root_relative_target_dir: PathBuf::from(cluster.namespace_prefix.clone()),
     });
+    let mandatory_fields: HashSet<_> = cluster
+        .node_plugins
+        .iter()
+        .flat_map(|p| p.get_mandatory_fields())
+        .collect();
     cluster.nodes.iter().for_each(|n| {
         let node_dir_is_readable =
             directory_is_readable(&cluster_path.join(&n.node_id.local_id).as_path());
@@ -488,6 +493,12 @@ fn process_and_comment_cluster(
                 n.node_id.local_id
             ));
         } else {
+            let missing_fields = mandatory_fields.iter().filter(|mandatory_field| {
+                !n.extension_fields.keys().any(|key| key.eq(*mandatory_field))
+            });
+            missing_fields.for_each(|field_name| {
+                remarks.push(format!("node {} is missing required field {}", n.node_id , field_name))
+            });
             n.extension_fields.iter().for_each(|(k, v)| {
                 let first_processing_result = cluster
                     .node_plugins
@@ -1010,9 +1021,15 @@ fn build_zip(paths: &'_ str, state: tauri::State<'_, AppState>) -> Result<PathBu
     let (supercluster, artifacts, pre_zip_plugin_paths) = mutex_guard
         .as_ref()
         .expect("Should only be possible to invoke this command when there is a supercluster.");
-    let pre_zip_plugins = load_pre_zip_plugins(pre_zip_plugin_paths.iter().map(|p| p.clone()).collect());
+    let pre_zip_plugins =
+        load_pre_zip_plugins(pre_zip_plugin_paths.iter().map(|p| p.clone()).collect());
     for pre_zip_plugin in pre_zip_plugins {
-        pre_zip_plugin.process_project(absolute_cluster_dirs.iter().map(|pb| pb.as_path()).collect());
+        pre_zip_plugin.process_project(
+            absolute_cluster_dirs
+                .iter()
+                .map(|pb| pb.as_path())
+                .collect(),
+        );
     }
     let options = FileOptions::default()
         .compression_method(CompressionMethod::Stored)

@@ -47,6 +47,8 @@ pub mod plugins {
             field_name: &str,
             value: &Value,
         ) -> Result<HashSet<ArtifactMapping>, NodeProcessingError>;
+
+        fn get_mandatory_fields(&self) -> HashSet<String>;
     }
 
     pub trait ClusterProcessingPlugin: Plugin {
