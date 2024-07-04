@@ -271,7 +271,7 @@ impl ClusterForSerialization {
                 .collect(),
         );
         println!("Outcome 1: {:#?}", node_plugins);
-        let node_plugins = node_plugins?;
+        let node_plugins = node_plugins.map_err(|e| anyhow::format_err!(e))?;
         println!("Outcome 2: {:#?}", node_plugins);
         let node_plugins = Rc::new(node_plugins);
         println!("Done loading node plugins");
@@ -302,16 +302,19 @@ impl ClusterForSerialization {
                 })
                 .collect(),
             // pre_cluster_... is een Vec<PluginForSerialization>
-            pre_cluster_plugins: Rc::new(load_cluster_processing_plugins(
-                self.pre_cluster_plugin_paths
-                    .unwrap_or_default()
-                    .into_iter()
-                    .map(|pfs| domain::UnloadedPlugin {
-                        path: pfs.path,
-                        parameters: pfs.parameters,
-                    })
-                    .collect(),
-            )?),
+            pre_cluster_plugins: Rc::new(
+                load_cluster_processing_plugins(
+                    self.pre_cluster_plugin_paths
+                        .unwrap_or_default()
+                        .into_iter()
+                        .map(|pfs| domain::UnloadedPlugin {
+                            path: pfs.path,
+                            parameters: pfs.parameters,
+                        })
+                        .collect(),
+                )
+                .map_err(|e| anyhow::format_err!(e))?,
+            ),
             node_plugins,
             pre_zip_plugin_paths: self
                 .pre_zip_plugin_paths

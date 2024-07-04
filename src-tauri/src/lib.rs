@@ -21,7 +21,7 @@ pub mod plugins {
     pub trait Plugin {
         fn get_name(&self) -> &str;
         fn get_version(&self) -> &str;
-        fn set_params(&mut self, params: HashMap<String, Value>) -> anyhow::Result<()>;
+        fn set_params(&mut self, params: HashMap<String, Value>) -> Result<(), String>;
     }
 
     #[derive(Debug)]
@@ -112,13 +112,13 @@ pub mod plugins {
                 // Q: why VecDeque, specifically?
                 pub fn $load_function_name(
                     unloaded_plugins: Vec<domain::UnloadedPlugin>,
-                ) -> anyhow::Result<VecDeque<[<$plugin_trait Container>]>> {
+                ) -> Result<VecDeque<[<$plugin_trait Container>]>, String> {
                     let mut plugins = VecDeque::new();
                     for domain::UnloadedPlugin { path, parameters } in unloaded_plugins {
                         unsafe {
-                            let lib = Library::new(path)?;
+                            let lib = Library::new(path).map_err(|e| "failed to load library".to_owned())?;
                             let constructor: Symbol<unsafe extern "C" fn() -> *mut dyn $plugin_trait> =
-                                lib.get(b"create_plugin")?; // failed to find symbol
+                                lib.get(b"create_plugin").map_err(|e| "failed to find symbol".to_owned())?;
                             let mut plugin = Box::from_raw(constructor());
                             plugin.set_params(parameters)?;
                             plugins.push_back([<$plugin_trait Container>] {
