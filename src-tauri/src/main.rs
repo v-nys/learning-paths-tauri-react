@@ -34,8 +34,7 @@ mod rendering;
 use crate::rendering::svgify;
 use learning_paths_tauri_react::domain;
 use learning_paths_tauri_react::domain::{
-    EdgeData, EdgeType, Graph, NodeID, StructuralError, TypedEdge,
-    UnloadedPlugin
+    EdgeData, EdgeType, Graph, NodeID, StructuralError, TypedEdge, UnloadedPlugin,
 };
 
 type SVGSource = String;
@@ -97,8 +96,13 @@ struct RootedSupercluster {
 
 #[derive(Default)]
 struct AppState {
-    supercluster_with_roots:
-        Mutex<Option<(RootedSupercluster, HashSet<ArtifactMapping>, Vec<UnloadedPlugin>)>>,
+    supercluster_with_roots: Mutex<
+        Option<(
+            RootedSupercluster,
+            HashSet<ArtifactMapping>,
+            Vec<UnloadedPlugin>,
+        )>,
+    >,
 }
 
 /// Given a sequence of filesystem paths, deserialize the cluster represented by each path and optionally run additional validation.
@@ -131,7 +135,13 @@ fn read_contents_with_test_dependencies<'a>(
     paths: &'a str,
     file_is_readable: fn(&Path) -> bool,
     directory_is_readable: fn(&Path) -> bool,
-    mut app_state: MutexGuard<Option<(RootedSupercluster, HashSet<ArtifactMapping>, Vec<UnloadedPlugin>)>>,
+    mut app_state: MutexGuard<
+        Option<(
+            RootedSupercluster,
+            HashSet<ArtifactMapping>,
+            Vec<UnloadedPlugin>,
+        )>,
+    >,
 ) -> Vec<(&'a str, Result<(Vec<Comment>, SVGSource), String>)> {
     // in result, first str is "path" (but can also be "supercluster")
     let mut reader = RealFileReader {};
@@ -186,7 +196,12 @@ fn read_contents_with_test_dependencies<'a>(
                 .iter()
                 .filter_map(|c| c.as_ref().ok().map(|triple| &triple.0.pre_zip_plugin_paths))
                 .collect();
-            if pre_zip_plugin_vectors.iter().filter(|v| !v.is_empty()).count() > 1usize {
+            if pre_zip_plugin_vectors
+                .iter()
+                .filter(|v| !v.is_empty())
+                .count()
+                > 1usize
+            {
                 supercluster_comments.push(
                     "Multiple clusters define pre-zip plugins. This is not allowed.".to_owned(),
                 );
@@ -1023,14 +1038,15 @@ fn build_zip(paths: &'_ str, state: tauri::State<'_, AppState>) -> Result<PathBu
         .as_ref()
         .expect("Should only be possible to invoke this command when there is a supercluster.");
     let pre_zip_plugins =
-        load_pre_zip_plugins(pre_zip_plugin_paths.iter().map(|p| p.clone()).collect());
+        load_pre_zip_plugins(pre_zip_plugin_paths.iter().map(|p| p.clone()).collect())
+            .map_err(|e| format!("{:#?}", e))?;
     for pre_zip_plugin in pre_zip_plugins {
         pre_zip_plugin.process_project(
             absolute_cluster_dirs
                 .iter()
                 .map(|pb| pb.as_path())
                 .collect(),
-        );
+        ).map_err(|e| format!("{:#?}", e))?;
     }
     let options = FileOptions::default()
         .compression_method(CompressionMethod::Stored)

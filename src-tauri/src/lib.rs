@@ -5,8 +5,8 @@ pub mod plugins {
     use libloading::{Library, Symbol};
     use paste;
     use serde_yaml::Value;
-    use std::collections::{HashSet, HashMap};
     use std::collections::VecDeque;
+    use std::collections::{HashMap, HashSet};
     use std::fmt;
     use std::fmt::Debug;
     use std::ops::Deref;
@@ -21,7 +21,7 @@ pub mod plugins {
     pub trait Plugin {
         fn get_name(&self) -> &str;
         fn get_version(&self) -> &str;
-        fn set_params(&mut self, params: HashMap<String, Value>);
+        fn set_params(&mut self, params: HashMap<String, Value>) -> anyhow::Result<()>;
     }
 
     #[derive(Debug)]
@@ -112,20 +112,22 @@ pub mod plugins {
                 // Q: why VecDeque, specifically?
                 pub fn $load_function_name(
                     unloaded_plugins: Vec<domain::UnloadedPlugin>,
-                ) -> VecDeque<[<$plugin_trait Container>]> {
+                ) -> anyhow::Result<VecDeque<[<$plugin_trait Container>]>> {
                     let mut plugins = VecDeque::new();
-                    unloaded_plugins.into_iter().for_each(|domain::UnloadedPlugin { path, parameters }| unsafe {
-                        let lib = Library::new(path).expect("Failed to load library");
-                        let constructor: Symbol<unsafe extern "C" fn() -> *mut dyn $plugin_trait> =
-                            lib.get(b"create_plugin").expect("Failed to find symbol");
-                        let mut plugin = Box::from_raw(constructor());
-                        plugin.set_params(parameters);
-                        plugins.push_back([<$plugin_trait Container>] {
-                            plugin,
-                            _lib: lib,
-                        });
-                    });
-                    plugins
+                    for domain::UnloadedPlugin { path, parameters } in unloaded_plugins {
+                        unsafe {
+                            let lib = Library::new(path)?;
+                            let constructor: Symbol<unsafe extern "C" fn() -> *mut dyn $plugin_trait> =
+                                lib.get(b"create_plugin")?; // failed to find symbol
+                            let mut plugin = Box::from_raw(constructor());
+                            plugin.set_params(parameters)?;
+                            plugins.push_back([<$plugin_trait Container>] {
+                                plugin,
+                                _lib: lib,
+                            });
+                        }
+                    }
+                   Ok(plugins)
                 }
             }
         };

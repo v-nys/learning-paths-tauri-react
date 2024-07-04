@@ -295,7 +295,7 @@ impl ClusterForSerialization {
                         parameters: pfs.parameters,
                     })
                     .collect(),
-            )),
+            )?),
             node_plugins: Rc::new(load_node_processing_plugins(
                 self.node_plugin_paths
                     .unwrap_or_default()
@@ -305,7 +305,7 @@ impl ClusterForSerialization {
                         parameters: pfs.parameters,
                     })
                     .collect(),
-            )),
+            )?),
             pre_zip_plugin_paths: self
                 .pre_zip_plugin_paths
                 .unwrap_or_default()
