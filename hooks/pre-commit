@@ -1,3 +1,3 @@
 #!/bin/sh
-echo "running develop command";
-nix develop --command bash -c "echo \"entering main project directory\" && cd rust-workspace/learning-paths-tauri-react && echo \"running tests\" && cargo test ";
+# rebuilding the whole workspace so plugins are synced up with core
+nix develop --command bash -c "echo \"entering main project directory\" && cd rust-workspace && cargo build --workspace --release && cd learning-paths-tauri-react && echo \"running tests\" && cargo test ";
