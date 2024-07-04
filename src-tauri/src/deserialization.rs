@@ -9,9 +9,7 @@ use serde::Deserializer;
 use serde_yaml::Value;
 use std::collections::HashMap;
 use std::fmt;
-use std::path::PathBuf;
 use std::rc::Rc;
-use std::str::FromStr;
 
 use crate::domain;
 

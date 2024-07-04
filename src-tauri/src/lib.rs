@@ -116,9 +116,9 @@ pub mod plugins {
                     let mut plugins = VecDeque::new();
                     for domain::UnloadedPlugin { path, parameters } in unloaded_plugins {
                         unsafe {
-                            let lib = Library::new(path).map_err(|e| "failed to load library".to_owned())?;
+                            let lib = Library::new(path).map_err(|_| "failed to load library".to_owned())?;
                             let constructor: Symbol<unsafe extern "C" fn() -> *mut dyn $plugin_trait> =
-                                lib.get(b"create_plugin").map_err(|e| "failed to find symbol".to_owned())?;
+                                lib.get(b"create_plugin").map_err(|_| "failed to find symbol".to_owned())?;
                             let mut plugin = Box::from_raw(constructor());
                             plugin.set_params(parameters)?;
                             plugins.push_back([<$plugin_trait Container>] {

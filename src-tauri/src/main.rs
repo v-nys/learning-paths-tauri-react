@@ -2,17 +2,16 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 use anyhow;
 use learning_paths_tauri_react::plugins::{
-    load_pre_zip_plugins, ArtifactMapping, NodeProcessingError, NodeProcessingPlugin,
+    load_pre_zip_plugins, ArtifactMapping, NodeProcessingError,
 };
 use petgraph::adj::List;
 use petgraph::visit::IntoNeighbors;
 use serde::Serialize;
+use std::collections::HashSet;
 use std::io::{Read, Write};
-use std::{collections::HashSet, str::FromStr};
-use walkdir::{DirEntry, WalkDir};
 use yaml2json_rs::Yaml2Json;
 use zip::write::FileOptions;
-use zip::{CompressionMethod, ZipWriter};
+use zip::CompressionMethod;
 
 use petgraph::{
     algo::{
@@ -1043,12 +1042,14 @@ fn build_zip(paths: &'_ str, state: tauri::State<'_, AppState>) -> Result<PathBu
         load_pre_zip_plugins(pre_zip_plugin_paths.iter().map(|p| p.clone()).collect())
             .map_err(|e| format!("{:#?}", e))?;
     for pre_zip_plugin in pre_zip_plugins {
-        pre_zip_plugin.process_project(
-            absolute_cluster_dirs
-                .iter()
-                .map(|pb| pb.as_path())
-                .collect(),
-        ).map_err(|e| format!("{:#?}", e))?;
+        pre_zip_plugin
+            .process_project(
+                absolute_cluster_dirs
+                    .iter()
+                    .map(|pb| pb.as_path())
+                    .collect(),
+            )
+            .map_err(|e| format!("{:#?}", e))?;
     }
     let options = FileOptions::default()
         .compression_method(CompressionMethod::Stored)
@@ -1162,7 +1163,7 @@ fn build_zip(paths: &'_ str, state: tauri::State<'_, AppState>) -> Result<PathBu
                 // matching_node = "all-type" graph counterpart to the current Voltron node
                 let matching_nodes = dependency_to_dependent_graph
                     .node_references()
-                    .filter(|(idx, weight)| &weight.0 == supercluster_node_id)
+                    .filter(|(_idx, weight)| &weight.0 == supercluster_node_id)
                     .collect::<Vec<_>>();
                 let matching_node = matching_nodes
                     .get(0)
@@ -1199,7 +1200,7 @@ fn build_zip(paths: &'_ str, state: tauri::State<'_, AppState>) -> Result<PathBu
                             .filter_map(|motivator_index| {
                                 motivations_graph
                                     .node_weight(motivator_index)
-                                    .map(|(id, title)| id.to_owned())
+                                    .map(|(id, _)| id.to_owned())
                             })
                             .collect();
                         if neighbors.is_disjoint(&dependent_ids) {
@@ -1239,12 +1240,14 @@ fn build_zip(paths: &'_ str, state: tauri::State<'_, AppState>) -> Result<PathBu
             )
         })
         .collect();
-    zip.start_file("unlocking_conditions.json", options);
+    zip.start_file("unlocking_conditions.json", options)
+        .map_err(|ze| ze.to_string())?;
     zip.write(
         serde_json::to_string_pretty(&representation)
             .unwrap()
             .as_bytes(),
-    );
+    )
+    .map_err(|ze| ze.to_string())?;
     zip.finish()
         .map(|_| zip_path.to_path_buf())
         .map_err(|ze| ze.to_string())
@@ -1351,7 +1354,7 @@ fn check_learning_path(
             if !supercluster_with_roots.roots.contains(&namespaced_id) {
                 match dependency_to_dependent_graph
                     .node_references()
-                    .filter(|(idx, weight)| weight.0 == namespaced_id)
+                    .filter(|(_idx, weight)| weight.0 == namespaced_id)
                     .collect::<Vec<_>>()
                     .get(0)
                 {
