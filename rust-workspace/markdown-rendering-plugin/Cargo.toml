@@ -1,0 +1,16 @@
+[package]
+name = "markdown-rendering-plugin"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+anyhow = "1.0.86"
+base64 = "0.22.1"
+comrak = { version = "0.24.1", features = [ "syntect", "emojis" ] }
+learning-paths-tauri-react = { path = "../learning-paths-tauri-react/" }
+regex = "1.10.5"
+serde_yaml = "0.9.34"
+walkdir = "2.5.0"

@@ -1,6 +1,8 @@
 [workspace]
 members = [
-    "learning-paths-tauri-react"
+    "learning-paths-tauri-react",
+    "assignments-plugin",
+    "markdown-rendering-plugin"
 ]
 [package]
 name = "workspace"

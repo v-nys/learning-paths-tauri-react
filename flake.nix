@@ -21,6 +21,7 @@
         ];
 
         packages = with pkgs; [
+          envsubst # to enable tests which use absolute paths
           curl
           wget
           pkg-config
@@ -38,10 +39,13 @@
         devShell = pkgs.mkShell {
           buildInputs = packages;
 
+          # envsubst must be applied for any cluster definition containing an absolute path
           shellHook =
             ''
               export LD_LIBRARY_PATH=${pkgs.lib.makeLibraryPath libraries}:$LD_LIBRARY_PATH
               export XDG_DATA_DIRS=${pkgs.gsettings-desktop-schemas}/share/gsettings-schemas/${pkgs.gsettings-desktop-schemas.name}:${pkgs.gtk3}/share/gsettings-schemas/${pkgs.gtk3.name}:$XDG_DATA_DIRS
+              export FLAKE_DIR=$(pwd)
+              envsubst ./rust-workspace/learning-paths-tauri-react/tests/technicalinfo/pre-contents.lc.yaml > ./rust-workspace/learning-paths-tauri-react/tests/technicalinfo/contents.lc.yaml
               npm install
             '';
         };

@@ -25,5 +25,5 @@ all_type_edges:
   - start_id: concept_Q
     end_id: concept_C
 node_plugin_paths:
-  - path: "/home/vincentn/Projects/learning-paths-tauri-react/rust-workspace/target/release/libassignments_plugin.so"
+  - path: "$FLAKE_DIR/rust-workspace/target/release/libassignments_plugin.so"
     require_solutions: False

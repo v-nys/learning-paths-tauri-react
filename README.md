@@ -6,14 +6,21 @@ From the project root, run `npm run tauri dev`.
 Check all checks that should be performed (unchecking is mainly useful if some checks are too expensive) and enter the file paths to the clusters involved in the learning path.
 Requires graphviz to be installed on your system.
 
-If you are running Nix with flakes, just run `nix develop` and `npm run tauri dev` should work fine from that shell.
+If you are running Nix with flakes, just run `nix develop` from the project root and `npm run tauri dev` should then work fine from that shell. Dependencies other than Rust itself are handled by the flake.
 
 ## Development
 
-### Plugins
-Plugins currently have this code as a dependency.
-That means that, to compile them, the same libraries,... are needed as for the main project.
-Again, if you are running Nix with flakes, you can run `nix develop` here and then navigate to the plugin folder to compile there.
+### Workspace and further plugins
+Plugins have the core as a dependency.
+Example plugins (also useful for tests) are included in the Rust workspace, but additional plugins may be written as standalone projects.
+They just need to have the core as a dependency.
+
+### Running tests
+Clusters refer to plugins simply by the (absolute) path to a library file.
+This will be different on different machines.
+Therefore, test clusters cannot refer to plugin files directly in their YAML files.
+Rather than using relative paths etc. for these clusters (which would leave absolute paths untested), the clusters' YAML file templates should be run through `envsubst`.
+This happens automatically when the Nix development environment is activated.
 
 ### CI
 Git hooks are versioned, in the `hooks` folder.
