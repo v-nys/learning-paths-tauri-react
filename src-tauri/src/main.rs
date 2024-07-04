@@ -587,6 +587,7 @@ fn merge_clusters(
                     let cluster_name = p.file_name().map(|osstr| osstr.to_owned().into_string());
                     match cluster_name {
                         Some(Ok(cluster_name)) => {
+                            println!("About to invoke build function.");
                             cfs.build(cluster_name).map_err(anyhow::Error::msg)
                         }
                         _ => Err(anyhow::Error::msg(
@@ -596,6 +597,7 @@ fn merge_clusters(
                 }),
             Err(e) => Err(anyhow::Error::new(e)),
         });
+    println!("Got the clusters.");
 
     // step 2: associate individual clusters with separate Petgraph graphs
     let cluster_graph_tuples: Vec<_> = clusters

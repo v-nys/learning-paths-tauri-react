@@ -20,7 +20,7 @@ tauri-plugin-fs-watch = { git = "https://github.com/tauri-apps/plugins-workspace
 petgraph = { version = "0.6", features = [ "serde-1" ] }
 graphviz-rust = "0.6"
 serde_yaml = "0.9"
-anyhow = "1.0.75"
+anyhow = "1.0.86"
 schemars = "0.8.16"
 zip = "0.6.6"
 walkdir = "2.4.0"

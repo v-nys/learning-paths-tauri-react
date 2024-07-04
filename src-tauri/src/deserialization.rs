@@ -259,6 +259,22 @@ impl ClusterForSerialization {
         let nodes: Vec<_> = self.nodes.iter().map(|n| n.build(&folder_name)).collect();
         // turn it into a result for a vector
         let nodes: Result<Vec<_>, _> = nodes.into_iter().collect();
+        println!("about to create new ClusterForSerialization");
+        let node_plugins = load_node_processing_plugins(
+            self.node_plugin_paths
+                .unwrap_or_default()
+                .into_iter()
+                .map(|pfs| domain::UnloadedPlugin {
+                    path: pfs.path,
+                    parameters: pfs.parameters,
+                })
+                .collect(),
+        );
+        println!("Outcome 1: {:#?}", node_plugins);
+        let node_plugins = node_plugins?;
+        println!("Outcome 2: {:#?}", node_plugins);
+        let node_plugins = Rc::new(node_plugins);
+        println!("Done loading node plugins");
         Ok(domain::Cluster {
             namespace_prefix: folder_name.clone(),
             nodes: nodes?,
@@ -296,16 +312,7 @@ impl ClusterForSerialization {
                     })
                     .collect(),
             )?),
-            node_plugins: Rc::new(load_node_processing_plugins(
-                self.node_plugin_paths
-                    .unwrap_or_default()
-                    .into_iter()
-                    .map(|pfs| domain::UnloadedPlugin {
-                        path: pfs.path,
-                        parameters: pfs.parameters,
-                    })
-                    .collect(),
-            )?),
+            node_plugins,
             pre_zip_plugin_paths: self
                 .pre_zip_plugin_paths
                 .unwrap_or_default()
