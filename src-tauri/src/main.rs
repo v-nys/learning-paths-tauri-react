@@ -48,14 +48,14 @@ struct StructuralErrorGrouping {
 
 #[derive(Debug, Serialize)]
 struct UnlockingCondition {
-    allOf: HashSet<NodeID>,
-    oneOf: HashSet<NodeID>,
+    all_of: HashSet<NodeID>,
+    one_of: HashSet<NodeID>,
 }
 
 #[derive(Serialize)]
 struct ReadableUnlockingCondition {
-    allOf: HashSet<String>,
-    oneOf: HashSet<String>,
+    all_of: HashSet<String>,
+    one_of: HashSet<String>,
 }
 
 impl fmt::Display for StructuralErrorGrouping {
@@ -1212,8 +1212,8 @@ fn build_zip(paths: &'_ str, state: tauri::State<'_, AppState>) -> Result<PathBu
                 unlocking_conditions.insert(
                     supercluster_node_id.clone(),
                     Some(UnlockingCondition {
-                        allOf: hard_dependency_ids,
-                        oneOf: soft_dependency_ids,
+                        all_of: hard_dependency_ids,
+                        one_of: soft_dependency_ids,
                     }),
                 );
             }
@@ -1225,13 +1225,13 @@ fn build_zip(paths: &'_ str, state: tauri::State<'_, AppState>) -> Result<PathBu
             (
                 format!("{}", k),
                 v.as_ref().map(|condition| ReadableUnlockingCondition {
-                    allOf: condition
-                        .allOf
+                    all_of: condition
+                        .all_of
                         .iter()
                         .map(|node_id| format!("{}", node_id))
                         .collect(),
-                    oneOf: condition
-                        .oneOf
+                    one_of: condition
+                        .one_of
                         .iter()
                         .map(|node_id| format!("{}", node_id))
                         .collect(),
