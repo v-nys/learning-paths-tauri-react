@@ -194,9 +194,63 @@ pub struct ClusterForSerialization {
     any_type_edges: Option<Vec<Edge>>,
     /// IDs of `Node`s with no dependencies whatsoever, i.e. the only `Node`s which can be accessed unconditionally.
     roots: Option<Vec<String>>,
-    pre_cluster_plugin_paths: Option<Vec<String>>,
-    node_plugin_paths: Option<Vec<String>>,
-    pre_zip_plugin_paths: Option<Vec<String>>,
+    pre_cluster_plugin_paths: Option<Vec<PluginForSerialization>>,
+    node_plugin_paths: Option<Vec<PluginForSerialization>>,
+    pre_zip_plugin_paths: Option<Vec<PluginForSerialization>>,
+}
+
+#[derive(Clone)]
+struct PluginForSerialization {
+    path: String,
+    parameters: HashMap<String, Value>,
+}
+
+impl<'de> Deserialize<'de> for PluginForSerialization {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        struct PluginVisitor;
+
+        impl<'de> Visitor<'de> for PluginVisitor {
+            type Value = PluginForSerialization;
+
+            fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+                formatter.write_str("struct PluginForSerialization")
+            }
+
+            fn visit_map<V>(self, mut map: V) -> Result<PluginForSerialization, V::Error>
+            where
+                V: MapAccess<'de>,
+            {
+                let mut path = None;
+                let mut parameters = HashMap::new();
+
+                while let Some(key) = map.next_key::<String>()? {
+                    match key.as_str() {
+                        "path" => {
+                            if path.is_some() {
+                                return Err(de::Error::duplicate_field("path"));
+                            }
+                            path = Some(map.next_value()?);
+                        }
+                        _ => {
+                            if parameters.contains_key(&key) {
+                                return Err(de::Error::custom(format!(
+                                    "duplicate field: {}",
+                                    &key
+                                )));
+                            }
+                            parameters.insert(key, map.next_value()?);
+                        }
+                    }
+                }
+                let path = path.ok_or_else(|| de::Error::missing_field("path"))?;
+                Ok(PluginForSerialization { path, parameters })
+            }
+        }
+        deserializer.deserialize_map(PluginVisitor)
+    }
 }
 
 impl ClusterForSerialization {
@@ -231,15 +285,36 @@ impl ClusterForSerialization {
                     local_id: root_string,
                 })
                 .collect(),
+            // pre_cluster_... is een Vec<PluginForSerialization>
             pre_cluster_plugins: Rc::new(load_cluster_processing_plugins(
-                self.pre_cluster_plugin_paths.unwrap_or_default(),
+                self.pre_cluster_plugin_paths
+                    .unwrap_or_default()
+                    .into_iter()
+                    .map(|pfs| domain::UnloadedPlugin {
+                        path: pfs.path,
+                        parameters: pfs.parameters,
+                    })
+                    .collect(),
             )),
             node_plugins: Rc::new(load_node_processing_plugins(
-                self.node_plugin_paths.unwrap_or_default(),
+                self.node_plugin_paths
+                    .unwrap_or_default()
+                    .into_iter()
+                    .map(|pfs| domain::UnloadedPlugin {
+                        path: pfs.path,
+                        parameters: pfs.parameters,
+                    })
+                    .collect(),
             )),
             pre_zip_plugin_paths: self
                 .pre_zip_plugin_paths
                 .unwrap_or_default()
+                .into_iter()
+                .map(|pfs| domain::UnloadedPlugin {
+                    path: pfs.path,
+                    parameters: pfs.parameters,
+                })
+                .collect(),
         })
     }
 }

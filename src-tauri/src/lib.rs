@@ -5,7 +5,7 @@ pub mod plugins {
     use libloading::{Library, Symbol};
     use paste;
     use serde_yaml::Value;
-    use std::collections::HashSet;
+    use std::collections::{HashSet, HashMap};
     use std::collections::VecDeque;
     use std::fmt;
     use std::fmt::Debug;
@@ -15,12 +15,13 @@ pub mod plugins {
     #[derive(PartialEq, Eq, Hash, Debug)]
     pub struct ArtifactMapping {
         pub local_file: PathBuf,
-        pub root_relative_target_dir: PathBuf
+        pub root_relative_target_dir: PathBuf,
     }
 
     pub trait Plugin {
         fn get_name(&self) -> &str;
         fn get_version(&self) -> &str;
+        fn set_params(&mut self, params: HashMap<String, Value>);
     }
 
     #[derive(Debug)]
@@ -47,7 +48,6 @@ pub mod plugins {
             field_name: &str,
             value: &Value,
         ) -> Result<HashSet<ArtifactMapping>, NodeProcessingError>;
-
         fn get_mandatory_fields(&self) -> HashSet<String>;
     }
 
@@ -64,8 +64,6 @@ pub mod plugins {
             cluster_paths: Vec<&Path>,
         ) -> Result<HashSet<ArtifactMapping>, anyhow::Error>;
     }
-
-
 
     macro_rules! define_plugin_container {
         ($plugin_trait:ident) => {
@@ -113,16 +111,17 @@ pub mod plugins {
             paste::paste! {
                 // Q: why VecDeque, specifically?
                 pub fn $load_function_name(
-                    paths: Vec<String>,
+                    unloaded_plugins: Vec<domain::UnloadedPlugin>,
                 ) -> VecDeque<[<$plugin_trait Container>]> {
                     let mut plugins = VecDeque::new();
-                    paths.iter().for_each(|path| unsafe {
+                    unloaded_plugins.into_iter().for_each(|domain::UnloadedPlugin { path, parameters }| unsafe {
                         let lib = Library::new(path).expect("Failed to load library");
                         let constructor: Symbol<unsafe extern "C" fn() -> *mut dyn $plugin_trait> =
                             lib.get(b"create_plugin").expect("Failed to find symbol");
-                        let plugin = constructor();
+                        let mut plugin = Box::from_raw(constructor());
+                        plugin.set_params(parameters);
                         plugins.push_back([<$plugin_trait Container>] {
-                            plugin: Box::from_raw(plugin),
+                            plugin,
                             _lib: lib,
                         });
                     });

@@ -35,6 +35,7 @@ use crate::rendering::svgify;
 use learning_paths_tauri_react::domain;
 use learning_paths_tauri_react::domain::{
     EdgeData, EdgeType, Graph, NodeID, StructuralError, TypedEdge,
+    UnloadedPlugin
 };
 
 type SVGSource = String;
@@ -97,7 +98,7 @@ struct RootedSupercluster {
 #[derive(Default)]
 struct AppState {
     supercluster_with_roots:
-        Mutex<Option<(RootedSupercluster, HashSet<ArtifactMapping>, Vec<String>)>>,
+        Mutex<Option<(RootedSupercluster, HashSet<ArtifactMapping>, Vec<UnloadedPlugin>)>>,
 }
 
 /// Given a sequence of filesystem paths, deserialize the cluster represented by each path and optionally run additional validation.
@@ -130,7 +131,7 @@ fn read_contents_with_test_dependencies<'a>(
     paths: &'a str,
     file_is_readable: fn(&Path) -> bool,
     directory_is_readable: fn(&Path) -> bool,
-    mut app_state: MutexGuard<Option<(RootedSupercluster, HashSet<ArtifactMapping>, Vec<String>)>>,
+    mut app_state: MutexGuard<Option<(RootedSupercluster, HashSet<ArtifactMapping>, Vec<UnloadedPlugin>)>>,
 ) -> Vec<(&'a str, Result<(Vec<Comment>, SVGSource), String>)> {
     // in result, first str is "path" (but can also be "supercluster")
     let mut reader = RealFileReader {};
@@ -185,7 +186,7 @@ fn read_contents_with_test_dependencies<'a>(
                 .iter()
                 .filter_map(|c| c.as_ref().ok().map(|triple| &triple.0.pre_zip_plugin_paths))
                 .collect();
-            if pre_zip_plugin_vectors.len() > 1usize {
+            if pre_zip_plugin_vectors.iter().filter(|v| !v.is_empty()).count() > 1usize {
                 supercluster_comments.push(
                     "Multiple clusters define pre-zip plugins. This is not allowed.".to_owned(),
                 );
