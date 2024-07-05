@@ -67,7 +67,8 @@ function App() {
     const [learningPath, setLearningPath] = useState("");
     const [learningPathComments, setLearningPathComments] = useState<string[]>([]);
     const [readResults, setReadResults] = useState(new Map<string, Lv1ReadResult>());
-    const [pathToDisplayOnceRead, setPathToDisplayOnceRead] = useState(undefined);
+    // out of all the paths in the text box, this is the one whose cluster should be displayed
+    const [pathToDisplayOnceRead, setPathToDisplayOnceRead] = useState<string|undefined>(undefined);
     const stopCallbacks = useRef([]);
     // file and settings change really call for the same actions and have same level of precedence, so...
     const [eventToHandle, setEventToHandle] = useState<undefined | "fileorsettingschange" | "pathchange">(undefined);
@@ -123,7 +124,7 @@ function App() {
 
     async function readFileContents() {
         let separatePaths = separateIntoUniquePaths(paths);
-        let svgs = await invoke('read_contents',
+        let svgs: [string, Lv1ReadResult][] = await invoke('read_contents',
             { paths: separatePaths.join(";") });
         let newReadResults = new Map<string, Lv1ReadResult>();
         svgs.forEach((pair) => { newReadResults.set(pair[0], pair[1]); });
@@ -132,7 +133,7 @@ function App() {
 
     async function checkLearningPath() {
         console.debug(learningPath.split(new RegExp("\\s+")).filter((e) => e !== ""));
-        let resultOfCheck = await invoke('check_learning_path_stateful', {
+        let resultOfCheck: string[] = await invoke('check_learning_path_stateful', {
             nodes: learningPath.split(new RegExp("\\s+")).filter((e) => e !== "")
         });
         setLearningPathComments(resultOfCheck);
@@ -152,7 +153,7 @@ function App() {
         if (!separatePaths.length) {
             setPathToDisplayOnceRead(undefined);
         }
-        else if (!separatePaths.includes(pathToDisplayOnceRead)) {
+        else if (pathToDisplayOnceRead && !separatePaths.includes(pathToDisplayOnceRead)) {
             setPathToDisplayOnceRead(separatePaths[0]);
         }
     }, [paths]);
@@ -191,7 +192,7 @@ function App() {
         }
     })(), [loading, eventToHandle]);
 
-    const onOptionChange = (e) => {
+    const onOptionChange: React.ChangeEventHandler<HTMLInputElement> = (e) => {
         setPathToDisplayOnceRead(e.target.value);
     }
 
@@ -263,7 +264,7 @@ function App() {
                 {
                     loading || pathToDisplayOnceRead !== COMPLETE_GRAPH_LABEL || learningPathComments.length > 0 || Array.from(readResults.values()).some((readResult) => readResult.Ok && readResult.Ok[0].length > 0) ?
                         <></> :
-                        <button disabled={zipping} onClick={async (e) => { setZipping(true); let zipResult = await invoke('build_zip', { paths }); console.debug(zipResult); setZipping(false); }}>Zip it!</button>
+                        <button disabled={zipping} onClick={async (_) => { setZipping(true); let zipResult = await invoke('build_zip', { paths }); console.debug(zipResult); setZipping(false); }}>Zip it!</button>
                 }
             </div>
         </>
