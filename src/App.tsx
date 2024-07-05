@@ -78,7 +78,8 @@ function App() {
             }
         }
         const unlisten = appWindow.listen('filechange', onFileChange);
-        return async () => { const fn = await unlisten; fn(); }
+        //return async () => { const fn = await unlisten; fn(); }
+        return () => { unlisten.then((fn) => fn()) }
     });
 
     useEffect(() => {
