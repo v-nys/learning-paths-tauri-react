@@ -204,7 +204,7 @@ function App() {
                             if (v.Err) {
                                 icon = "✖️"
                             }
-                            else if (v.Ok[0].length > 0) {
+                            else if (v.Ok && v.Ok.length > 0 && v.Ok[0].length > 0) {
                                 icon = "⚠️"
                             }
                             return (<div key={k}>
