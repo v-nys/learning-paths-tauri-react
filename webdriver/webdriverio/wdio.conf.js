@@ -20,15 +20,16 @@ exports.config = {
     framework: 'mocha',
     mochaOpts: {
         ui: 'bdd',
-        timeout: 60000,
+        timeout: 5 * 60 * 1000,
     },
 
     // ensure the rust project is built since we expect this binary to exist for the webdriver sessions
     // onPrepare: () => { spawnSync('cargo', ['build', '--workspace', '--release']) },
     onPrepare: () => {
+        console.log("Rebuilding everything. This could take a while if there is no pre-existing build.");
         spawnSync('cargo',
             ['build', '--workspace', '--release'],
-            { cwd: path.join([process.env.FLAKE_DIR, "rust-workspace"]) });
+            { cwd: path.join(process.env.FLAKE_DIR, "rust-workspace") });
         spawnSync('npm',
             ['run', 'tauri', 'build'],
             { cwd: process.env.FLAKE_DIR })
