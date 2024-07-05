@@ -1,5 +1,4 @@
-import { Lv1ReadResult } from './iointerfaces.ts';
-import { Fragment } from 'react';
+import { Lv1ReadResult } from './iointerfaces';
 
 export interface ReadResultProps {
   value: Lv1ReadResult
