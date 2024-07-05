@@ -68,8 +68,8 @@ function App() {
     const [learningPathComments, setLearningPathComments] = useState<string[]>([]);
     const [readResults, setReadResults] = useState(new Map<string, Lv1ReadResult>());
     // out of all the paths in the text box, this is the one whose cluster should be displayed
-    const [pathToDisplayOnceRead, setPathToDisplayOnceRead] = useState<string|undefined>(undefined);
-    const stopCallbacks = useRef([]);
+    const [pathToDisplayOnceRead, setPathToDisplayOnceRead] = useState<string | undefined>(undefined);
+    const stopCallbacks = useRef<(() => void)[]>([]);
     // file and settings change really call for the same actions and have same level of precedence, so...
     const [eventToHandle, setEventToHandle] = useState<undefined | "fileorsettingschange" | "pathchange">(undefined);
     /* Setting the type of event to handle is different depending on situation.
@@ -105,14 +105,15 @@ function App() {
 
     async function startWatching() {
         const separatePaths = separateIntoUniquePaths(paths);
-        console.debug("SEPARATED");
         const newStopcallbacks = [];
         try {
-            const association = await invoke('associate_parents_children', { paths: separatePaths.join(";") });
-            console.debug(association);
-            // this is an object, not a map!
-            for (const parent in association) {
-                const children = association[parent];
+            // an object whose type cannot be expressed with TS
+            // keys are paths...
+            const association: any = await invoke('associate_parents_children',
+                { paths: separatePaths.join(";") }
+            );
+            const association_map: Map<string, string[]> = new Map(Object.entries(association));
+            for (const [parent, children] of association_map.entries()) {
                 newStopcallbacks.push(await waitForEvents(parent, children));
             }
         }
@@ -245,7 +246,7 @@ function App() {
 
                 }
                 {
-                    readResults.get(pathToDisplayOnceRead) ?
+                    pathToDisplayOnceRead && readResults.get(pathToDisplayOnceRead) ?
                         (loading ?
                             <p>Loading</p> :
                             <ReadResult value={readResults.get(pathToDisplayOnceRead)} />) :
