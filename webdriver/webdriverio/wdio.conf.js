@@ -6,34 +6,42 @@ const { spawn, spawnSync } = require('child_process')
 let tauriDriver
 
 exports.config = {
-  specs: ['./test/specs/**/*.js'],
-  maxInstances: 1,
-  capabilities: [
-    {
-      maxInstances: 1,
-      'tauri:options': {
-        application: '../../rust-workspace/target/release/learning-paths-tauri-react',
-      },
+    specs: ['./test/specs/**/*.js'],
+    maxInstances: 1,
+    capabilities: [
+        {
+            maxInstances: 1,
+            'tauri:options': {
+                application: '../../rust-workspace/target/release/learning-paths-tauri-react',
+            },
+        },
+    ],
+    reporters: ['spec'],
+    framework: 'mocha',
+    mochaOpts: {
+        ui: 'bdd',
+        timeout: 60000,
     },
-  ],
-  reporters: ['spec'],
-  framework: 'mocha',
-  mochaOpts: {
-    ui: 'bdd',
-    timeout: 60000,
-  },
 
-  // ensure the rust project is built since we expect this binary to exist for the webdriver sessions
-  onPrepare: () => spawnSync('cargo', ['build', '--workspace', '--release']),
+    // ensure the rust project is built since we expect this binary to exist for the webdriver sessions
+    // onPrepare: () => { spawnSync('cargo', ['build', '--workspace', '--release']) },
+    onPrepare: () => {
+        spawnSync('cargo',
+            ['build', '--workspace', '--release'],
+            { cwd: path.join([process.env.FLAKE_DIR, "rust-workspace"]) });
+        spawnSync('npm',
+            ['run', 'tauri', 'build'],
+            { cwd: process.env.FLAKE_DIR })
+    },
 
-  // ensure we are running `tauri-driver` before the session starts so that we can proxy the webdriver requests
-  beforeSession: () =>
+    // ensure we are running `tauri-driver` before the session starts so that we can proxy the webdriver requests
+    beforeSession: () =>
     (tauriDriver = spawn(
-      path.resolve(os.homedir(), '.cargo', 'bin', 'tauri-driver'),
-      [],
-      { stdio: [null, process.stdout, process.stderr] }
+        path.resolve(os.homedir(), '.cargo', 'bin', 'tauri-driver'),
+        [],
+        { stdio: [null, process.stdout, process.stderr] }
     )),
 
-  // clean up the `tauri-driver` process we spawned at the start of the session
-  afterSession: () => tauriDriver.kill(),
+    // clean up the `tauri-driver` process we spawned at the start of the session
+    afterSession: () => tauriDriver.kill(),
 }
