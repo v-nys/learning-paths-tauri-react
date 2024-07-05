@@ -16,11 +16,19 @@ Example plugins (also useful for tests) are included in the Rust workspace, but 
 They just need to have the core as a dependency.
 
 ### Running tests
+
+#### Unit tests
 Clusters refer to plugins simply by the (absolute) path to a library file.
 This will be different on different machines.
 Therefore, test clusters cannot refer to plugin files directly in their YAML files.
 Rather than using relative paths etc. for these clusters (which would leave absolute paths untested), the clusters' YAML file templates should be run through `envsubst`.
 This happens automatically when the Nix development environment is activated.
+
+#### End-to-end tests
+End-to-end tests using Webdriver are present.
+From the `webdriver/webdriverio` folder, run `npm test`.
+This assumes some setup (performed mainly by the flake).
+See [the Tauri docs on the subject](https://tauri.app/v1/guides/testing/webdriver/example/webdriverio).
 
 ### CI
 Git hooks are versioned, in the `hooks` folder.
