@@ -7,11 +7,6 @@ import { appWindow } from "@tauri-apps/api/window";
 import { watch, DebouncedEvent } from "tauri-plugin-fs-watch-api";
 import "./App.css";
 
-interface Association {
-    Ok?: object,
-    Err?: string
-}
-
 function separateIntoUniquePaths(paths: string) {
     let separatePaths = paths.split(";").map((p) => p.trim()).filter((p) => p !== "");
     return [...new Set(separatePaths)];
@@ -197,6 +192,45 @@ function App() {
         setPathToDisplayOnceRead(e.target.value);
     }
 
+    const buttonSection =
+        loading ?
+            <p>Please hold</p> :
+            <div className="row">
+                {
+                    /* Could split into separate component? */
+                    Array.from(readResults.entries())
+                        .map(([k, v]) => {
+                            let icon = "✅";
+                            if (v.Err) {
+                                icon = "✖️"
+                            }
+                            else if (v.Ok[0].length > 0) {
+                                icon = "⚠️"
+                            }
+                            return (<div key={k}>
+                                <input
+                                    name="active-path"
+                                    type="radio"
+                                    id={`radio-button-${k}`}
+                                    value={k}
+                                    checked={pathToDisplayOnceRead === k}
+                                    onChange={onOptionChange}
+                                />
+                                <label htmlFor={`radio-button-${k}`}>{commonPrefix !== k && k !== COMPLETE_GRAPH_LABEL ? `...${k.substring(commonPrefix.length)}` : k} {icon}</label>
+                            </div>
+                            )
+                        })
+                }
+            </div>
+    const displayedResult = pathToDisplayOnceRead && readResults.get(pathToDisplayOnceRead);
+    const readResultSection =
+        displayedResult ?
+            (loading ?
+                <p>Loading</p> :
+                <ReadResult
+                    value={displayedResult} />) :
+            <p>Cannot display anything with this input.</p>
+
     return (
         <>
             <div className="container">
@@ -206,52 +240,8 @@ function App() {
                     placeholder="Enter &quot;;&quot;-separated paths"
                 />
 
-                {
-                    loading ?
-                        <p>Please hold</p> :
-                        <div className="row">
-                            {
-                                /* Could split into separate component?
-                                 * long paths are irritating, by the way
-                                 * could compute common prefix for everything but complete graph
-                                 * would do this by folding
-                                 */
-
-                                Array.from(readResults.entries())
-                                    .map(([k, v]) => {
-                                        let icon = "✅";
-                                        if (v.Err) {
-                                            icon = "✖️"
-                                        }
-                                        else if (v.Ok[0].length > 0) {
-                                            icon = "⚠️"
-                                        }
-                                        return (<div key={k}>
-                                            <input
-                                                name="active-path"
-                                                type="radio"
-                                                id={`radio-button-${k}`}
-                                                value={k}
-                                                checked={pathToDisplayOnceRead === k}
-                                                onChange={onOptionChange}
-                                            />
-                                            <label htmlFor={`radio-button-${k}`}>{commonPrefix !== k && k !== COMPLETE_GRAPH_LABEL ? `...${k.substring(commonPrefix.length)}` : k} {icon}</label>
-                                        </div>
-                                        )
-                                    })
-                            }
-                        </div>
-
-
-
-                }
-                {
-                    pathToDisplayOnceRead && readResults.get(pathToDisplayOnceRead) ?
-                        (loading ?
-                            <p>Loading</p> :
-                            <ReadResult value={readResults.get(pathToDisplayOnceRead)} />) :
-                        <p>Cannot display anything with this input.</p>
-                }
+                {buttonSection}
+                {readResultSection}
                 {
                     loading || pathToDisplayOnceRead !== COMPLETE_GRAPH_LABEL ?
                         <></> :
