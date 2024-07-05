@@ -2,7 +2,7 @@
 name = "learning-paths-tauri-react"
 version = "0.0.0"
 description = "A Tauri App"
-authors = ["you"]
+authors = ["Vincent Nys"]
 license = ""
 repository = ""
 edition = "2021"
