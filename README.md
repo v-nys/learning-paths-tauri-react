@@ -2,14 +2,20 @@
 This project analyzes and visualizes YAML-encoded learning paths. Learning paths tie together specific bits of material using "any" and "all" edges and are visualized in a Tauri application.
 
 ## Getting started
-Make sure you meet [the prerequisites for Tauri apps](https://tauri.app/v1/guides/getting-started/prerequisites). Also make sure you have graphviz installed.
+Make sure you meet [the prerequisites for Tauri apps](https://tauri.app/v1/guides/getting-started/prerequisites).
 
-Set the environment variable `FLAKE_DIR` to the project root (the Nix flake does this automatically if you are running NixOS).
-Also install `libsoup2.4-dev`.
-Run `envsubst` as in the flake.
-From the project root, run `npm run tauri dev`.
-Check all checks that should be performed (unchecking is mainly useful if some checks are too expensive) and enter the file paths to the clusters involved in the learning path.
+Follow system-specific instruction below.
 
+Enter the file paths to the clusters involved in the learning path, separated by ";".
+
+### Ubuntu 22.04
+Set the environment variable `FLAKE_DIR` to the project root.
+You will need `npm` (tested version: 20).
+Also install `graphviz`.
+Run `envsubst` as in the Nix flake.
+From the project root, run `npm run tauri dev` and the application should start.
+
+### NixOS
 If you are running Nix with flakes, just run `nix develop` from the project root and `npm run tauri dev` should then work fine from that shell. Dependencies other than Rust itself are handled by the flake.
 
 ## Development
