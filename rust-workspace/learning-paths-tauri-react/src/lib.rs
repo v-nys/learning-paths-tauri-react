@@ -12,7 +12,7 @@ pub mod plugins {
     use std::ops::Deref;
     use std::path::{Path, PathBuf};
 
-    #[derive(PartialEq, Eq, Hash, Debug)]
+    #[derive(PartialEq, Eq, Hash, Debug, Clone)]
     pub struct ArtifactMapping {
         pub local_file: PathBuf,
         pub root_relative_target_dir: PathBuf,

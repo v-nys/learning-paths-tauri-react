@@ -11,3 +11,5 @@ any_type_edges:
     end_id: implementation
 roots:
   - intro
+pre_cluster_plugin_paths:
+  - path: "$FLAKE_DIR/rust-workspace/target/release/libmarkdown_rendering_plugin.so"

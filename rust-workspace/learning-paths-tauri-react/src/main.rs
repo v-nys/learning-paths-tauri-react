@@ -476,21 +476,8 @@ fn process_and_comment_cluster(
     cluster.pre_cluster_plugins.iter().for_each(|p| {
         p.process_cluster(cluster_path);
     });
-    let contents_path = cluster_path.join("contents.lc.yaml");
-    let cluster_contents =
-        std::fs::read_to_string(&contents_path).expect("Has to be there. Deal with absence later.");
-    let yaml2json = Yaml2Json::new(yaml2json_rs::Style::PRETTY);
-    let json_contents = yaml2json.document_to_string(&cluster_contents);
-    std::fs::write(
-        &cluster_path.join("contents.lc.json"),
-        json_contents.expect("Conversion should not be an issue"),
-    );
     artifacts.insert(ArtifactMapping {
         local_file: cluster_path.join("contents.lc.yaml"),
-        root_relative_target_dir: PathBuf::from(cluster.namespace_prefix.clone()),
-    });
-    artifacts.insert(ArtifactMapping {
-        local_file: cluster_path.join("contents.lc.json"),
         root_relative_target_dir: PathBuf::from(cluster.namespace_prefix.clone()),
     });
     let mandatory_fields: HashSet<_> = cluster
@@ -1031,13 +1018,42 @@ fn build_zip(paths: &'_ str, state: tauri::State<'_, AppState>) -> Result<PathBu
     let absolute_cluster_dirs: Vec<_> = paths.split(";").map(PathBuf::from).collect();
     let mut zip = zip::ZipWriter::new(zip_file);
 
-    let mutex_guard = state
+    let mut mutex_guard = state
         .supercluster_with_roots
         .lock()
         .expect("Should always be able to gain access eventually.");
+
+    {
+        // create a contents.lc.json corresponding to each contents.lc.yaml
+        // just simplifies processing on other end
+        let (_, artifacts, _) = mutex_guard
+            .as_mut()
+            .expect("Should only be possible to invoke this command when there is a supercluster.");
+        let added_artifacts: HashSet<_> = artifacts
+            .iter()
+            .filter_map(|artifact| {
+                if artifact
+                    .local_file
+                    .file_name()
+                    .is_some_and(|os_str| os_str.to_string_lossy() == "contents.lc.yaml")
+                {
+                    let mut clone = artifact.clone();
+                    clone.local_file.set_extension("json");
+                    Some(clone)
+                } else {
+                    None
+                }
+            })
+            .collect();
+        added_artifacts.into_iter().for_each(|modified_clone| {
+            artifacts.insert(modified_clone);
+        });
+    }
+
     let (supercluster, artifacts, pre_zip_plugin_paths) = mutex_guard
         .as_ref()
         .expect("Should only be possible to invoke this command when there is a supercluster.");
+
     let pre_zip_plugins =
         load_pre_zip_plugins(pre_zip_plugin_paths.iter().map(|p| p.clone()).collect())
             .map_err(|e| format!("{:#?}", e))?;
