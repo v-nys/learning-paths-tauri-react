@@ -35,10 +35,8 @@ Rather than using relative paths etc. for these clusters (which would leave abso
 This happens automatically when the Nix development environment is activated.
 
 #### End-to-end tests
-End-to-end tests using Webdriver are present.
-From the `webdriver/webdriverio` folder, run `npm test`.
-This assumes some setup (performed mainly by the flake).
-See [the Tauri docs on the subject](https://tauri.app/v1/guides/testing/webdriver/example/webdriverio).
+Unfortunately, I am having trouble running Tauri end-to-end tests.
+There will be some mention of them in the project history, but they do not work at the current time.
 
 ### CI
 Git hooks are versioned, in the `hooks` folder.
