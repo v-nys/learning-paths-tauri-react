@@ -31,7 +31,7 @@
         "icons/icon.ico"
       ],
       "identifier": "com.programmingemu.learningpaths",
-      "targets": "all"
+      "targets": ["deb", "msi"]
     },
     "security": {
       "csp": null
