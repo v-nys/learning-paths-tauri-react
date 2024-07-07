@@ -1024,8 +1024,6 @@ fn build_zip(paths: &'_ str, state: tauri::State<'_, AppState>) -> Result<PathBu
         .expect("Should always be able to gain access eventually.");
 
     {
-        // create a contents.lc.json corresponding to each contents.lc.yaml
-        // just simplifies processing on other end
         let (_, artifacts, _) = mutex_guard
             .as_mut()
             .expect("Should only be possible to invoke this command when there is a supercluster.");
@@ -1045,6 +1043,18 @@ fn build_zip(paths: &'_ str, state: tauri::State<'_, AppState>) -> Result<PathBu
                 }
             })
             .collect();
+        absolute_cluster_dirs.iter().for_each(|cluster_path| {
+            let contents_path = cluster_path.join("contents.lc.yaml");
+            let cluster_contents = std::fs::read_to_string(&contents_path)
+                .expect("Has to be there. Deal with absence later.");
+            let yaml2json = Yaml2Json::new(yaml2json_rs::Style::PRETTY);
+            let json_contents = yaml2json.document_to_string(&cluster_contents);
+            std::fs::write(
+                &cluster_path.join("contents.lc.json"),
+                json_contents.expect("Conversion should not be an issue"),
+            );
+        });
+
         added_artifacts.into_iter().for_each(|modified_clone| {
             artifacts.insert(modified_clone);
         });
