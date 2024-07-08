@@ -474,7 +474,7 @@ fn process_and_comment_cluster(
     let mut remarks: Vec<String> = vec![];
     let cluster_path = Path::new(cluster_path);
     cluster.pre_cluster_plugins.iter().for_each(|p| {
-        p.process_cluster(cluster_path);
+        let _ = p.process_cluster(cluster_path); // TODO: use Result
     });
     artifacts.insert(ArtifactMapping {
         local_file: cluster_path.join("contents.lc.yaml"),
@@ -1049,7 +1049,8 @@ fn build_zip(paths: &'_ str, state: tauri::State<'_, AppState>) -> Result<PathBu
                 .expect("Has to be there. Deal with absence later.");
             let yaml2json = Yaml2Json::new(yaml2json_rs::Style::PRETTY);
             let json_contents = yaml2json.document_to_string(&cluster_contents);
-            std::fs::write(
+            // TODO: use Result
+            let _ = std::fs::write(
                 &cluster_path.join("contents.lc.json"),
                 json_contents.expect("Conversion should not be an issue"),
             );
@@ -1159,8 +1160,8 @@ fn build_zip(paths: &'_ str, state: tauri::State<'_, AppState>) -> Result<PathBu
             });
         }
 
-        zip.start_file("serialized_complete_graph.yaml", options);
-        zip.write(serialized.as_bytes());
+        let _ = zip.start_file("serialized_complete_graph.yaml", options); // TODO: use result
+        let _ = zip.write(serialized.as_bytes()); // same
     }
 
     let (
@@ -1181,7 +1182,7 @@ fn build_zip(paths: &'_ str, state: tauri::State<'_, AppState>) -> Result<PathBu
     let mut unlocking_conditions: HashMap<NodeID, Option<UnlockingCondition>> = HashMap::new();
     let roots = &supercluster.roots;
     supercluster.graph.node_references().for_each(
-        |(supercluster_node_index, (supercluster_node_id, _))| {
+        |(_supercluster_node_index, (supercluster_node_id, _))| {
             if roots.contains(supercluster_node_id) {
                 unlocking_conditions.insert(supercluster_node_id.clone(), None);
             } else {
