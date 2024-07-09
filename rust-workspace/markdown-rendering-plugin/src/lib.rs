@@ -1,3 +1,6 @@
+#![allow(improper_ctypes_definitions)]
+#![allow(deprecated)]
+
 extern crate learning_paths_tauri_react;
 
 use std::collections::{HashMap, HashSet};
@@ -12,7 +15,6 @@ use std::time::SystemTime;
 use std::{
     cmp::Ordering,
     fs,
-    fs::File,
     path::{Path, PathBuf},
 };
 use walkdir::WalkDir;
@@ -85,9 +87,9 @@ fn get_modification_date(path: &PathBuf) -> Option<SystemTime> {
     }
 }
 
-fn file_is_readable(file_path: &Path) -> bool {
-    file_path.is_file() && File::open(file_path).is_ok()
-}
+// fn file_is_readable(file_path: &Path) -> bool {
+//     file_path.is_file() && File::open(file_path).is_ok()
+// }
 
 impl Plugin for MarkdownRenderingPlugin {
     fn get_name(&self) -> &str {

@@ -1,3 +1,5 @@
+#![allow(improper_ctypes_definitions)]
+
 extern crate learning_paths_tauri_react;
 
 use std::path::PathBuf;
@@ -19,7 +21,7 @@ pub struct AssignmentsPlugin {
 #[derive(Deserialize, Debug, Clone)]
 struct Assignment {
     id: String,
-    title: Option<String>,
+    //title: Option<String>,
     attachments: Option<Vec<String>>, // TODO: best ook "vlak" houden, want path separator betekent incompatibiliteit Windows - UNIX...
 }
 
