@@ -37,8 +37,21 @@ jobs:
       - name: install Graphviz (cross-platform)
         uses: tlylt/install-graphviz@0a390a67cceaf17eb1ef1736c24c360249a6b9e9
 
+      - name: install Tarpaulin # for test coverage
+        run: cargo install cargo-tarpaulin
+
+      - name: run tests
+        if: matrix.platform == 'ubuntu-22.04' # just doing this for one platform
+        run: cd rust-workspace && cargo tarpaulin --all --out Html
+
       - name: install NPM packages
         run: npm install
+
+      - name: upload coverage
+        if: matrix.platform == 'ubuntu-22.04' # just doing this for one platform
+        uses: actions/upload-artifact@v4
+        with:
+          path: rust-workspace/tarpaulin-report.html
 
       # note: does not build plugins!
       - uses: JonasKruckenberg/tauri-build@669b9aca35627e3d00721626aa543ca75cf49a13
