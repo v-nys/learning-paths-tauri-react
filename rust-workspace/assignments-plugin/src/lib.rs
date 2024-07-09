@@ -3,7 +3,6 @@ extern crate learning_paths_tauri_react;
 use std::path::PathBuf;
 use std::collections::{HashSet, HashMap};
 use std::fs::File;
-use anyhow;
 
 use learning_paths_tauri_react::domain;
 use learning_paths_tauri_react::plugins::{
