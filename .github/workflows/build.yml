@@ -13,6 +13,8 @@ jobs:
 
   test:
     runs-on: ubuntu-22.04
+    outputs:
+      report: ${{ steps.artifact-upload-step.outputs.artifact-url }}
     steps:
       - uses: actions/checkout@v4
 
@@ -36,6 +38,7 @@ jobs:
         run: cd rust-workspace && cargo tarpaulin --all --out Html
 
       - name: upload coverage
+        id: artifact-upload-step
         uses: actions/upload-artifact@v4
         with:
           path: rust-workspace/tarpaulin-report.html
@@ -74,4 +77,8 @@ jobs:
       - uses: JonasKruckenberg/tauri-build@669b9aca35627e3d00721626aa543ca75cf49a13
         id: tauri_build
 
-
+      - name: upload plugins
+        if: matrix.platform == 'ubuntu-22.04'
+        uses: actions/upload-artifact@v4
+        with:
+          path: rust-workspace/target/release/*.so
