@@ -9,7 +9,6 @@ use petgraph::visit::IntoNeighbors;
 use serde::Serialize;
 use std::collections::HashSet;
 use std::io::{Read, Write};
-use yaml2json_rs::Yaml2Json;
 use zip::write::FileOptions;
 use zip::CompressionMethod;
 
@@ -573,7 +572,6 @@ fn merge_clusters(
                     let cluster_name = p.file_name().map(|osstr| osstr.to_owned().into_string());
                     match cluster_name {
                         Some(Ok(cluster_name)) => {
-                            println!("About to invoke build function.");
                             cfs.build(cluster_name).map_err(anyhow::Error::msg)
                         }
                         _ => Err(anyhow::Error::msg(
@@ -583,7 +581,6 @@ fn merge_clusters(
                 }),
             Err(e) => Err(anyhow::Error::new(e)),
         });
-    println!("Got the clusters.");
 
     // step 2: associate individual clusters with separate Petgraph graphs
     let cluster_graph_tuples: Vec<_> = clusters
@@ -1017,52 +1014,12 @@ fn build_zip(paths: &'_ str, state: tauri::State<'_, AppState>) -> Result<PathBu
     // copy clusters into zipped folder
     let absolute_cluster_dirs: Vec<_> = paths.split(";").map(PathBuf::from).collect();
     let mut zip = zip::ZipWriter::new(zip_file);
-
     let mut mutex_guard = state
         .supercluster_with_roots
         .lock()
         .expect("Should always be able to gain access eventually.");
-
-    {
-        let (_, artifacts, _) = mutex_guard
-            .as_mut()
-            .expect("Should only be possible to invoke this command when there is a supercluster.");
-        let added_artifacts: HashSet<_> = artifacts
-            .iter()
-            .filter_map(|artifact| {
-                if artifact
-                    .local_file
-                    .file_name()
-                    .is_some_and(|os_str| os_str.to_string_lossy() == "contents.lc.yaml")
-                {
-                    let mut clone = artifact.clone();
-                    clone.local_file.set_extension("json");
-                    Some(clone)
-                } else {
-                    None
-                }
-            })
-            .collect();
-        absolute_cluster_dirs.iter().for_each(|cluster_path| {
-            let contents_path = cluster_path.join("contents.lc.yaml");
-            let cluster_contents = std::fs::read_to_string(&contents_path)
-                .expect("Has to be there. Deal with absence later.");
-            let yaml2json = Yaml2Json::new(yaml2json_rs::Style::PRETTY);
-            let json_contents = yaml2json.document_to_string(&cluster_contents);
-            // TODO: use Result
-            let _ = std::fs::write(
-                &cluster_path.join("contents.lc.json"),
-                json_contents.expect("Conversion should not be an issue"),
-            );
-        });
-
-        added_artifacts.into_iter().for_each(|modified_clone| {
-            artifacts.insert(modified_clone);
-        });
-    }
-
     let (supercluster, artifacts, pre_zip_plugin_paths) = mutex_guard
-        .as_ref()
+        .as_mut()
         .expect("Should only be possible to invoke this command when there is a supercluster.");
 
     let pre_zip_plugins =
@@ -1075,6 +1032,7 @@ fn build_zip(paths: &'_ str, state: tauri::State<'_, AppState>) -> Result<PathBu
                     .iter()
                     .map(|pb| pb.as_path())
                     .collect(),
+                artifacts
             )
             .map_err(|e| format!("{:#?}", e))?;
     }
@@ -1085,7 +1043,7 @@ fn build_zip(paths: &'_ str, state: tauri::State<'_, AppState>) -> Result<PathBu
     for ArtifactMapping {
         local_file,
         root_relative_target_dir,
-    } in artifacts
+    } in artifacts.iter()
     {
         zip.start_file(
             root_relative_target_dir

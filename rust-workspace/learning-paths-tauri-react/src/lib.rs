@@ -62,7 +62,8 @@ pub mod plugins {
         fn process_project(
             &self,
             cluster_paths: Vec<&Path>,
-        ) -> Result<HashSet<ArtifactMapping>, anyhow::Error>;
+            artifacts: &mut HashSet<ArtifactMapping>,
+        ) -> Result<(), anyhow::Error>;
     }
 
     macro_rules! define_plugin_container {

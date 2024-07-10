@@ -77,6 +77,12 @@ jobs:
       - uses: JonasKruckenberg/tauri-build@669b9aca35627e3d00721626aa543ca75cf49a13
         id: tauri_build
 
+      - name: upload installer
+        if: matrix.platform == 'ubuntu-22.04'
+        uses: actions/upload-artifact@v4
+        with:
+          path: rust-workspace/target/release/bundle/deb/*.deb
+
       - name: upload plugins
         if: matrix.platform == 'ubuntu-22.04'
         uses: actions/upload-artifact@v4

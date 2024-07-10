@@ -1,0 +1,15 @@
+[package]
+name = "moodle-format-plugin"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+anyhow = "1.0.86"
+serde = "1.0.204"
+serde_yaml = "0.9.34"
+learning-paths-tauri-react = { path = "../learning-paths-tauri-react/" }
+yaml2json-rs = "0.4.0"

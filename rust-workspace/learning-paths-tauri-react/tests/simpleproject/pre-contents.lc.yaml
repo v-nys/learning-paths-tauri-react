@@ -13,3 +13,5 @@ roots:
   - intro
 pre_cluster_plugin_paths:
   - path: "$FLAKE_DIR/rust-workspace/target/release/libmarkdown_rendering_plugin.so"
+pre_zip_plugin_paths:
+  - path: "$FLAKE_DIR/rust-workspace/target/release/libmoodle_format_plugin.so"
