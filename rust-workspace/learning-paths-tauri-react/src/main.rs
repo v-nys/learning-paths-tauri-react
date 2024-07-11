@@ -148,26 +148,32 @@ fn read_contents_with_test_dependencies<'a>(
     let supercluster_result =
         read_all_clusters_with_test_dependencies::<RealFileReader>(paths, &mut reader);
     if let Ok(composition) = supercluster_result.as_ref() {
-        let _ = app_state.insert((composition.supercluster.clone(), HashSet::new(), vec![], composition.composition.iter().map(|triple| { triple.0 }).collect()));
+        let _ = app_state.insert((
+            composition.supercluster.clone(),
+            HashSet::new(),
+            vec![],
+            composition
+                .composition
+                .iter()
+                .map(|triple| triple.0)
+                .collect(),
+        ));
     }
     let components: Vec<anyhow::Result<ClusterDAGRootsTriple>> = match supercluster_result {
-        Ok(composition) => {
-            composition.composition.into_iter().map(Result::Ok).collect()
-        },
-        Err(breakdown) => {
-            breakdown.component_results
-        }
+        Ok(composition) => composition
+            .composition
+            .into_iter()
+            .map(Result::Ok)
+            .collect(),
+        Err(breakdown) => breakdown.component_results,
     };
     let components_svgs: Vec<_> = components
         .iter()
         .map(|result| result.as_ref().ok().map(|component| svgify(&component.1)))
         .collect();
-    let supercluster_svg = supercluster_result.map(|composition| {
-        svgify(&composition.supercluster.graph)
-    });
+    let supercluster_svg =
+        supercluster_result.map(|composition| svgify(&composition.supercluster.graph));
 
-    // step 3: link each path to a bunch of comments
-    // this involves running extensions, so collect their outputs in one go
     let paths = paths.split(";");
     let paths_and_component_graphs = paths.clone().map(|p| PathBuf::from(p)).zip(&components);
     let mut artifacts = HashSet::new();
@@ -190,48 +196,39 @@ fn read_contents_with_test_dependencies<'a>(
         .collect();
     let mut supercluster_comments = vec![];
 
-
-    // TODO: took a break here
-    // need to accommodate new structure (type which guarantees components are valid if
-    // supercluster is valid, i.e. Result<SuperclusterComposition, SuperclusterErrorBreakdown>)
-    match supercluster_result {
-        Ok(SuperclusterComposition { composition, supercluster }) => {
-            todo!("complete")
-        }
-        Err(SuperclusterErrorBreakdown { supercluster_error, component_results }) => {
-            todo!("complete")
-        }
-
-    }
-    match supercluster.as_ref() {
-        Ok(supercluster) => {
-            let state_contents = app_state.insert((supercluster.clone(), artifacts, vec![]));
-            let pre_zip_plugin_vectors: Vec<_> = components
+    if let Ok(SuperclusterComposition {
+        composition,
+        supercluster,
+    }) = supercluster_result
+    {
+        let state_contents = app_state.insert((
+            supercluster.clone(),
+            artifacts,
+            vec![],
+            composition.into_iter().map(|triple| triple.0).collect(),
+        ));
+        let pre_zip_plugin_vectors: Vec<_> = components
+            .iter()
+            .filter_map(|c| c.as_ref().ok().map(|triple| &triple.0.pre_zip_plugin_paths))
+            .collect();
+        if pre_zip_plugin_vectors
+            .iter()
+            .filter(|v| !v.is_empty())
+            .count()
+            > 1usize
+        {
+            supercluster_comments
+                .push("Multiple clusters define pre-zip plugins. This is not allowed.".to_owned());
+        } else {
+            state_contents.2 = pre_zip_plugin_vectors
                 .iter()
-                .filter_map(|c| c.as_ref().ok().map(|triple| &triple.0.pre_zip_plugin_paths))
+                .flat_map(|c| c.iter())
+                .map(|p| p.clone())
                 .collect();
-            if pre_zip_plugin_vectors
-                .iter()
-                .filter(|v| !v.is_empty())
-                .count()
-                > 1usize
-            {
-                supercluster_comments.push(
-                    "Multiple clusters define pre-zip plugins. This is not allowed.".to_owned(),
-                );
-            } else {
-                state_contents.2 = pre_zip_plugin_vectors
-                    .iter()
-                    .flat_map(|c| c.iter())
-                    .map(|p| p.clone())
-                    .collect();
-            }
         }
-        _ => {}
-    }
-    if let Ok(ref supercluster) = supercluster {
         comment_graph(&supercluster.graph, &mut supercluster_comments);
     }
+
     let expectation = "Should only be None if component_result is Err.";
     let mut path_result_tuples: Vec<_> = paths
         .zip(components)
@@ -248,8 +245,9 @@ fn read_contents_with_test_dependencies<'a>(
         .collect();
     let supercluster_tuple = (
         "Supercluster",
-        supercluster
-            .map(|_| CommentsSvgTuple(supercluster_comments, supercluster_svg.expect(expectation))),
+        supercluster_result
+            .map(|_| CommentsSvgTuple(supercluster_comments, supercluster_svg.expect(expectation)))
+            .map_err(|breakdown| anyhow::format_err!("{:#?}", breakdown)),
     );
     path_result_tuples.push(supercluster_tuple);
     // translate into simpler data types
@@ -294,6 +292,7 @@ struct SuperclusterComposition {
     supercluster: RootedSupercluster,
 }
 
+#[derive(Debug)]
 struct SuperclusterErrorBreakdown {
     supercluster_error: anyhow::Error,
     component_results: Vec<anyhow::Result<ClusterDAGRootsTriple>>,
@@ -648,30 +647,6 @@ fn merge_clusters(
             component_results: cluster_graph_tuples,
         }),
     }
-
-    // step 4: compute the supercluster
-    /*let supercluster = cluster_graph_pairs_result
-        .and_then(|triples| {
-            merge_into_supercluster(&triples).map(|graph| {
-                (
-                    graph,
-                    triples.iter().flat_map(|triple| triple.2.clone()).collect(),
-                )
-            })
-        })
-        .and_then(|(graph, all_roots)| {
-            toposort(&graph, None)
-                .map_err(|cycle| {
-                    anyhow::Error::from(StructuralError::Cycle(
-                        graph.index(cycle.node_id()).0.clone(),
-                    ))
-                })
-                .map(|_| RootedSupercluster {
-                    graph,
-                    roots: all_roots,
-                })
-        });
-    (cluster_graph_tuples, supercluster)*/
 }
 
 fn associate_with_dag(cluster: domain::Cluster) -> Result<ClusterDAGRootsTriple, anyhow::Error> {
@@ -1074,7 +1049,7 @@ fn build_zip(paths: &'_ str, state: tauri::State<'_, AppState>) -> Result<PathBu
         .supercluster_with_roots
         .lock()
         .expect("Should always be able to gain access eventually.");
-    let (supercluster, artifacts, pre_zip_plugin_paths, component_clusters) = mutex_guard
+    let (supercluster, artifacts, pre_zip_plugin_paths, _component_clusters) = mutex_guard
         .as_mut()
         .expect("Should only be possible to invoke this command when there is a supercluster.");
 

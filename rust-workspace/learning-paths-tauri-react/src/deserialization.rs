@@ -2,6 +2,7 @@ use lazy_regex::regex;
 use learning_paths_tauri_react::plugins::{
     load_cluster_processing_plugins, load_node_processing_plugins,
 };
+use std::sync::Arc;
 use schemars::JsonSchema;
 use serde::de::{self, MapAccess, Visitor};
 use serde::Deserialize;
@@ -9,7 +10,6 @@ use serde::Deserializer;
 use serde_yaml::Value;
 use std::collections::HashMap;
 use std::fmt;
-use std::rc::Rc;
 
 use crate::domain;
 
@@ -271,7 +271,7 @@ impl ClusterForSerialization {
         println!("Outcome 1: {:#?}", node_plugins);
         let node_plugins = node_plugins.map_err(|e| anyhow::format_err!(e))?;
         println!("Outcome 2: {:#?}", node_plugins);
-        let node_plugins = Rc::new(node_plugins);
+        let node_plugins = Arc::new(node_plugins);
         println!("Done loading node plugins");
         Ok(domain::Cluster {
             namespace_prefix: folder_name.clone(),
@@ -300,7 +300,7 @@ impl ClusterForSerialization {
                 })
                 .collect(),
             // pre_cluster_... is een Vec<PluginForSerialization>
-            pre_cluster_plugins: Rc::new(
+            pre_cluster_plugins: Arc::new(
                 load_cluster_processing_plugins(
                     self.pre_cluster_plugin_paths
                         .unwrap_or_default()
