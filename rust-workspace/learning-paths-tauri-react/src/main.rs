@@ -145,34 +145,30 @@ fn read_contents_with_test_dependencies<'a>(
 ) -> Vec<(&'a str, Result<(Vec<Comment>, SVGSource), String>)> {
     // in result, first str is "path" (but can also be "supercluster")
     let mut reader = RealFileReader {};
-    let supercluster_result =
+    let supercluster_result: Result<SuperclusterComposition, SuperclusterErrorBreakdown> =
         read_all_clusters_with_test_dependencies::<RealFileReader>(paths, &mut reader);
-    if let Ok(composition) = supercluster_result.as_ref() {
-        let _ = app_state.insert((
-            composition.supercluster.clone(),
-            HashSet::new(),
-            vec![],
-            composition
-                .composition
-                .iter()
-                .map(|triple| triple.0)
-                .collect(),
-        ));
-    }
-    let components: Vec<anyhow::Result<ClusterDAGRootsTriple>> = match supercluster_result {
-        Ok(composition) => composition
-            .composition
-            .into_iter()
-            .map(Result::Ok)
+    // &Result would make most sense, because the component results already exist
+    // but when there is a supercluster, components are not wrapped inside of a result
+    // I could define a map which wraps them in results
+    // but then I would have to use references to the triples (can't move them)
+
+    
+    
+    let components: Vec<&anyhow::Result<ClusterDAGRootsTriple>> = match supercluster_result.as_ref()
+    {
+        Ok(composition) => composition.composition.iter().map(|triple| &Ok(*triple)).collect(),
+        Err(breakdown) => breakdown
+            .component_results
+            .iter()
             .collect(),
-        Err(breakdown) => breakdown.component_results,
     };
     let components_svgs: Vec<_> = components
         .iter()
         .map(|result| result.as_ref().ok().map(|component| svgify(&component.1)))
         .collect();
-    let supercluster_svg =
-        supercluster_result.map(|composition| svgify(&composition.supercluster.graph));
+    let supercluster_svg = supercluster_result
+        .as_ref()
+        .map(|composition| svgify(&composition.supercluster.graph));
 
     let paths = paths.split(";");
     let paths_and_component_graphs = paths.clone().map(|p| PathBuf::from(p)).zip(&components);
