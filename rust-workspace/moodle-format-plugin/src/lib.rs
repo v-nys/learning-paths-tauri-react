@@ -3,6 +3,8 @@
 extern crate learning_paths_tauri_react;
 
 use std::collections::{HashMap, HashSet};
+use schemars::JsonSchema;
+use serde_json;
 
 use learning_paths_tauri_react::plugins::{ArtifactMapping, Plugin, PreZipPlugin};
 use serde_yaml::Value;
@@ -13,7 +15,17 @@ pub struct MoodleFormatPlugin {
     params: HashMap<String, Value>,
 }
 
+#[derive(JsonSchema)]
+pub struct PluginParameters {
+}
+
 impl Plugin for MoodleFormatPlugin {
+
+    fn get_params_schema(&self) -> serde_json::Value {
+        let schema = schemars::schema_for!(PluginParameters);
+        serde_json::to_value(schema).unwrap()
+    }
+
     fn get_name(&self) -> &str {
         "Moodle format"
     }

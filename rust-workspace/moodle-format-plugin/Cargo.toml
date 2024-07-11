@@ -13,3 +13,5 @@ serde = "1.0.204"
 serde_yaml = "0.9.34"
 learning-paths-tauri-react = { path = "../learning-paths-tauri-react/" }
 yaml2json-rs = "0.4.0"
+schemars = "0.8.21"
+serde_json = "1.0.120"

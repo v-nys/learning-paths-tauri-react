@@ -3,13 +3,15 @@
 
 extern crate learning_paths_tauri_react;
 
-use std::collections::{HashMap, HashSet};
 use base64::encode;
 use comrak::{markdown_to_html, ComrakOptions};
-use learning_paths_tauri_react::plugins::{Plugin, ClusterProcessingPlugin};
-use regex;
-use serde_yaml::Value;
 use learning_paths_tauri_react::plugins::ArtifactMapping;
+use learning_paths_tauri_react::plugins::{ClusterProcessingPlugin, Plugin};
+use regex;
+use schemars::JsonSchema;
+use serde_json;
+use serde_yaml::Value;
+use std::collections::{HashMap, HashSet};
 use std::io::Read;
 use std::time::SystemTime;
 use std::{
@@ -20,7 +22,12 @@ use std::{
 use walkdir::WalkDir;
 
 pub struct MarkdownRenderingPlugin {
-    params: HashMap<String, Value>
+    params: HashMap<String, Value>,
+}
+
+#[derive(JsonSchema)]
+pub struct PluginParameters {
+    require_model_solutions: Option<bool>,
 }
 
 fn find_md_files(dir: &Path) -> Vec<PathBuf> {
@@ -92,6 +99,11 @@ fn get_modification_date(path: &PathBuf) -> Option<SystemTime> {
 // }
 
 impl Plugin for MarkdownRenderingPlugin {
+    fn get_params_schema(&self) -> serde_json::Value {
+        let schema = schemars::schema_for!(PluginParameters);
+        serde_json::to_value(schema).unwrap()
+    }
+
     fn get_name(&self) -> &str {
         "Markdown rendering"
     }
@@ -107,8 +119,10 @@ impl Plugin for MarkdownRenderingPlugin {
 }
 
 impl ClusterProcessingPlugin for MarkdownRenderingPlugin {
-
-    fn process_cluster(&self, cluster_path: &Path) -> Result<HashSet<ArtifactMapping>, anyhow::Error> {
+    fn process_cluster(
+        &self,
+        cluster_path: &Path,
+    ) -> Result<HashSet<ArtifactMapping>, anyhow::Error> {
         let md_files = find_md_files(cluster_path);
         let empty_set = HashSet::new();
         md_files.iter().try_fold(empty_set, |empty_set, md_file| {
@@ -122,13 +136,12 @@ impl ClusterProcessingPlugin for MarkdownRenderingPlugin {
                 None | Some(Ordering::Equal) | Some(Ordering::Greater) => {
                     let file_contents = std::fs::read_to_string(md_file);
                     match file_contents {
-                        Err(e) => {
-                            Err(e.into())
-
-                        }
+                        Err(e) => Err(e.into()),
                         Ok(file_contents) => {
                             let html_output = markdown_to_html_with_inlined_images(&file_contents);
-                            std::fs::write(html_counterpart, &html_output).map(|_| empty_set).map_err(|e| e.into())
+                            std::fs::write(html_counterpart, &html_output)
+                                .map(|_| empty_set)
+                                .map_err(|e| e.into())
                         }
                     }
                 }
@@ -139,11 +152,12 @@ impl ClusterProcessingPlugin for MarkdownRenderingPlugin {
             }
         })
     }
-
 }
 
 #[no_mangle]
 pub extern "C" fn create_plugin() -> *mut dyn ClusterProcessingPlugin {
-    let plugin = Box::new(MarkdownRenderingPlugin { params: HashMap::new() });
+    let plugin = Box::new(MarkdownRenderingPlugin {
+        params: HashMap::new(),
+    });
     Box::into_raw(plugin)
 }

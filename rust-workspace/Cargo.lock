@@ -128,7 +128,9 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "learning-paths-tauri-react",
+ "schemars",
  "serde",
+ "serde_json",
  "serde_yaml",
 ]
 
@@ -1954,6 +1956,8 @@ dependencies = [
  "comrak",
  "learning-paths-tauri-react",
  "regex",
+ "schemars",
+ "serde_json",
  "serde_yaml",
  "walkdir",
 ]
@@ -2030,7 +2034,9 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "learning-paths-tauri-react",
+ "schemars",
  "serde",
+ "serde_json",
  "serde_yaml",
  "yaml2json-rs",
 ]

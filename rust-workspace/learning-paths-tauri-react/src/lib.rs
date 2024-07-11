@@ -22,6 +22,11 @@ pub mod plugins {
         fn get_name(&self) -> &str;
         fn get_version(&self) -> &str;
         fn set_params(&mut self, params: HashMap<String, Value>) -> Result<(), String>;
+        // can't return a Box<dyn JsonSchema> because that trait is not object safe
+        // can't parameterize Plugin trait over schema type because of dynamic loading
+        // i.e. we can't define a concrete Schema type before loading
+        // so return a serialized version
+        fn get_params_schema(&self) -> serde_json::Value;
     }
 
     #[derive(Debug)]

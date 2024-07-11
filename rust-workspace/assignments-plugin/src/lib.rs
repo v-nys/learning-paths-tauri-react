@@ -5,6 +5,7 @@ extern crate learning_paths_tauri_react;
 use std::path::PathBuf;
 use std::collections::{HashSet, HashMap};
 use std::fs::File;
+use schemars::JsonSchema;
 
 use learning_paths_tauri_react::domain;
 use learning_paths_tauri_react::plugins::{
@@ -13,9 +14,15 @@ use learning_paths_tauri_react::plugins::{
 use serde::Deserialize;
 use serde_yaml::Value;
 use std::path::Path;
+use serde_json;
 
 pub struct AssignmentsPlugin {
     params: HashMap<String, Value>
+}
+
+#[derive(JsonSchema)]
+pub struct PluginParameters {
+    require_model_solutions: Option<bool>
 }
 
 #[derive(Deserialize, Debug, Clone)]
@@ -30,6 +37,7 @@ fn file_is_readable(file_path: &Path) -> bool {
 }
 
 impl Plugin for AssignmentsPlugin {
+
     fn get_name(&self) -> &str {
         "Assignments"
     }
@@ -42,6 +50,11 @@ impl Plugin for AssignmentsPlugin {
         println!("Setting params: {:#?}", params);
         self.params = params;
         Ok(())
+    }
+
+    fn get_params_schema(&self) -> serde_json::Value {
+        let schema = schemars::schema_for!(PluginParameters);
+        serde_json::to_value(schema).unwrap()
     }
 
 }
