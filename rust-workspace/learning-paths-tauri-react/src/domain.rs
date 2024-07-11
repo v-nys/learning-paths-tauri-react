@@ -4,7 +4,6 @@ use serde::Serialize;
 use serde_yaml::Value;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::fmt;
-use std::rc::Rc;
 use std::sync::Arc;
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]

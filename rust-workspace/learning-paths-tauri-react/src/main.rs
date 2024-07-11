@@ -147,85 +147,95 @@ fn read_contents_with_test_dependencies<'a>(
     let mut reader = RealFileReader {};
     let supercluster_result: Result<SuperclusterComposition, SuperclusterErrorBreakdown> =
         read_all_clusters_with_test_dependencies::<RealFileReader>(paths, &mut reader);
-    // &Result would make most sense, because the component results already exist
-    // but when there is a supercluster, components are not wrapped inside of a result
-    // I could define a map which wraps them in results
-    // but then I would have to use references to the triples (can't move them)
-
-    
-    
-    let components: Vec<&anyhow::Result<ClusterDAGRootsTriple>> = match supercluster_result.as_ref()
-    {
-        Ok(composition) => composition.composition.iter().map(|triple| &Ok(*triple)).collect(),
-        Err(breakdown) => breakdown
-            .component_results
-            .iter()
-            .collect(),
-    };
-    let components_svgs: Vec<_> = components
-        .iter()
-        .map(|result| result.as_ref().ok().map(|component| svgify(&component.1)))
-        .collect();
-    let supercluster_svg = supercluster_result
-        .as_ref()
-        .map(|composition| svgify(&composition.supercluster.graph));
-
     let paths = paths.split(";");
-    let paths_and_component_graphs = paths.clone().map(|p| PathBuf::from(p)).zip(&components);
     let mut artifacts = HashSet::new();
-    let components_comments: Vec<_> = paths_and_component_graphs
-        .map(|(path, result)| {
-            result
-                .as_ref()
-                .ok()
-                .map(|ClusterDAGRootsTriple(cluster, graph, _roots)| {
-                    process_and_comment_cluster(
-                        cluster,
-                        graph,
+    match supercluster_result {
+        Ok(SuperclusterComposition {
+            composition,
+            supercluster,
+        }) => {
+            let components_and_svgs: Vec<_> = composition
+                .into_iter()
+                .map(|component| {
+                    let svg = svgify(&component.1);
+                    (component, svg)
+                })
+                .collect();
+            let supercluster_svg = svgify(&supercluster.graph);
+            let paths_components_and_svgs: Vec<_> = paths
+                .clone()
+                .map(|p| PathBuf::from(p))
+                .zip(components_and_svgs)
+                .collect();
+            let paths_components_comments_and_svgs: Vec<_> = paths_components_and_svgs
+                .into_iter()
+                .map(|(path, (component, svg))| {
+                    let processing_outcome = process_and_comment_cluster(
+                        &component.0,
+                        &component.1,
                         &path,
                         file_is_readable,
                         directory_is_readable,
                         &mut artifacts,
-                    )
+                    );
+                    (path, component, processing_outcome, svg)
                 })
-        })
-        .collect();
-    let mut supercluster_comments = vec![];
-
-    if let Ok(SuperclusterComposition {
-        composition,
-        supercluster,
-    }) = supercluster_result
-    {
-        let state_contents = app_state.insert((
-            supercluster.clone(),
-            artifacts,
-            vec![],
-            composition.into_iter().map(|triple| triple.0).collect(),
-        ));
-        let pre_zip_plugin_vectors: Vec<_> = components
-            .iter()
-            .filter_map(|c| c.as_ref().ok().map(|triple| &triple.0.pre_zip_plugin_paths))
-            .collect();
-        if pre_zip_plugin_vectors
-            .iter()
-            .filter(|v| !v.is_empty())
-            .count()
-            > 1usize
-        {
-            supercluster_comments
-                .push("Multiple clusters define pre-zip plugins. This is not allowed.".to_owned());
-        } else {
-            state_contents.2 = pre_zip_plugin_vectors
-                .iter()
-                .flat_map(|c| c.iter())
-                .map(|p| p.clone())
                 .collect();
+            let mut supercluster_comments = vec![];
+            let mut unloaded_plugins: Vec<UnloadedPlugin> = vec![];
+            let pre_zip_plugin_vectors: Vec<_> = paths_components_comments_and_svgs
+                .iter()
+                .map(|(_, triple, _, _)| &triple.0.pre_zip_plugin_paths)
+                .collect();
+            if pre_zip_plugin_vectors
+                .iter()
+                .filter(|v| !v.is_empty())
+                .count()
+                > 1usize
+            {
+                supercluster_comments.push(
+                    "Multiple clusters define pre-zip plugins. This is not allowed.".to_owned(),
+                );
+            } else {
+                unloaded_plugins = pre_zip_plugin_vectors
+                    .iter()
+                    .flat_map(|c| c.iter())
+                    .map(|p| p.clone())
+                    .collect();
+            }
+            comment_graph(&supercluster.graph, &mut supercluster_comments);
+            let (paths_comments_and_svgs, components): (Vec<_>, Vec<_>) =
+                paths_components_comments_and_svgs
+                    .into_iter()
+                    .map(|(path, triple, comments, svg)| ((path, comments, svg), triple))
+                    .unzip();
+            let _ = app_state.insert((
+                supercluster.clone(),
+                artifacts,
+                unloaded_plugins,
+                components.into_iter().map(|triple| triple.0).collect(),
+            ));
+            let path_result_tuples: Vec<_> = paths_comments_and_svgs
+                .into_iter()
+                .map(|(path, comments, svg)| (path, CommentsSvgTuple(comments, svg)))
+                .collect();
+            let mut supercluster_tuple = (
+                "Supercluster",
+                CommentsSvgTuple(supercluster_comments, supercluster_svg),
+            );
+            path_result_tuples.push(supercluster_tuple);
+            let outcome = path_result_tuples
+                .into_iter()
+                .map(|(path, CommentsSvgTuple(comments, svg))| (path, Ok((comments, svg))))
+                .collect();
+            outcome
         }
-        comment_graph(&supercluster.graph, &mut supercluster_comments);
+        Err(breakdown) => {
+            todo!("error case, svgify and comment where possible")
+        }
     }
+    /*
 
-    let expectation = "Should only be None if component_result is Err.";
     let mut path_result_tuples: Vec<_> = paths
         .zip(components)
         .zip(components_svgs)
@@ -260,7 +270,7 @@ fn read_contents_with_test_dependencies<'a>(
             )
         })
         .collect();
-    outcome
+    outcome*/
 }
 
 fn file_is_readable(file_path: &Path) -> bool {
@@ -577,8 +587,9 @@ fn process_and_comment_cluster(
 fn merge_clusters(
     read_results: Vec<ReadResultForPath>,
 ) -> Result<SuperclusterComposition, SuperclusterErrorBreakdown> {
+    // TODO: reactivate and fix BC
     // step 1: get individual clusters
-    let clusters = read_results
+    /*let clusters = read_results
         .into_iter()
         .map(|ReadResultForPath(r, p)| match r {
             Ok(ref text) => serde_yaml::from_str::<deserialization::ClusterForSerialization>(text)
@@ -642,7 +653,8 @@ fn merge_clusters(
             supercluster_error: e,
             component_results: cluster_graph_tuples,
         }),
-    }
+    }*/
+    todo!("reactivate")
 }
 
 fn associate_with_dag(cluster: domain::Cluster) -> Result<ClusterDAGRootsTriple, anyhow::Error> {
