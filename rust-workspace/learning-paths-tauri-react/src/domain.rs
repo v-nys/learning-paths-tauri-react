@@ -5,6 +5,7 @@ use serde_yaml::Value;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::fmt;
 use std::rc::Rc;
+use std::sync::Arc;
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub enum EdgeType {
@@ -38,8 +39,8 @@ pub struct Cluster {
     pub nodes: Vec<Node>,
     pub edges: Vec<TypedEdge>,
     pub roots: Vec<NodeID>,
-    pub pre_cluster_plugins: Rc<VecDeque<ClusterProcessingPluginContainer>>, // Rc makes it possible to derive Clone
-    pub node_plugins: Rc<VecDeque<NodeProcessingPluginContainer>>,
+    pub pre_cluster_plugins: Arc<VecDeque<ClusterProcessingPluginContainer>>, // Rc makes it possible to derive Clone
+    pub node_plugins: Arc<VecDeque<NodeProcessingPluginContainer>>,
     pub pre_zip_plugin_paths: Vec<UnloadedPlugin>,
 }
 

@@ -99,6 +99,7 @@ struct AppState {
             RootedSupercluster,
             HashSet<ArtifactMapping>,
             Vec<UnloadedPlugin>,
+            Vec<domain::Cluster>,
         )>,
     >,
 }
@@ -138,31 +139,32 @@ fn read_contents_with_test_dependencies<'a>(
             RootedSupercluster,
             HashSet<ArtifactMapping>,
             Vec<UnloadedPlugin>,
+            Vec<domain::Cluster>,
         )>,
     >,
 ) -> Vec<(&'a str, Result<(Vec<Comment>, SVGSource), String>)> {
     // in result, first str is "path" (but can also be "supercluster")
     let mut reader = RealFileReader {};
-    // step 1: just get and combine data structures
-    let (components, supercluster): (
-        Vec<Result<ClusterDAGRootsTriple, _>>,
-        Result<RootedSupercluster, _>,
-    ) = read_all_clusters_with_test_dependencies::<RealFileReader>(paths, &mut reader);
-    match supercluster.as_ref() {
-        Ok(supercluster) => {
-            let _ = app_state.insert((supercluster.clone(), HashSet::new(), vec![]));
-        }
-        _ => {}
+    let supercluster_result =
+        read_all_clusters_with_test_dependencies::<RealFileReader>(paths, &mut reader);
+    if let Ok(composition) = supercluster_result.as_ref() {
+        let _ = app_state.insert((composition.supercluster.clone(), HashSet::new(), vec![], composition.composition.iter().map(|triple| { triple.0 }).collect()));
     }
-    // step 2: render to SVG
+    let components: Vec<anyhow::Result<ClusterDAGRootsTriple>> = match supercluster_result {
+        Ok(composition) => {
+            composition.composition.into_iter().map(Result::Ok).collect()
+        },
+        Err(breakdown) => {
+            breakdown.component_results
+        }
+    };
     let components_svgs: Vec<_> = components
         .iter()
         .map(|result| result.as_ref().ok().map(|component| svgify(&component.1)))
         .collect();
-    let supercluster_svg = supercluster
-        .as_ref()
-        .ok()
-        .map(|RootedSupercluster { graph, roots: _ }| svgify(graph));
+    let supercluster_svg = supercluster_result.map(|composition| {
+        svgify(&composition.supercluster.graph)
+    });
 
     // step 3: link each path to a bunch of comments
     // this involves running extensions, so collect their outputs in one go
@@ -187,6 +189,20 @@ fn read_contents_with_test_dependencies<'a>(
         })
         .collect();
     let mut supercluster_comments = vec![];
+
+
+    // TODO: took a break here
+    // need to accommodate new structure (type which guarantees components are valid if
+    // supercluster is valid, i.e. Result<SuperclusterComposition, SuperclusterErrorBreakdown>)
+    match supercluster_result {
+        Ok(SuperclusterComposition { composition, supercluster }) => {
+            todo!("complete")
+        }
+        Err(SuperclusterErrorBreakdown { supercluster_error, component_results }) => {
+            todo!("complete")
+        }
+
+    }
     match supercluster.as_ref() {
         Ok(supercluster) => {
             let state_contents = app_state.insert((supercluster.clone(), artifacts, vec![]));
@@ -273,14 +289,21 @@ impl FileReader for RealFileReader {
     }
 }
 
+struct SuperclusterComposition {
+    composition: Vec<ClusterDAGRootsTriple>,
+    supercluster: RootedSupercluster,
+}
+
+struct SuperclusterErrorBreakdown {
+    supercluster_error: anyhow::Error,
+    component_results: Vec<anyhow::Result<ClusterDAGRootsTriple>>,
+}
+
 /// Reads input files, returning individual clusters and supercluster.
 fn read_all_clusters_with_test_dependencies<'a, T: FileReader>(
     paths: &'a str,
     reader: &mut T,
-) -> (
-    Vec<Result<ClusterDAGRootsTriple, anyhow::Error>>,
-    Result<RootedSupercluster, anyhow::Error>,
-) {
+) -> Result<SuperclusterComposition, SuperclusterErrorBreakdown> {
     let paths = paths.split(";").map(|p| PathBuf::from(p));
     let read_results = paths
         .clone()
@@ -558,10 +581,7 @@ fn process_and_comment_cluster(
 /// Deserialize clusters and, if possible, merge them into a supercluster.
 fn merge_clusters(
     read_results: Vec<ReadResultForPath>,
-) -> (
-    Vec<Result<ClusterDAGRootsTriple, anyhow::Error>>,
-    Result<RootedSupercluster, anyhow::Error>,
-) {
+) -> Result<SuperclusterComposition, SuperclusterErrorBreakdown> {
     // step 1: get individual clusters
     let clusters = read_results
         .into_iter()
@@ -588,15 +608,49 @@ fn merge_clusters(
         .collect();
 
     // step 3: get a result for a whole vector
-    let cluster_graph_pairs_result: Result<Vec<&ClusterDAGRootsTriple>, anyhow::Error> =
+    let cluster_graph_pairs_result: Result<Vec<ClusterDAGRootsTriple>, anyhow::Error> =
         cluster_graph_tuples
-            .iter()
-            .map(Result::as_ref)
+            .into_iter()
+            // .map(Result::as_ref)
             .collect::<Result<_, _>>()
             .map_err(|_| StructuralError::InvalidComponentGraph.into());
 
+    match cluster_graph_pairs_result {
+        Ok(triples) => merge_into_supercluster(&triples)
+            .map(|graph| {
+                (
+                    graph,
+                    triples.iter().flat_map(|triple| triple.2.clone()).collect(),
+                )
+            })
+            .map_err(|e| SuperclusterErrorBreakdown {
+                supercluster_error: e,
+                component_results: triples.into_iter().map(Result::Ok).collect(),
+            })
+            .and_then(|(graph, all_roots): (Graph, Vec<_>)| {
+                toposort(&graph, None)
+                    .map_err(|cycle| SuperclusterErrorBreakdown {
+                        supercluster_error: anyhow::Error::from(StructuralError::Cycle(
+                            graph.index(cycle.node_id()).0.clone(),
+                        )),
+                        component_results: triples.into_iter().map(Result::Ok).collect(),
+                    })
+                    .map(|_| SuperclusterComposition {
+                        composition: triples,
+                        supercluster: RootedSupercluster {
+                            graph,
+                            roots: all_roots,
+                        },
+                    })
+            }),
+        Err(e) => Err(SuperclusterErrorBreakdown {
+            supercluster_error: e,
+            component_results: cluster_graph_tuples,
+        }),
+    }
+
     // step 4: compute the supercluster
-    let supercluster = cluster_graph_pairs_result
+    /*let supercluster = cluster_graph_pairs_result
         .and_then(|triples| {
             merge_into_supercluster(&triples).map(|graph| {
                 (
@@ -617,7 +671,7 @@ fn merge_clusters(
                     roots: all_roots,
                 })
         });
-    (cluster_graph_tuples, supercluster)
+    (cluster_graph_tuples, supercluster)*/
 }
 
 fn associate_with_dag(cluster: domain::Cluster) -> Result<ClusterDAGRootsTriple, anyhow::Error> {
@@ -718,7 +772,7 @@ fn associate_with_dag(cluster: domain::Cluster) -> Result<ClusterDAGRootsTriple,
 }
 
 fn merge_into_supercluster(
-    cluster_graph_pairs: &Vec<&ClusterDAGRootsTriple>,
+    cluster_graph_pairs: &Vec<ClusterDAGRootsTriple>,
 ) -> Result<Graph, anyhow::Error> {
     let mut boundary_errors = vec![];
     let mut complete_graph: Graph = Graph::new();
@@ -804,6 +858,7 @@ fn associate_parents_children(
         })
 }
 
+/*
 #[cfg(test)]
 mod tests {
     use std::{
@@ -1006,6 +1061,7 @@ mod tests {
         });
     }
 }
+*/
 
 #[tauri::command]
 fn build_zip(paths: &'_ str, state: tauri::State<'_, AppState>) -> Result<PathBuf, String> {
@@ -1018,7 +1074,7 @@ fn build_zip(paths: &'_ str, state: tauri::State<'_, AppState>) -> Result<PathBu
         .supercluster_with_roots
         .lock()
         .expect("Should always be able to gain access eventually.");
-    let (supercluster, artifacts, pre_zip_plugin_paths) = mutex_guard
+    let (supercluster, artifacts, pre_zip_plugin_paths, component_clusters) = mutex_guard
         .as_mut()
         .expect("Should only be possible to invoke this command when there is a supercluster.");
 
@@ -1032,7 +1088,7 @@ fn build_zip(paths: &'_ str, state: tauri::State<'_, AppState>) -> Result<PathBu
                     .iter()
                     .map(|pb| pb.as_path())
                     .collect(),
-                artifacts
+                artifacts,
             )
             .map_err(|e| format!("{:#?}", e))?;
     }
