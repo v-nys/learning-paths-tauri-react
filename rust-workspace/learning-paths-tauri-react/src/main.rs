@@ -162,18 +162,14 @@ fn read_contents_with_test_dependencies<'a>(
                 })
                 .collect();
             let supercluster_svg = svgify(&supercluster.graph);
-            let paths_components_and_svgs: Vec<_> = paths
-                .clone()
-                .map(|p| PathBuf::from(p))
-                .zip(components_and_svgs)
-                .collect();
+            let paths_components_and_svgs: Vec<_> = paths.zip(components_and_svgs).collect();
             let paths_components_comments_and_svgs: Vec<_> = paths_components_and_svgs
                 .into_iter()
                 .map(|(path, (component, svg))| {
                     let processing_outcome = process_and_comment_cluster(
                         &component.0,
                         &component.1,
-                        &path,
+                        &PathBuf::from(path),
                         file_is_readable,
                         directory_is_readable,
                         &mut artifacts,
@@ -215,7 +211,7 @@ fn read_contents_with_test_dependencies<'a>(
                 unloaded_plugins,
                 components.into_iter().map(|triple| triple.0).collect(),
             ));
-            let path_result_tuples: Vec<_> = paths_comments_and_svgs
+            let mut path_result_tuples: Vec<_> = paths_comments_and_svgs
                 .into_iter()
                 .map(|(path, comments, svg)| (path, CommentsSvgTuple(comments, svg)))
                 .collect();
@@ -231,46 +227,9 @@ fn read_contents_with_test_dependencies<'a>(
             outcome
         }
         Err(breakdown) => {
-            todo!("error case, svgify and comment where possible")
+            todo!("error case, svgify and comment individual clusters")
         }
     }
-    /*
-
-    let mut path_result_tuples: Vec<_> = paths
-        .zip(components)
-        .zip(components_svgs)
-        .zip(components_comments)
-        .map(|(((path, component_result), svg), comments)| {
-            (
-                path,
-                component_result.map(|_| {
-                    CommentsSvgTuple(comments.expect(expectation), svg.expect(expectation))
-                }),
-            )
-        })
-        .collect();
-    let supercluster_tuple = (
-        "Supercluster",
-        supercluster_result
-            .map(|_| CommentsSvgTuple(supercluster_comments, supercluster_svg.expect(expectation)))
-            .map_err(|breakdown| anyhow::format_err!("{:#?}", breakdown)),
-    );
-    path_result_tuples.push(supercluster_tuple);
-    // translate into simpler data types
-    // nothing pertaining to the archive happens here
-    let outcome = path_result_tuples
-        .into_iter()
-        .map(|(path, result)| {
-            (
-                path,
-                match result {
-                    Ok(CommentsSvgTuple(comments, svg)) => Ok((comments, svg)),
-                    Err(e) => Err(e.to_string()),
-                },
-            )
-        })
-        .collect();
-    outcome*/
 }
 
 fn file_is_readable(file_path: &Path) -> bool {
@@ -587,9 +546,7 @@ fn process_and_comment_cluster(
 fn merge_clusters(
     read_results: Vec<ReadResultForPath>,
 ) -> Result<SuperclusterComposition, SuperclusterErrorBreakdown> {
-    // TODO: reactivate and fix BC
-    // step 1: get individual clusters
-    /*let clusters = read_results
+    let clusters = read_results
         .into_iter()
         .map(|ReadResultForPath(r, p)| match r {
             Ok(ref text) => serde_yaml::from_str::<deserialization::ClusterForSerialization>(text)
@@ -608,53 +565,73 @@ fn merge_clusters(
             Err(e) => Err(anyhow::Error::new(e)),
         });
 
-    // step 2: associate individual clusters with separate Petgraph graphs
     let cluster_graph_tuples: Vec<_> = clusters
         .map(|result| result.and_then(associate_with_dag))
         .collect();
 
-    // step 3: get a result for a whole vector
-    let cluster_graph_pairs_result: Result<Vec<ClusterDAGRootsTriple>, anyhow::Error> =
-        cluster_graph_tuples
-            .into_iter()
-            // .map(Result::as_ref)
-            .collect::<Result<_, _>>()
-            .map_err(|_| StructuralError::InvalidComponentGraph.into());
+    let cluster_graph_pairs_result: Result<
+        Vec<ClusterDAGRootsTriple>,
+        Vec<Result<ClusterDAGRootsTriple, anyhow::Error>>,
+    > = cluster_graph_tuples
+        .into_iter()
+        .fold(Ok(vec![]), |acc, elem| match acc {
+            Ok(mut triples) => match elem {
+                Ok(triple) => {
+                    triples.push(triple);
+                    Ok(triples)
+                }
+                Err(e) => {
+                    let mut wrapped_results: Vec<_> = triples.into_iter().map(Result::Ok).collect();
+                    wrapped_results.push(Err(e));
+                    Err(wrapped_results)
+                }
+            },
+            Err(mut triple_results) => {
+                triple_results.push(elem);
+                Err(triple_results)
+            }
+        });
 
     match cluster_graph_pairs_result {
-        Ok(triples) => merge_into_supercluster(&triples)
-            .map(|graph| {
-                (
-                    graph,
-                    triples.iter().flat_map(|triple| triple.2.clone()).collect(),
-                )
-            })
-            .map_err(|e| SuperclusterErrorBreakdown {
-                supercluster_error: e,
-                component_results: triples.into_iter().map(Result::Ok).collect(),
-            })
-            .and_then(|(graph, all_roots): (Graph, Vec<_>)| {
-                toposort(&graph, None)
-                    .map_err(|cycle| SuperclusterErrorBreakdown {
-                        supercluster_error: anyhow::Error::from(StructuralError::Cycle(
-                            graph.index(cycle.node_id()).0.clone(),
-                        )),
-                        component_results: triples.into_iter().map(Result::Ok).collect(),
-                    })
-                    .map(|_| SuperclusterComposition {
-                        composition: triples,
-                        supercluster: RootedSupercluster {
-                            graph,
-                            roots: all_roots,
+        Ok(triples) => {
+            let merge_result = merge_into_supercluster(&triples);
+            match merge_result {
+                Ok(graph) => {
+                    let all_roots = triples.iter().flat_map(|triple| triple.2.clone()).collect();
+                    // wanted to map, but chaining map and map_err leads to ownership problems...
+                    let toposort_result = toposort(&graph, None);
+                    match toposort_result {
+                        Ok(_) => {
+                            Ok(SuperclusterComposition {
+                            composition: triples,
+                            supercluster: RootedSupercluster {
+                                graph,
+                                roots: all_roots,
+                            },
+                        })
                         },
-                    })
-            }),
+                        Err(cycle) => {
+Err(SuperclusterErrorBreakdown {
+                            supercluster_error: anyhow::Error::from(StructuralError::Cycle(
+                                graph.index(cycle.node_id()).0.clone(),
+                            )),
+                            component_results: triples.into_iter().map(Result::Ok).collect(),
+                        })
+                        }
+                    }
+
+                }
+                Err(e) => Err(SuperclusterErrorBreakdown {
+                    supercluster_error: e,
+                    component_results: triples.into_iter().map(Result::Ok).collect(),
+                }),
+            }
+        },
         Err(e) => Err(SuperclusterErrorBreakdown {
-            supercluster_error: e,
-            component_results: cluster_graph_tuples,
+            supercluster_error: StructuralError::InvalidComponentGraph.into(),
+            component_results: e,
         }),
-    }*/
-    todo!("reactivate")
+    }
 }
 
 fn associate_with_dag(cluster: domain::Cluster) -> Result<ClusterDAGRootsTriple, anyhow::Error> {
@@ -1184,14 +1161,14 @@ fn build_zip(paths: &'_ str, state: tauri::State<'_, AppState>) -> Result<PathBu
                 unlocking_conditions.insert(supercluster_node_id.clone(), None);
             } else {
                 // dependent_to... uses a subgraph, so indexes are different!
-                // matching_node = "all-type" graph counterpart to the current Voltron node
+                // matching_node = "all-type" graph counterpart to the current supercluster node
                 let matching_nodes = dependency_to_dependent_graph
                     .node_references()
                     .filter(|(_idx, weight)| &weight.0 == supercluster_node_id)
                     .collect::<Vec<_>>();
                 let matching_node = matching_nodes
                     .get(0)
-                    .expect("Subgraph should contain all the Voltron nodes.");
+                    .expect("Subgraph should contain all the supercluster nodes.");
                 let matching_node_idx = matching_node.0.index();
                 // denk dat dit strenger is dan nodig
                 // dependent_to_dependency_tc betekent dat we *alle* harde dependencies zullen oplijsten
