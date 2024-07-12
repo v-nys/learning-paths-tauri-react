@@ -215,7 +215,7 @@ fn read_contents_with_test_dependencies<'a>(
                 .into_iter()
                 .map(|(path, comments, svg)| (path, CommentsSvgTuple(comments, svg)))
                 .collect();
-            let mut supercluster_tuple = (
+            let supercluster_tuple = (
                 "Supercluster",
                 CommentsSvgTuple(supercluster_comments, supercluster_svg),
             );
@@ -226,8 +226,44 @@ fn read_contents_with_test_dependencies<'a>(
                 .collect();
             outcome
         }
-        Err(breakdown) => {
-            todo!("error case, svgify and comment individual clusters")
+        Err(SuperclusterErrorBreakdown {
+            supercluster_error,
+            component_results,
+        }) => {
+            let components_and_svgs: Vec<_> = component_results
+                .into_iter()
+                .map(|component| {
+                    component.map(|triple| {
+                        let svg = svgify(&triple.1);
+                        (triple, svg)
+                    })
+                })
+                .collect();
+            let paths_components_and_svgs: Vec<_> = paths.zip(components_and_svgs).collect();
+            let mut outcome: Vec<(&'a str, Result<(Vec<Comment>, SVGSource), String>)> =
+                paths_components_and_svgs
+                    .into_iter()
+                    .map(|(path, component_and_svg_result)| {
+                        (
+                            path,
+                            component_and_svg_result
+                                .map(|(triple, svg)| {
+                                    let processing_outcome = process_and_comment_cluster(
+                                        &triple.0,
+                                        &triple.1,
+                                        &PathBuf::from(path),
+                                        file_is_readable,
+                                        directory_is_readable,
+                                        &mut artifacts,
+                                    );
+                                    (processing_outcome, svg)
+                                })
+                                .map_err(|e| e.to_string()),
+                        )
+                    })
+                    .collect();
+            outcome.push(("Supercluster", Err(supercluster_error.to_string())));
+            outcome
         }
     }
 }
@@ -601,32 +637,27 @@ fn merge_clusters(
                     // wanted to map, but chaining map and map_err leads to ownership problems...
                     let toposort_result = toposort(&graph, None);
                     match toposort_result {
-                        Ok(_) => {
-                            Ok(SuperclusterComposition {
+                        Ok(_) => Ok(SuperclusterComposition {
                             composition: triples,
                             supercluster: RootedSupercluster {
                                 graph,
                                 roots: all_roots,
                             },
-                        })
-                        },
-                        Err(cycle) => {
-Err(SuperclusterErrorBreakdown {
+                        }),
+                        Err(cycle) => Err(SuperclusterErrorBreakdown {
                             supercluster_error: anyhow::Error::from(StructuralError::Cycle(
                                 graph.index(cycle.node_id()).0.clone(),
                             )),
                             component_results: triples.into_iter().map(Result::Ok).collect(),
-                        })
-                        }
+                        }),
                     }
-
                 }
                 Err(e) => Err(SuperclusterErrorBreakdown {
                     supercluster_error: e,
                     component_results: triples.into_iter().map(Result::Ok).collect(),
                 }),
             }
-        },
+        }
         Err(e) => Err(SuperclusterErrorBreakdown {
             supercluster_error: StructuralError::InvalidComponentGraph.into(),
             component_results: e,
