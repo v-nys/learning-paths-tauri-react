@@ -28,3 +28,6 @@ target
 archive
 archive.zip
 *.lc.json
+
+# Common typo
+ç

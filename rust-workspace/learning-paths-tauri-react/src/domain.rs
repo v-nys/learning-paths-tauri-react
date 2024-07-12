@@ -67,6 +67,7 @@ impl std::fmt::Display for NodeID {
 
 impl NodeID {
     pub fn from_two_part_string(string: &str) -> Result<NodeID, StructuralError> {
+        let string = string;
         let identifier_regex = regex!("[a-z][a-z_]*");
         let parts = string.split("__").collect::<Vec<_>>();
         let invalid_part = parts.iter().find(|p| !identifier_regex.is_match(p));

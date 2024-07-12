@@ -86,7 +86,7 @@ struct CommentsSvgTuple(Vec<String>, SVGSource);
 struct ReadResultForPath(Result<String, std::io::Error>, PathBuf);
 
 /// A supercluster (result of merging normal Clusters) and dependency-free nodes.
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 struct RootedSupercluster {
     graph: Graph,
     roots: Vec<NodeID>,
@@ -288,6 +288,7 @@ impl FileReader for RealFileReader {
     }
 }
 
+#[derive(Debug)]
 struct SuperclusterComposition {
     composition: Vec<ClusterDAGRootsTriple>,
     supercluster: RootedSupercluster,
@@ -887,12 +888,11 @@ mod tests {
     }
 
     #[test]
-    #[ignore] // will require some reorganizing...
-              // should only use "dummy plugins" here that are supplied with the code?
     fn read_trivial_cluster() {
         let mut reader =
             MockFileReader::new(vec![&Path::new("tests/technicalinfo/contents.lc.yaml")]);
-        let supercluster_analysis = read_all_clusters_with_test_dependencies("_", &mut reader);
+        let supercluster_analysis =
+            read_all_clusters_with_test_dependencies("technicalinfo", &mut reader);
         let mut artifacts = HashSet::new();
         assert!(supercluster_analysis.is_ok());
         let supercluster_analysis = supercluster_analysis.unwrap();
@@ -902,7 +902,7 @@ mod tests {
                 let comments = process_and_comment_cluster(
                     &cluster,
                     &graph,
-                    &PathBuf::from("_"),
+                    &PathBuf::from("tests/technicalinfo"),
                     |_| true,
                     |_| true,
                     &mut artifacts,
@@ -1024,7 +1024,6 @@ mod tests {
         supercluster_analysis.composition.into_iter().for_each(|ClusterDAGRootsTriple(_cluster, graph, _roots)| {
             let mut comments = vec![];
             comment_graph(&graph, &mut comments);
-            comments = dbg!(comments);
             assert_eq!(comments.len(), 1);
             assert_eq!(
                 vec!["Redundant \"at least one\"-type edge clusterwithredundantsoftdependency__concept_A -> clusterwithredundantsoftdependency__concept_B".to_owned()],
