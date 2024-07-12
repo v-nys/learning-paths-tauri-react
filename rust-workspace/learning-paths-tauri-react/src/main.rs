@@ -849,7 +849,6 @@ fn associate_parents_children(
         })
 }
 
-/*
 #[cfg(test)]
 mod tests {
     use std::{
@@ -893,27 +892,27 @@ mod tests {
     fn read_trivial_cluster() {
         let mut reader =
             MockFileReader::new(vec![&Path::new("tests/technicalinfo/contents.lc.yaml")]);
-        let (component_analysis, _supercluster_analysis) =
-            read_all_clusters_with_test_dependencies("_", &mut reader);
+        let supercluster_analysis = read_all_clusters_with_test_dependencies("_", &mut reader);
         let mut artifacts = HashSet::new();
-        assert_eq!(component_analysis.len(), 1);
-        assert!(component_analysis.get(0).as_ref().is_some());
-        component_analysis.into_iter().for_each(|result| {
-            let ClusterDAGRootsTriple(cluster, graph, _roots) =
-                result.expect("There should be a result here.");
-            let comments = process_and_comment_cluster(
-                &cluster,
-                &graph,
-                &PathBuf::from("_"),
-                |_| true,
-                |_| true,
-                &mut artifacts,
-            );
-            let expected_comments: Vec<String> = vec![];
-            assert_eq!(comments, expected_comments);
-            assert_eq!(reader.calls_made, 1);
-            assert_eq!(cluster.edges.len(), 4);
-        });
+        assert!(supercluster_analysis.is_ok());
+        let supercluster_analysis = supercluster_analysis.unwrap();
+        assert_eq!(supercluster_analysis.composition.len(), 1);
+        supercluster_analysis.composition.into_iter().for_each(
+            |ClusterDAGRootsTriple(cluster, graph, _roots)| {
+                let comments = process_and_comment_cluster(
+                    &cluster,
+                    &graph,
+                    &PathBuf::from("_"),
+                    |_| true,
+                    |_| true,
+                    &mut artifacts,
+                );
+                let expected_comments: Vec<String> = vec![];
+                assert_eq!(comments, expected_comments);
+                assert_eq!(reader.calls_made, 1);
+                assert_eq!(cluster.edges.len(), 4);
+            },
+        );
     }
 
     #[test]
@@ -921,13 +920,11 @@ mod tests {
         let mut reader = MockFileReader::new(vec![&Path::new(
             "tests/technicalinfo_cycle/contents.lc.yaml",
         )]);
-        let (components_analysis, supercluster_analysis) =
-            read_all_clusters_with_test_dependencies("_", &mut reader);
+
+        let supercluster_analysis = read_all_clusters_with_test_dependencies("_", &mut reader);
+
         assert_eq!(reader.calls_made, 1);
-        // TODO: could check for specific error type
-        assert!(components_analysis
-            .get(0)
-            .is_some_and(|analysis| analysis.is_err()));
+        // could be more specific...
         assert!(supercluster_analysis.is_err());
     }
 
@@ -990,28 +987,19 @@ mod tests {
 
     #[test]
     fn detect_redundant_hard_dependency() {
-        /* FIXME
-         * Here, A → C being considered a redundant "at least one"-type makes sense.
-         * The problem is that it does not exist in the original graph.
-         * So only the ones that actually exist in the original graph should be considered.
-         * Should rewrite so that comment is not inserted directly,
-         * but problem edges are returned?
-         */
         let mut reader = MockFileReader::new(vec![&Path::new(
             "tests/clusterwithredundantharddependency/contents.lc.yaml",
         )]);
-        let (component_analysis, _supercluster_analysis) = read_all_clusters_with_test_dependencies(
+        let supercluster_analysis = read_all_clusters_with_test_dependencies(
             "clusterwithredundantharddependency",
             &mut reader,
         );
-        assert_eq!(component_analysis.len(), 1);
-        assert!(component_analysis.get(0).as_ref().is_some());
-        component_analysis.into_iter().for_each(|result| {
-            let ClusterDAGRootsTriple(_cluster, graph, _roots) =
-                result.expect("There should be a result here.");
+        assert!(supercluster_analysis.is_ok());
+        let supercluster_analysis = supercluster_analysis.unwrap();
+        assert_eq!(supercluster_analysis.composition.len(), 1);
+        supercluster_analysis.composition.into_iter().for_each(|ClusterDAGRootsTriple(_cluster, graph, _roots)| {
             let mut comments = vec![];
             comment_graph(&graph, &mut comments);
-            comments = dbg!(comments);
             assert_eq!(comments.len(), 1);
             assert_eq!(
                 vec!["Redundant \"all\"-type edge clusterwithredundantharddependency__concept_A -> clusterwithredundantharddependency__concept_C".to_owned()],
@@ -1023,23 +1011,17 @@ mod tests {
 
     #[test]
     fn detect_redundant_soft_dependency() {
-        /* FIXME
-         * Here, we have A → B, A → C, B ⇒ C
-         * So that should transform into A → B, A → C, C → B
-         * Currently says A → C is redundant, but should say A → B is redundant...
-         */
         let mut reader = MockFileReader::new(vec![&Path::new(
             "tests/clusterwithredundantsoftdependency/contents.lc.yaml",
         )]);
-        let (component_analysis, _supercluster_analysis) = read_all_clusters_with_test_dependencies(
+        let supercluster_analysis = read_all_clusters_with_test_dependencies(
             "clusterwithredundantsoftdependency",
             &mut reader,
         );
-        assert_eq!(component_analysis.len(), 1);
-        assert!(component_analysis.get(0).as_ref().is_some());
-        component_analysis.into_iter().for_each(|result| {
-            let ClusterDAGRootsTriple(_cluster, graph, _roots) =
-                result.expect("There should be a result here.");
+        assert!(supercluster_analysis.is_ok());
+        let supercluster_analysis = supercluster_analysis.unwrap();
+        assert_eq!(supercluster_analysis.composition.len(), 1);
+        supercluster_analysis.composition.into_iter().for_each(|ClusterDAGRootsTriple(_cluster, graph, _roots)| {
             let mut comments = vec![];
             comment_graph(&graph, &mut comments);
             comments = dbg!(comments);
@@ -1052,7 +1034,6 @@ mod tests {
         });
     }
 }
-*/
 
 #[tauri::command]
 fn build_zip(paths: &'_ str, state: tauri::State<'_, AppState>) -> Result<PathBuf, String> {
