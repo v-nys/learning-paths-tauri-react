@@ -11,6 +11,10 @@ any_type_edges:
     end_id: implementation
 roots:
   - intro
+# not actually using but just to see whether schema generation plugin is performing as expected
+node_plugins:
+  - path: "$FLAKE_DIR/rust-workspace/target/release/libassignments_plugin.so"
+    require_solutions: False
 pre_cluster_plugins:
   - path: "$FLAKE_DIR/rust-workspace/target/release/libmarkdown_rendering_plugin.so"
   - path: "$FLAKE_DIR/rust-workspace/target/release/libyaml_schema_generation_plugin.so"

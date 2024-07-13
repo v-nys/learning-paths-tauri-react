@@ -26,11 +26,11 @@ use std::path::PathBuf;
 use std::sync::{Mutex, MutexGuard};
 use std::{collections::HashMap, fmt, fs::File, ops::Index, path::Path};
 
-mod deserialization;
 mod rendering;
 
 use crate::rendering::svgify;
 use learning_paths_tauri_react::domain;
+use learning_paths_tauri_react::deserialization;
 use learning_paths_tauri_react::domain::{
     EdgeData, EdgeType, Graph, NodeID, StructuralError, TypedEdge,
 };

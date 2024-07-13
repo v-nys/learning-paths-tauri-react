@@ -1,6 +1,6 @@
 use lazy_regex::regex;
-use learning_paths_tauri_react::plugins::{
-    load_cluster_processing_plugins, load_node_processing_plugins, load_pre_zip_plugins
+use crate::plugins::{
+    load_cluster_processing_plugins, load_node_processing_plugins, load_pre_zip_plugins,
 };
 use schemars::JsonSchema;
 use serde::de::{self, MapAccess, Visitor};
@@ -14,7 +14,7 @@ use std::sync::Arc;
 use crate::domain;
 
 /// Deserialization counterpart for the domain concept `Node`.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, JsonSchema)]
 struct Node {
     /// An ID should be locally unique inside a `Cluster` and is used to refer to a node inside its `Cluster`.
     ///
@@ -24,6 +24,7 @@ struct Node {
     ///
     /// This is not required to be unique at any level.
     title: String,
+    #[schemars(skip)]
     extension_fields: HashMap<String, Value>,
 }
 
@@ -181,7 +182,7 @@ impl Edge {
 /// which it is serialized.
 /// It uses disjoint, optional sets of edges because that saves a lot of repetition when writing in
 /// a data format.
-#[derive(Deserialize, Clone)]
+#[derive(Deserialize, Clone, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct ClusterForSerialization {
     /// Units of information inside this `Cluster`.
@@ -197,9 +198,10 @@ pub struct ClusterForSerialization {
     pre_zip_plugins: Option<Vec<PluginForSerialization>>,
 }
 
-#[derive(Clone)]
-struct PluginForSerialization {
+#[derive(Clone, JsonSchema)]
+pub struct PluginForSerialization {
     path: String,
+    #[schemars(skip)]
     parameters: HashMap<String, Value>,
 }
 

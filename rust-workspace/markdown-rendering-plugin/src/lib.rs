@@ -21,14 +21,10 @@ use std::{
 };
 use walkdir::WalkDir;
 
-pub struct MarkdownRenderingPlugin {
-    params: HashMap<String, Value>,
-}
+pub struct MarkdownRenderingPlugin {}
 
 #[derive(JsonSchema)]
-pub struct PluginParameters {
-    require_model_solutions: Option<bool>,
-}
+pub struct PluginParameters {}
 
 fn find_md_files(dir: &Path) -> Vec<PathBuf> {
     let mut md_files = Vec::new();
@@ -99,9 +95,16 @@ fn get_modification_date(path: &PathBuf) -> Option<SystemTime> {
 // }
 
 impl Plugin for MarkdownRenderingPlugin {
-    fn get_params_schema(&self) -> serde_json::Value {
-        let schema = schemars::schema_for!(PluginParameters);
-        serde_json::to_value(schema).unwrap()
+    fn set_params(&mut self, params: HashMap<String, Value>) -> Result<(), String> {
+        if params.is_empty() {
+            Ok(())
+        } else {
+            Err("This plugin does not currently support any parameters.".into())
+        }
+    }
+
+    fn get_params_schema(&self) -> HashMap<(String, bool), serde_json::Value> {
+        HashMap::new()
     }
 
     fn get_name(&self) -> &str {
@@ -111,18 +114,13 @@ impl Plugin for MarkdownRenderingPlugin {
     fn get_version(&self) -> &str {
         env!("CARGO_PKG_VERSION")
     }
-
-    fn set_params(&mut self, params: HashMap<String, Value>) -> Result<(), String> {
-        self.params = params;
-        Ok(())
-    }
 }
 
 impl ClusterProcessingPlugin for MarkdownRenderingPlugin {
     fn process_cluster(
         &self,
         cluster_path: &Path,
-        _cluster: &domain::Cluster
+        _cluster: &domain::Cluster,
     ) -> Result<HashSet<ArtifactMapping>, anyhow::Error> {
         let md_files = find_md_files(cluster_path);
         let empty_set = HashSet::new();
@@ -146,9 +144,7 @@ impl ClusterProcessingPlugin for MarkdownRenderingPlugin {
                         }
                     }
                 }
-                Some(Ordering::Less) => {
-                    Ok(empty_set)
-                }
+                Some(Ordering::Less) => Ok(empty_set),
             }
         })
     }
@@ -156,8 +152,6 @@ impl ClusterProcessingPlugin for MarkdownRenderingPlugin {
 
 #[no_mangle]
 pub extern "C" fn create_plugin() -> *mut dyn ClusterProcessingPlugin {
-    let plugin = Box::new(MarkdownRenderingPlugin {
-        params: HashMap::new(),
-    });
+    let plugin = Box::new(MarkdownRenderingPlugin {});
     Box::into_raw(plugin)
 }

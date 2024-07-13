@@ -5,7 +5,7 @@ extern crate learning_paths_tauri_react;
 use std::path::PathBuf;
 use std::collections::{HashSet, HashMap};
 use std::fs::File;
-use schemars::JsonSchema;
+use schemars::{schema_for, JsonSchema};
 
 use learning_paths_tauri_react::domain;
 use learning_paths_tauri_react::plugins::{
@@ -25,7 +25,7 @@ pub struct PluginParameters {
     require_model_solutions: Option<bool>
 }
 
-#[derive(Deserialize, Debug, Clone)]
+#[derive(Deserialize, Debug, Clone, JsonSchema)]
 struct Assignment {
     id: String,
     //title: Option<String>,
@@ -47,13 +47,16 @@ impl Plugin for AssignmentsPlugin {
     }
 
     fn set_params(&mut self, params: HashMap<String, Value>) -> Result<(), String> {
+        // TODO: properly validate, should match schema!
         self.params = params;
         Ok(())
     }
 
-    fn get_params_schema(&self) -> serde_json::Value {
-        let schema = schemars::schema_for!(PluginParameters);
-        serde_json::to_value(schema).unwrap()
+    fn get_params_schema(&self) -> HashMap<(String, bool), serde_json::Value> {
+        let schema = schemars::schema_for!(Option<bool>);
+        let mut parameters = HashMap::new();
+        parameters.insert(("require_model_solutions".into(), false), serde_json::to_value(schema).unwrap());
+        parameters
     }
 
 }
@@ -63,6 +66,15 @@ impl NodeProcessingPlugin for AssignmentsPlugin {
     fn get_mandatory_fields(&self) -> HashSet<String> {
         HashSet::new()
     }
+
+    fn get_extension_field_schema(&self) -> HashMap<(String, bool), serde_json::Value> {
+        let mut map = HashMap::new();
+        let _ = map.insert(("assignments".into(), false),
+                           serde_json::to_value(schema_for!(Vec<Assignment>)).unwrap());
+        map
+
+    }
+
     fn process_extension_field(
         &self,
         cluster_path: &Path,
@@ -70,6 +82,7 @@ impl NodeProcessingPlugin for AssignmentsPlugin {
         field_name: &str,
         value: &Value,
     ) -> Result<HashSet<ArtifactMapping>, NodeProcessingError> {
+        // TODO: base on schema instead
         if field_name != "assignments" {
             Err(NodeProcessingError::CannotProcessFieldType)
         } else {

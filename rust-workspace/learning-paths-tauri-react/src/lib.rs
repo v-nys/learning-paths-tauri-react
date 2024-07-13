@@ -1,4 +1,5 @@
 pub mod domain;
+pub mod deserialization;
 
 pub mod plugins {
     use crate::domain;
@@ -26,7 +27,8 @@ pub mod plugins {
         // can't parameterize Plugin trait over schema type because of dynamic loading
         // i.e. we can't define a concrete Schema type before loading
         // so return a serialized version
-        fn get_params_schema(&self) -> serde_json::Value;
+        // bool is to indicate whether the property is required
+        fn get_params_schema(&self) -> HashMap<(String, bool), serde_json::Value>;
     }
 
     #[derive(Debug)]
@@ -46,6 +48,7 @@ pub mod plugins {
     }
 
     pub trait NodeProcessingPlugin: Plugin + Send + Sync {
+
         fn process_extension_field(
             &self,
             cluster_path: &Path,
@@ -53,6 +56,10 @@ pub mod plugins {
             field_name: &str,
             value: &Value,
         ) -> Result<HashSet<ArtifactMapping>, NodeProcessingError>;
+
+        fn get_extension_field_schema(&self) -> HashMap<(String, bool), serde_json::Value>;
+
+        // TODO: remove this later, get_extension_field_schema expresses this and more
         fn get_mandatory_fields(&self) -> HashSet<String>;
     }
 
