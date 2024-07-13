@@ -27,5 +27,5 @@ all_type_edges:
 node_plugins:
   - path: "$FLAKE_DIR/rust-workspace/target/release/libassignments_plugin.so"
     require_solutions: False
-pre_clusters:
+pre_cluster_plugins:
   - path: "$FLAKE_DIR/rust-workspace/target/release/libmarkdown_rendering_plugin.so"

@@ -2,7 +2,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 use anyhow;
 use learning_paths_tauri_react::plugins::{
-    load_pre_zip_plugins, ArtifactMapping, NodeProcessingError,
+    ArtifactMapping, NodeProcessingError,
 };
 use petgraph::adj::List;
 use petgraph::visit::IntoNeighbors;
@@ -32,7 +32,7 @@ mod rendering;
 use crate::rendering::svgify;
 use learning_paths_tauri_react::domain;
 use learning_paths_tauri_react::domain::{
-    EdgeData, EdgeType, Graph, NodeID, StructuralError, TypedEdge, UnloadedPlugin,
+    EdgeData, EdgeType, Graph, NodeID, StructuralError, TypedEdge,
 };
 
 type SVGSource = String;
@@ -98,7 +98,6 @@ struct AppState {
         Option<(
             RootedSupercluster,
             HashSet<ArtifactMapping>,
-            Vec<UnloadedPlugin>,
             Vec<domain::Cluster>,
         )>,
     >,
@@ -138,7 +137,6 @@ fn read_contents_with_test_dependencies<'a>(
         Option<(
             RootedSupercluster,
             HashSet<ArtifactMapping>,
-            Vec<UnloadedPlugin>,
             Vec<domain::Cluster>,
         )>,
     >,
@@ -178,7 +176,6 @@ fn read_contents_with_test_dependencies<'a>(
                 })
                 .collect();
             let mut supercluster_comments = vec![];
-            let mut unloaded_plugins: Vec<_> = vec![];
             let pre_zip_plugin_vectors: Vec<_> = paths_components_comments_and_svgs
                 .iter()
                 .map(|(_, triple, _, _)| &triple.0.pre_zip_plugins)
@@ -192,12 +189,6 @@ fn read_contents_with_test_dependencies<'a>(
                 supercluster_comments.push(
                     "Multiple clusters define pre-zip plugins. This is not allowed.".to_owned(),
                 );
-            } else {
-                unloaded_plugins = pre_zip_plugin_vectors
-                    .iter()
-                    .flat_map(|c| c.iter())
-                    .map(|p| p.clone())
-                    .collect();
             }
             comment_graph(&supercluster.graph, &mut supercluster_comments);
             let (paths_comments_and_svgs, components): (Vec<_>, Vec<_>) =
@@ -208,7 +199,6 @@ fn read_contents_with_test_dependencies<'a>(
             let _ = app_state.insert((
                 supercluster.clone(),
                 artifacts,
-                vec![],
                 components.into_iter().map(|triple| triple.0).collect(),
             ));
             let mut path_result_tuples: Vec<_> = paths_comments_and_svgs
@@ -1045,13 +1035,11 @@ fn build_zip(paths: &'_ str, state: tauri::State<'_, AppState>) -> Result<PathBu
         .supercluster_with_roots
         .lock()
         .expect("Should always be able to gain access eventually.");
-    let (supercluster, artifacts, pre_zip_plugins, _component_clusters) = mutex_guard
+    let (supercluster, artifacts, component_clusters) = mutex_guard
         .as_mut()
         .expect("Should only be possible to invoke this command when there is a supercluster.");
 
-    let pre_zip_plugins =
-        load_pre_zip_plugins(pre_zip_plugins.iter().map(|p| p.clone()).collect())
-            .map_err(|e| format!("{:#?}", e))?;
+    let pre_zip_plugins = component_clusters.iter().flat_map(|cluster| cluster.pre_zip_plugins.iter());
     for pre_zip_plugin in pre_zip_plugins {
         pre_zip_plugin
             .process_project(

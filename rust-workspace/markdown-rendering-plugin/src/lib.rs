@@ -147,7 +147,6 @@ impl ClusterProcessingPlugin for MarkdownRenderingPlugin {
                     }
                 }
                 Some(Ordering::Less) => {
-                    println!("HTML file is newer than Markdown file. Not rendering.");
                     Ok(empty_set)
                 }
             }

@@ -39,8 +39,18 @@ impl ClusterProcessingPlugin for YamlSchemaGenerationPlugin {
     fn process_cluster(
         &self,
         _cluster_path: &Path,
-        _cluster: &domain::Cluster
+        cluster: &domain::Cluster
     ) -> Result<HashSet<ArtifactMapping>, anyhow::Error> {
+        println!("Here are the plugin schemas:");
+        cluster.node_plugins.iter().for_each(|plugin| {
+            println!("{:#?}", plugin.get_params_schema())
+        });
+        cluster.pre_cluster_plugins.iter().for_each(|plugin| {
+            println!("{:#?}", plugin.get_params_schema())
+        });
+        cluster.pre_zip_plugins.iter().for_each(|plugin| {
+            println!("{:#?}", plugin.get_params_schema())
+        });
         Ok(HashSet::new())
     }
 }

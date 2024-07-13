@@ -47,7 +47,6 @@ impl Plugin for AssignmentsPlugin {
     }
 
     fn set_params(&mut self, params: HashMap<String, Value>) -> Result<(), String> {
-        println!("Setting params: {:#?}", params);
         self.params = params;
         Ok(())
     }
