@@ -5,8 +5,8 @@ extern crate learning_paths_tauri_react;
 
 use base64::encode;
 use comrak::{markdown_to_html, ComrakOptions};
-use learning_paths_tauri_react::plugins::ArtifactMapping;
-use learning_paths_tauri_react::plugins::{ClusterProcessingPlugin, Plugin};
+use learning_paths_tauri_react::domain;
+use learning_paths_tauri_react::plugins::{ArtifactMapping, ClusterProcessingPlugin, Plugin};
 use regex;
 use schemars::JsonSchema;
 use serde_json;
@@ -122,6 +122,7 @@ impl ClusterProcessingPlugin for MarkdownRenderingPlugin {
     fn process_cluster(
         &self,
         cluster_path: &Path,
+        _cluster: &domain::Cluster
     ) -> Result<HashSet<ArtifactMapping>, anyhow::Error> {
         let md_files = find_md_files(cluster_path);
         let empty_set = HashSet::new();

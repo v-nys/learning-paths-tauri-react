@@ -3,7 +3,7 @@ members = [
     "learning-paths-tauri-react",
     "assignments-plugin",
     "markdown-rendering-plugin"
-, "moodle-format-plugin"]
+, "moodle-format-plugin", "yaml-schema-generation-plugin"]
 [package]
 name = "workspace"
 version = "0.1.0"

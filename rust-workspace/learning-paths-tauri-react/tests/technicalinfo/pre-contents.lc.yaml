@@ -24,8 +24,8 @@ all_type_edges:
     end_id: concept_D
   - start_id: concept_Q
     end_id: concept_C
-node_plugin_paths:
+node_plugins:
   - path: "$FLAKE_DIR/rust-workspace/target/release/libassignments_plugin.so"
     require_solutions: False
-pre_cluster_plugin_paths:
+pre_clusters:
   - path: "$FLAKE_DIR/rust-workspace/target/release/libmarkdown_rendering_plugin.so"

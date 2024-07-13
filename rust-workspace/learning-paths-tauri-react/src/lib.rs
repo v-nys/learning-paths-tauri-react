@@ -60,6 +60,7 @@ pub mod plugins {
         fn process_cluster(
             &self,
             cluster_path: &Path,
+            cluster: &domain::Cluster
         ) -> Result<HashSet<ArtifactMapping>, anyhow::Error>;
     }
 

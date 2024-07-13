@@ -4596,6 +4596,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "yaml-schema-generation-plugin"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "learning-paths-tauri-react",
+ "schemars",
+ "serde",
+ "serde_json",
+ "serde_yaml",
+]
+
+[[package]]
 name = "yaml2json-rs"
 version = "0.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"

@@ -178,10 +178,10 @@ fn read_contents_with_test_dependencies<'a>(
                 })
                 .collect();
             let mut supercluster_comments = vec![];
-            let mut unloaded_plugins: Vec<UnloadedPlugin> = vec![];
+            let mut unloaded_plugins: Vec<_> = vec![];
             let pre_zip_plugin_vectors: Vec<_> = paths_components_comments_and_svgs
                 .iter()
-                .map(|(_, triple, _, _)| &triple.0.pre_zip_plugin_paths)
+                .map(|(_, triple, _, _)| &triple.0.pre_zip_plugins)
                 .collect();
             if pre_zip_plugin_vectors
                 .iter()
@@ -208,7 +208,7 @@ fn read_contents_with_test_dependencies<'a>(
             let _ = app_state.insert((
                 supercluster.clone(),
                 artifacts,
-                unloaded_plugins,
+                vec![],
                 components.into_iter().map(|triple| triple.0).collect(),
             ));
             let mut path_result_tuples: Vec<_> = paths_comments_and_svgs
@@ -497,7 +497,7 @@ fn process_and_comment_cluster(
     let mut remarks: Vec<String> = vec![];
     let cluster_path = Path::new(cluster_path);
     cluster.pre_cluster_plugins.iter().for_each(|p| {
-        let _ = p.process_cluster(cluster_path); // TODO: use Result
+        let _ = p.process_cluster(cluster_path, cluster); // TODO: use Result
     });
     artifacts.insert(ArtifactMapping {
         local_file: cluster_path.join("contents.lc.yaml"),
@@ -1045,12 +1045,12 @@ fn build_zip(paths: &'_ str, state: tauri::State<'_, AppState>) -> Result<PathBu
         .supercluster_with_roots
         .lock()
         .expect("Should always be able to gain access eventually.");
-    let (supercluster, artifacts, pre_zip_plugin_paths, _component_clusters) = mutex_guard
+    let (supercluster, artifacts, pre_zip_plugins, _component_clusters) = mutex_guard
         .as_mut()
         .expect("Should only be possible to invoke this command when there is a supercluster.");
 
     let pre_zip_plugins =
-        load_pre_zip_plugins(pre_zip_plugin_paths.iter().map(|p| p.clone()).collect())
+        load_pre_zip_plugins(pre_zip_plugins.iter().map(|p| p.clone()).collect())
             .map_err(|e| format!("{:#?}", e))?;
     for pre_zip_plugin in pre_zip_plugins {
         pre_zip_plugin

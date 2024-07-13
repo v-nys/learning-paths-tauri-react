@@ -1,3 +1,5 @@
+use crate::plugins::PreZipPluginContainer;
+
 use super::plugins::{ClusterProcessingPluginContainer, NodeProcessingPluginContainer};
 use lazy_regex::regex;
 use serde::Serialize;
@@ -40,7 +42,7 @@ pub struct Cluster {
     pub roots: Vec<NodeID>,
     pub pre_cluster_plugins: Arc<VecDeque<ClusterProcessingPluginContainer>>, // Rc makes it possible to derive Clone
     pub node_plugins: Arc<VecDeque<NodeProcessingPluginContainer>>,
-    pub pre_zip_plugin_paths: Vec<UnloadedPlugin>,
+    pub pre_zip_plugins: Arc<VecDeque<PreZipPluginContainer>>
 }
 
 #[derive(Clone, Debug)]

@@ -11,7 +11,7 @@ any_type_edges:
     end_id: implementation
 roots:
   - intro
-pre_cluster_plugin_paths:
+pre_cluster_plugins:
   - path: "$FLAKE_DIR/rust-workspace/target/release/libmarkdown_rendering_plugin.so"
-pre_zip_plugin_paths:
+pre_zip_plugins:
   - path: "$FLAKE_DIR/rust-workspace/target/release/libmoodle_format_plugin.so"

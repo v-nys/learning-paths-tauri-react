@@ -1,8 +1,7 @@
 use lazy_regex::regex;
 use learning_paths_tauri_react::plugins::{
-    load_cluster_processing_plugins, load_node_processing_plugins,
+    load_cluster_processing_plugins, load_node_processing_plugins, load_pre_zip_plugins
 };
-use std::sync::Arc;
 use schemars::JsonSchema;
 use serde::de::{self, MapAccess, Visitor};
 use serde::Deserialize;
@@ -10,6 +9,7 @@ use serde::Deserializer;
 use serde_yaml::Value;
 use std::collections::HashMap;
 use std::fmt;
+use std::sync::Arc;
 
 use crate::domain;
 
@@ -192,9 +192,9 @@ pub struct ClusterForSerialization {
     any_type_edges: Option<Vec<Edge>>,
     /// IDs of `Node`s with no dependencies whatsoever, i.e. the only `Node`s which can be accessed unconditionally.
     roots: Option<Vec<String>>,
-    pre_cluster_plugin_paths: Option<Vec<PluginForSerialization>>,
-    node_plugin_paths: Option<Vec<PluginForSerialization>>,
-    pre_zip_plugin_paths: Option<Vec<PluginForSerialization>>,
+    pre_cluster_plugins: Option<Vec<PluginForSerialization>>,
+    node_plugins: Option<Vec<PluginForSerialization>>,
+    pre_zip_plugins: Option<Vec<PluginForSerialization>>,
 }
 
 #[derive(Clone)]
@@ -259,7 +259,7 @@ impl ClusterForSerialization {
         let nodes: Result<Vec<_>, _> = nodes.into_iter().collect();
         println!("about to create new ClusterForSerialization");
         let node_plugins = load_node_processing_plugins(
-            self.node_plugin_paths
+            self.node_plugins
                 .unwrap_or_default()
                 .into_iter()
                 .map(|pfs| domain::UnloadedPlugin {
@@ -302,7 +302,7 @@ impl ClusterForSerialization {
             // pre_cluster_... is een Vec<PluginForSerialization>
             pre_cluster_plugins: Arc::new(
                 load_cluster_processing_plugins(
-                    self.pre_cluster_plugin_paths
+                    self.pre_cluster_plugins
                         .unwrap_or_default()
                         .into_iter()
                         .map(|pfs| domain::UnloadedPlugin {
@@ -314,15 +314,19 @@ impl ClusterForSerialization {
                 .map_err(|e| anyhow::format_err!(e))?,
             ),
             node_plugins,
-            pre_zip_plugin_paths: self
-                .pre_zip_plugin_paths
-                .unwrap_or_default()
-                .into_iter()
-                .map(|pfs| domain::UnloadedPlugin {
-                    path: pfs.path,
-                    parameters: pfs.parameters,
-                })
-                .collect(),
+            pre_zip_plugins: Arc::new(
+                load_pre_zip_plugins(
+                    self.pre_zip_plugins
+                        .unwrap_or_default()
+                        .into_iter()
+                        .map(|pfs| domain::UnloadedPlugin {
+                            path: pfs.path,
+                            parameters: pfs.parameters,
+                        })
+                        .collect(),
+                )
+                .map_err(|e| anyhow::format_err!(e))?,
+            ),
         })
     }
 }
