@@ -25,10 +25,6 @@ pub mod plugins {
         fn set_params(&mut self, params: HashMap<String, Value>) -> Result<(), String>;
         fn set_path(&mut self, path: String);
         fn get_path(&self) -> &String;
-        // can't return a Box<dyn JsonSchema> because that trait is not object safe
-        // can't parameterize Plugin trait over schema type because of dynamic loading
-        // i.e. we can't define a concrete Schema type before loading
-        // so return a serialized version
         // bool is to indicate whether the property is required
         fn get_params_schema(&self) -> HashMap<(String, bool), serde_json::Value>;
     }

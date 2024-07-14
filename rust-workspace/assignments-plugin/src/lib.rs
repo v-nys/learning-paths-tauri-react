@@ -22,6 +22,7 @@ pub struct AssignmentsPlugin {
 }
 
 #[derive(JsonSchema)]
+#[schemars(deny_unknown_fields)]
 pub struct PluginParameters {
     require_model_solutions: Option<bool>
 }

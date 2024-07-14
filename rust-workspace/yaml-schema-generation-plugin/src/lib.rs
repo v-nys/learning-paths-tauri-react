@@ -20,6 +20,7 @@ pub struct YamlSchemaGenerationPlugin {
 }
 
 #[derive(JsonSchema)]
+#[schemars(deny_unknown_fields)]
 pub struct PluginParameters {}
 
 impl Plugin for YamlSchemaGenerationPlugin {
@@ -62,6 +63,10 @@ impl ClusterProcessingPlugin for YamlSchemaGenerationPlugin {
     ) -> Result<HashSet<ArtifactMapping>, anyhow::Error> {
         let mut overall_schema = schemars::schema_for!(deserialization::ClusterForSerialization);
         let mut plugin_schema = schemars::schema_for!(deserialization::PluginForSerialization);
+        println!(
+            "Base plugin schema:\n\n{}",
+            serde_json::to_string_pretty(&plugin_schema).unwrap()
+        );
         let plugin_schema_object = &mut plugin_schema.schema;
         let subschema_validation = plugin_schema_object.subschemas();
         let mut conditional_schemas = vec![];

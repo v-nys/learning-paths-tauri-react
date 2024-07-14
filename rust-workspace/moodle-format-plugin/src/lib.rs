@@ -17,6 +17,7 @@ pub struct MoodleFormatPlugin {
 }
 
 #[derive(JsonSchema)]
+#[schemars(deny_unknown_fields)]
 pub struct PluginParameters {}
 
 impl Plugin for MoodleFormatPlugin {

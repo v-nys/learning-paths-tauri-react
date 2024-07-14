@@ -26,6 +26,7 @@ pub struct MarkdownRenderingPlugin {
 }
 
 #[derive(JsonSchema)]
+#[schemars(deny_unknown_fields)]
 pub struct PluginParameters {}
 
 fn find_md_files(dir: &Path) -> Vec<PathBuf> {

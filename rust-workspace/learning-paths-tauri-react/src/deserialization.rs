@@ -15,6 +15,7 @@ use crate::domain;
 
 /// Deserialization counterpart for the domain concept `Node`.
 #[derive(Clone, Debug, JsonSchema)]
+#[schemars(deny_unknown_fields)]
 struct Node {
     /// An ID should be locally unique inside a `Cluster` and is used to refer to a node inside its `Cluster`.
     ///
@@ -105,6 +106,7 @@ impl Node {
 }
 
 #[derive(Deserialize, Clone, JsonSchema)]
+#[schemars(deny_unknown_fields)]
 struct Edge {
     // TODO: rename to UntypedEdge?
     start_id: String,
@@ -199,6 +201,7 @@ pub struct ClusterForSerialization {
 }
 
 #[derive(Clone, JsonSchema)]
+#[schemars(deny_unknown_fields)]
 pub struct PluginForSerialization {
     path: String,
     #[schemars(skip)]
