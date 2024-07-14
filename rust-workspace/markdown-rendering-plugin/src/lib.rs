@@ -21,7 +21,9 @@ use std::{
 };
 use walkdir::WalkDir;
 
-pub struct MarkdownRenderingPlugin {}
+pub struct MarkdownRenderingPlugin {
+    path: String
+}
 
 #[derive(JsonSchema)]
 pub struct PluginParameters {}
@@ -95,6 +97,16 @@ fn get_modification_date(path: &PathBuf) -> Option<SystemTime> {
 // }
 
 impl Plugin for MarkdownRenderingPlugin {
+
+
+    fn set_path(&mut self, path: String) {
+        self.path = path;
+    }
+
+    fn get_path(&self) -> &String {
+        &self.path
+    }
+
     fn set_params(&mut self, params: HashMap<String, Value>) -> Result<(), String> {
         if params.is_empty() {
             Ok(())
@@ -152,6 +164,8 @@ impl ClusterProcessingPlugin for MarkdownRenderingPlugin {
 
 #[no_mangle]
 pub extern "C" fn create_plugin() -> *mut dyn ClusterProcessingPlugin {
-    let plugin = Box::new(MarkdownRenderingPlugin {});
+    let plugin = Box::new(MarkdownRenderingPlugin {
+        path: "".into()
+    });
     Box::into_raw(plugin)
 }

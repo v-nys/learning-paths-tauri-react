@@ -4601,6 +4601,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "learning-paths-tauri-react",
+ "regex",
  "schemars",
  "serde",
  "serde_json",

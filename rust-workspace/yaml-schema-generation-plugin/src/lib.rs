@@ -6,16 +6,33 @@ use learning_paths_tauri_react::{
     deserialization, domain,
     plugins::{ArtifactMapping, ClusterProcessingPlugin, Plugin},
 };
-use schemars::JsonSchema;
+
+use regex;
+use schemars::{
+    schema::{InstanceType, Schema::Object, SchemaObject, SingleOrVec, StringValidation},
+    JsonSchema,
+};
 use serde_yaml::Value;
 use std::path::Path;
 
-pub struct YamlSchemaGenerationPlugin {}
+pub struct YamlSchemaGenerationPlugin {
+    path: String
+}
 
 #[derive(JsonSchema)]
 pub struct PluginParameters {}
 
 impl Plugin for YamlSchemaGenerationPlugin {
+
+
+    fn get_path(&self) -> &String {
+        &self.path
+    }
+
+    fn set_path(&mut self, path: String) {
+        self.path = path;
+    }
+
     fn set_params(&mut self, params: HashMap<String, Value>) -> Result<(), String> {
         if params.is_empty() {
             Ok(())
@@ -48,69 +65,70 @@ impl ClusterProcessingPlugin for YamlSchemaGenerationPlugin {
         let plugin_schema_object = &mut plugin_schema.schema;
         let subschema_validation = plugin_schema_object.subschemas();
         let mut conditional_schemas = vec![];
-        // let mut required_properties = BTreeSet::new();
-        // let mut properties = BTreeMap::new();
-        /*
-         * Problem:
-         * There is a general ClusterForSerialization schema.
-         * But the parameters can differ for every *individual* plugin.
-         * So I would have to modify ClusterForSerialization's *single* schema.
-         * Each plugin has a property "path", unique to that plugin.
-         * SubschemaValidation offers conditional constructs.
-         * The "if" part could be used to compare the path to the specified one...
-         * The "then" part could then state that certain properties may or must be present.
-         */
-        cluster
-            .node_plugins
-            .iter()
-            .for_each(|plugin| {
-                let params_and_schemas = plugin.get_params_schema();
-                params_and_schemas.iter().for_each(
-                    |((field_name, field_is_required), field_value_schema)| {
-                        // now, add to the ClusterForSerialization's subschema validation
-                        // specifically, add a conditional clause to its all_of
-                        let if_clause = todo!();
-                        let then_clause = todo!();
-                        let conditional = todo!();
-                        conditional_schemas.push(conditional);
-
-
-
-                        // if *field_is_required {
-                        //     let _ = required_properties.insert(field.into());
-                        // }
-                        // let deserialized_schema = serde_json::from_value(serialized_schema.clone())
-                        //     .expect("This should have been properly serialized.");
-                        // let _ = properties.insert(field.into(), deserialized_schema);
-                    },
-                );
-            });
+        // there is only one ClusterForSerialization schema
+        // so it should be modified through conditional clauses
+        // it can't be duplicated for every individual plugin
+        cluster.node_plugins.iter().for_each(|plugin| {
+            let plugin_path: &String = plugin.get_path();
+            let params_and_schemas = plugin.get_params_schema();
+            params_and_schemas.iter().for_each(
+                |((field_name, field_is_required), field_value_schema)| {
+                    // if the path matches the plugin path...
+                    let mut if_clause = SchemaObject::new_ref("dummy-ref".into());
+                    if_clause.reference = None;
+                    if_clause.instance_type = Some(SingleOrVec::from(InstanceType::Object));
+                    let mut if_clause_required = BTreeSet::new();
+                    if_clause_required.insert("path".into());
+                    if_clause.object().required = if_clause_required;
+                    let mut if_clause_properties = BTreeMap::new();
+                    let mut path_schema = SchemaObject::new_ref("dummy-ref".into());
+                    path_schema.reference = None;
+                    let mut path_string_validation = StringValidation::default();
+                    let escaped_path_string =
+                        format!("^{}$", regex::escape(plugin_path));
+                    path_string_validation.pattern = Some(escaped_path_string);
+                    path_schema.string = Some(Box::new(path_string_validation));
+                    if_clause_properties.insert("path".into(), Object(path_schema));
+                    if_clause.object().properties = if_clause_properties;
+                    // ... the parameter should be checked according to the schema ...
+                    let mut then_clause = SchemaObject::new_ref("dummy-ref".into());
+                    then_clause.reference = None;
+                    then_clause.instance_type = Some(SingleOrVec::from(InstanceType::Object));
+                    let mut then_clause_required = BTreeSet::new();
+                    if *field_is_required {
+                        then_clause_required.insert(field_name.into());
+                    }
+                    let mut then_clause_properties = BTreeMap::new();
+                    then_clause_properties.insert(
+                        field_name.into(),
+                        serde_json::from_value(field_value_schema.clone())
+                            .expect("Assuming (de)serializating by libraries works."),
+                    );
+                    then_clause.object().required = then_clause_required;
+                    then_clause.object().properties = then_clause_properties;
+                    // ... and the "if" and "then need to be joined
+                    let mut conditional = SchemaObject::new_ref("dummy-ref".into());
+                    conditional.reference = None;
+                    let conditional_subschemas = conditional.subschemas();
+                    conditional_subschemas.if_schema = Some(Box::new(Object(if_clause)));
+                    conditional_subschemas.then_schema = Some(Box::new(Object(then_clause)));
+                    conditional_schemas.push(Object(conditional));
+                },
+            );
+        });
         subschema_validation.all_of = Some(conditional_schemas);
-        // object_validation.required.extend(required_properties.into_iter()); // = required_properties;
-        // object_validation.properties.extend(properties.into_iter()); // = properties;
         println!(
             "Modified plugin schema:\n\n{}",
             serde_json::to_string_pretty(&plugin_schema).unwrap()
         );
-
-        // for each hashmap entry, add a property whose subschema is given
-        // to get the overall schema, use a Visitor to traverse the schema for Cluster?
-        // then write the overall schema to the cluster's directory and voila
-
-        /*
-        cluster.pre_cluster_plugins.iter().for_each(|plugin| {
-            println!("{:#?}", plugin.get_params_schema())
-        });
-        cluster.pre_zip_plugins.iter().for_each(|plugin| {
-            println!("{:#?}", plugin.get_params_schema())
-        });
-        */
         Ok(HashSet::new())
     }
 }
 
 #[no_mangle]
 pub extern "C" fn create_plugin() -> *mut dyn ClusterProcessingPlugin {
-    let plugin = Box::new(YamlSchemaGenerationPlugin {});
+    let plugin = Box::new(YamlSchemaGenerationPlugin {
+        path: "".into()
+    });
     Box::into_raw(plugin)
 }

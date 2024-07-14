@@ -13,12 +13,22 @@ use yaml2json_rs::Yaml2Json;
 
 pub struct MoodleFormatPlugin {
     params: HashMap<String, Value>,
+    path: String
 }
 
 #[derive(JsonSchema)]
 pub struct PluginParameters {}
 
 impl Plugin for MoodleFormatPlugin {
+
+    fn set_path(&mut self, path: String) {
+        self.path = path;
+    }
+
+    fn get_path(&self) -> &String {
+        &self.path
+    }
+
     fn get_params_schema(&self) -> HashMap<(String, bool), serde_json::Value> {
         HashMap::new()
     }
@@ -85,6 +95,7 @@ impl PreZipPlugin for MoodleFormatPlugin {
 pub extern "C" fn create_plugin() -> *mut dyn PreZipPlugin {
     let plugin = Box::new(MoodleFormatPlugin {
         params: HashMap::new(),
+        path: "".into(),
     });
     Box::into_raw(plugin)
 }

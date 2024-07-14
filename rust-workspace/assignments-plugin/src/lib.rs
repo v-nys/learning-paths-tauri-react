@@ -17,7 +17,8 @@ use std::path::Path;
 use serde_json;
 
 pub struct AssignmentsPlugin {
-    params: HashMap<String, Value>
+    params: HashMap<String, Value>,
+    path: String
 }
 
 #[derive(JsonSchema)]
@@ -37,6 +38,14 @@ fn file_is_readable(file_path: &Path) -> bool {
 }
 
 impl Plugin for AssignmentsPlugin {
+
+    fn set_path(&mut self, path: String) {
+        self.path = path;
+    }
+
+    fn get_path(&self) -> &String {
+        &self.path
+    }
 
     fn get_name(&self) -> &str {
         "Assignments"
@@ -148,6 +157,6 @@ impl NodeProcessingPlugin for AssignmentsPlugin {
 
 #[no_mangle]
 pub extern "C" fn create_plugin() -> *mut dyn NodeProcessingPlugin {
-    let plugin = Box::new(AssignmentsPlugin { params: HashMap::new() });
+    let plugin = Box::new(AssignmentsPlugin { params: HashMap::new(), path: "".into() });
     Box::into_raw(plugin)
 }

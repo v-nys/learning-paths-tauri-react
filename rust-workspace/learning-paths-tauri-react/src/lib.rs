@@ -23,6 +23,8 @@ pub mod plugins {
         fn get_name(&self) -> &str;
         fn get_version(&self) -> &str;
         fn set_params(&mut self, params: HashMap<String, Value>) -> Result<(), String>;
+        fn set_path(&mut self, path: String);
+        fn get_path(&self) -> &String;
         // can't return a Box<dyn JsonSchema> because that trait is not object safe
         // can't parameterize Plugin trait over schema type because of dynamic loading
         // i.e. we can't define a concrete Schema type before loading
@@ -131,10 +133,11 @@ pub mod plugins {
                     let mut plugins = VecDeque::new();
                     for domain::UnloadedPlugin { path, parameters } in unloaded_plugins {
                         unsafe {
-                            let lib = Library::new(path).map_err(|_| "failed to load library".to_owned())?;
+                            let lib = Library::new(path.clone()).map_err(|_| "failed to load library".to_owned())?;
                             let constructor: Symbol<unsafe extern "C" fn() -> *mut dyn $plugin_trait> =
                                 lib.get(b"create_plugin").map_err(|_| "failed to find symbol".to_owned())?;
                             let mut plugin = Box::from_raw(constructor());
+                            plugin.set_path(path);
                             plugin.set_params(parameters)?;
                             plugins.push_back([<$plugin_trait Container>] {
                                 plugin,
