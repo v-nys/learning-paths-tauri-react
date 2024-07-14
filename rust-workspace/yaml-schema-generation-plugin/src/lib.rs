@@ -68,6 +68,17 @@ impl ClusterProcessingPlugin for YamlSchemaGenerationPlugin {
         // there is only one ClusterForSerialization schema
         // so it should be modified through conditional clauses
         // it can't be duplicated for every individual plugin
+        //
+        // TODO
+        // the "path" property is always required
+        // anything else is simply prohibited, *unless* we are dealing with a cluster plugin
+        // i.e. unless the path property has a value matching plugin.get_path()
+        //
+        // should be manageable, so focus on case where we are dealing with a cluster plugin
+        // instead of having multiple identical "ifs" per plugin with different "thens"
+        // there should be a single "if" for each plugin
+        // and the "then" should bundle all properties
+        // and it should prohibit any other properties
         cluster.node_plugins.iter().for_each(|plugin| {
             let plugin_path: &String = plugin.get_path();
             let params_and_schemas = plugin.get_params_schema();
