@@ -46,32 +46,48 @@ impl ClusterProcessingPlugin for YamlSchemaGenerationPlugin {
         let mut overall_schema = schemars::schema_for!(deserialization::ClusterForSerialization);
         let mut plugin_schema = schemars::schema_for!(deserialization::PluginForSerialization);
         let plugin_schema_object = &mut plugin_schema.schema;
-        let object_validation = plugin_schema_object.object();
-        let mut required_properties = BTreeSet::new();
-        let mut properties = BTreeMap::new();
-        // println!("Here is the basic cluster schema:");
-        // println!("{:#?}", overall_schema);
-        // TODO: don't just do this for specific plugin
-        // will probably need to let each plugin know its own path
+        let subschema_validation = plugin_schema_object.subschemas();
+        let mut conditional_schemas = vec![];
+        // let mut required_properties = BTreeSet::new();
+        // let mut properties = BTreeMap::new();
+        /*
+         * Problem:
+         * There is a general ClusterForSerialization schema.
+         * But the parameters can differ for every *individual* plugin.
+         * So I would have to modify ClusterForSerialization's *single* schema.
+         * Each plugin has a property "path", unique to that plugin.
+         * SubschemaValidation offers conditional constructs.
+         * The "if" part could be used to compare the path to the specified one...
+         * The "then" part could then state that certain properties may or must be present.
+         */
         cluster
             .node_plugins
             .iter()
             .for_each(|plugin| {
-                println!("Adding to the plugin schema...");
                 let params_and_schemas = plugin.get_params_schema();
                 params_and_schemas.iter().for_each(
-                    |((field, field_is_required), serialized_schema)| {
-                        if *field_is_required {
-                            let _ = required_properties.insert(field.into());
-                        }
-                        let deserialized_schema = serde_json::from_value(serialized_schema.clone())
-                            .expect("This should have been properly serialized.");
-                        let _ = properties.insert(field.into(), deserialized_schema);
+                    |((field_name, field_is_required), field_value_schema)| {
+                        // now, add to the ClusterForSerialization's subschema validation
+                        // specifically, add a conditional clause to its all_of
+                        let if_clause = todo!();
+                        let then_clause = todo!();
+                        let conditional = todo!();
+                        conditional_schemas.push(conditional);
+
+
+
+                        // if *field_is_required {
+                        //     let _ = required_properties.insert(field.into());
+                        // }
+                        // let deserialized_schema = serde_json::from_value(serialized_schema.clone())
+                        //     .expect("This should have been properly serialized.");
+                        // let _ = properties.insert(field.into(), deserialized_schema);
                     },
                 );
             });
-        object_validation.required.extend(required_properties.into_iter()); // = required_properties;
-        object_validation.properties.extend(properties.into_iter()); // = properties;
+        subschema_validation.all_of = Some(conditional_schemas);
+        // object_validation.required.extend(required_properties.into_iter()); // = required_properties;
+        // object_validation.properties.extend(properties.into_iter()); // = properties;
         println!(
             "Modified plugin schema:\n\n{}",
             serde_json::to_string_pretty(&plugin_schema).unwrap()
