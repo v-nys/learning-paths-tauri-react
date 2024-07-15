@@ -81,7 +81,7 @@ pub mod plugins {
         ($plugin_trait:ident) => {
             paste::paste! {
                 pub struct [<$plugin_trait Container>] {
-                    plugin: Box<dyn $plugin_trait>,
+                    pub plugin: Box<dyn $plugin_trait>,
                     // note: Library is Send + Sync
                     _lib: Library // Holds the library to ensure it lives as long as the plugin
                 }

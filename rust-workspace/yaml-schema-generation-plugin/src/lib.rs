@@ -9,7 +9,9 @@ use learning_paths_tauri_react::{
 
 use regex;
 use schemars::{
-    schema::{InstanceType, Schema::Object, SchemaObject, SingleOrVec, StringValidation},
+    schema::{
+        InstanceType, RootSchema, Schema::Object, SchemaObject, SingleOrVec, StringValidation,
+    },
     JsonSchema,
 };
 use serde_yaml::Value;
@@ -53,6 +55,28 @@ impl Plugin for YamlSchemaGenerationPlugin {
     }
 }
 
+fn plugin_to_paths_to_schemas_entry(
+    plugin_path: &String,
+    params_and_schemas: HashMap<(String, bool), serde_json::Value>,
+    mut schema_for_plugin: RootSchema,
+) -> (&String, SchemaObject) {
+    let mut required_properties_for_plugin = schema_for_plugin.schema.object().required.clone();
+    let mut properties_for_plugin = schema_for_plugin.schema.object().properties.clone();
+    params_and_schemas
+        .iter()
+        .for_each(|((param, required), param_schema)| {
+            if *required {
+                required_properties_for_plugin.insert(param.into());
+            }
+            let param_schema = serde_json::from_value(param_schema.clone())
+                .expect("Assuming (de)serializating by libraries works.");
+            properties_for_plugin.insert(param.into(), param_schema);
+        });
+    schema_for_plugin.schema.object().required = required_properties_for_plugin;
+    schema_for_plugin.schema.object().properties = properties_for_plugin;
+    (plugin_path, schema_for_plugin.schema)
+}
+
 impl ClusterProcessingPlugin for YamlSchemaGenerationPlugin {
     fn process_cluster(
         &self,
@@ -60,37 +84,25 @@ impl ClusterProcessingPlugin for YamlSchemaGenerationPlugin {
         cluster: &domain::Cluster,
     ) -> Result<HashSet<ArtifactMapping>, anyhow::Error> {
         let plugin_schema = schemars::schema_for!(deserialization::PluginForSerialization);
-        // TODO: don't just restrict to node plugins!
-        let plugin_paths_to_schemas: HashMap<&String, SchemaObject> = cluster
+        // could just chain all types of plugins if trait upcasting was a thing
+        // but this is currently experimental
+        // see https://github.com/rust-lang/rust/issues/65991
+        let mut plugin_paths_to_schemas: HashMap<&String, SchemaObject> = cluster
             .node_plugins
             .iter()
-            // this doesn't work because we have an iterator over a specific kind of container
-            // .chain(cluster.pre_zip_plugins.iter())
-            // .chain(cluster.pre_cluster_plugins.iter())
             .map(|plugin| {
-                let params_and_schemas = plugin.get_params_schema();
-                let mut schema_for_plugin = plugin_schema.clone();
-                // cloning rather than using &mut because I'd have 2 &muts into the same struct
-                let mut required_properties_for_plugin =
-                    schema_for_plugin.schema.object().required.clone();
-                let mut properties_for_plugin =
-                    schema_for_plugin.schema.object().properties.clone();
-                params_and_schemas
-                    .iter()
-                    .for_each(|((param, required), param_schema)| {
-                        if *required {
-                            required_properties_for_plugin.insert(param.into());
-                        }
-                        let param_schema = serde_json::from_value(param_schema.clone())
-                            .expect("Assuming (de)serializating by libraries works.");
-                        properties_for_plugin.insert(param.into(), param_schema);
-                    });
-                schema_for_plugin.schema.object().required = required_properties_for_plugin;
-                schema_for_plugin.schema.object().properties = properties_for_plugin;
-                (plugin.get_path(), schema_for_plugin.schema)
+                plugin_to_paths_to_schemas_entry(plugin.get_path(), plugin.get_params_schema(), plugin_schema.clone())
+
             })
             .collect();
-
+        cluster.pre_cluster_plugins.iter().for_each(|plugin| {
+            let (key, value) = plugin_to_paths_to_schemas_entry(plugin.get_path(), plugin.get_params_schema(), plugin_schema.clone());
+            plugin_paths_to_schemas.insert(key, value);
+        });
+        cluster.pre_zip_plugins.iter().for_each(|plugin| {
+            let (key, value) = plugin_to_paths_to_schemas_entry(plugin.get_path(), plugin.get_params_schema(), plugin_schema.clone());
+            plugin_paths_to_schemas.insert(key, value);
+        });
         // can probably avoid some cloning using into_iter...
         let conditional_schema = plugin_paths_to_schemas.iter().fold(
             plugin_schema.schema.clone(),
