@@ -29,3 +29,5 @@ node_plugins:
     require_solutions: False
 pre_cluster_plugins:
   - path: "$FLAKE_DIR/rust-workspace/target/release/libmarkdown_rendering_plugin.so"
+  - path: "$FLAKE_DIR/rust-workspace/target/release/libyaml_schema_generation_plugin.so"
+
