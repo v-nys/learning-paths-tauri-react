@@ -78,11 +78,11 @@ fn plugin_to_paths_to_schemas_entry(
     (plugin_path, schema_for_plugin)
 }
 
-impl ClusterProcessingPlugin for YamlSchemaGenerationPlugin {
-    fn process_cluster(
+impl YamlSchemaGenerationPlugin {
+    fn process_cluster_with_writer(
         &self,
-        cluster_path: &Path,
         cluster: &domain::Cluster,
+        mut writer: impl std::io::Write
     ) -> Result<HashSet<ArtifactMapping>, anyhow::Error> {
         let mut overall_schema = schema_for!(deserialization::ClusterForSerialization);
         let mut plugin_schema = schemars::schema_for!(deserialization::PluginForSerialization);
@@ -105,9 +105,14 @@ impl ClusterProcessingPlugin for YamlSchemaGenerationPlugin {
                         .object()
                         .properties
                         .insert(field.into(), Object(field_schema.schema));
-                    field_schema.definitions.iter().for_each(|(ref_string, schema)| {
-                        overall_schema.definitions.insert(ref_string.into(), schema.clone());
-                    });
+                    field_schema
+                        .definitions
+                        .iter()
+                        .for_each(|(ref_string, schema)| {
+                            overall_schema
+                                .definitions
+                                .insert(ref_string.into(), schema.clone());
+                        });
                 });
         });
         let mut plugin_paths_to_schemas: HashMap<&String, RootSchema> = cluster
@@ -144,9 +149,14 @@ impl ClusterProcessingPlugin for YamlSchemaGenerationPlugin {
             }
         });
         plugin_paths_to_schemas.values().for_each(|root_schema| {
-            root_schema.definitions.iter().for_each(|(ref_string, schema)| {
-                overall_schema.definitions.insert(ref_string.into(), schema.clone());
-            });
+            root_schema
+                .definitions
+                .iter()
+                .for_each(|(ref_string, schema)| {
+                    overall_schema
+                        .definitions
+                        .insert(ref_string.into(), schema.clone());
+                });
         });
         let conditional_schema = plugin_paths_to_schemas.iter().fold(
             plugin_schema.schema.clone(),
@@ -183,11 +193,21 @@ impl ClusterProcessingPlugin for YamlSchemaGenerationPlugin {
             .definitions
             .insert("Node".into(), Object(node_schema.schema));
 
-        std::fs::write(
-            cluster_path.join("cluster_schema.json"),
-            &serde_json::to_string_pretty(&overall_schema)?,
+        writer.write(
+            &serde_json::to_string_pretty(&overall_schema)?.as_bytes(),
         )?;
         Ok(HashSet::new())
+    }
+}
+
+impl ClusterProcessingPlugin for YamlSchemaGenerationPlugin {
+    fn process_cluster(
+        &self,
+        cluster_path: &Path,
+        cluster: &domain::Cluster,
+    ) -> Result<HashSet<ArtifactMapping>, anyhow::Error> {
+        let file = std::fs::File::open(cluster_path.join("cluster_schema.json"))?;
+        self.process_cluster_with_writer(cluster, file)
     }
 }
 
