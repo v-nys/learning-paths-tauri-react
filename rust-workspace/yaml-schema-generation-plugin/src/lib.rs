@@ -90,20 +90,39 @@ impl ClusterProcessingPlugin for YamlSchemaGenerationPlugin {
         let mut plugin_paths_to_schemas: HashMap<&String, SchemaObject> = cluster
             .node_plugins
             .iter()
+            // filtering is not necessary but simplifies the eventual schema
+            .filter(|plugin| !plugin.get_params_schema().is_empty())
             .map(|plugin| {
-                plugin_to_paths_to_schemas_entry(plugin.get_path(), plugin.get_params_schema(), plugin_schema.clone())
-
+                plugin_to_paths_to_schemas_entry(
+                    plugin.get_path(),
+                    plugin.get_params_schema(),
+                    plugin_schema.clone(),
+                )
             })
             .collect();
         cluster.pre_cluster_plugins.iter().for_each(|plugin| {
-            let (key, value) = plugin_to_paths_to_schemas_entry(plugin.get_path(), plugin.get_params_schema(), plugin_schema.clone());
-            plugin_paths_to_schemas.insert(key, value);
+            if !plugin.get_params_schema().is_empty() {
+                let (key, value) = plugin_to_paths_to_schemas_entry(
+                    plugin.get_path(),
+                    plugin.get_params_schema(),
+                    plugin_schema.clone(),
+                );
+                plugin_paths_to_schemas.insert(key, value);
+            }
         });
         cluster.pre_zip_plugins.iter().for_each(|plugin| {
-            let (key, value) = plugin_to_paths_to_schemas_entry(plugin.get_path(), plugin.get_params_schema(), plugin_schema.clone());
-            plugin_paths_to_schemas.insert(key, value);
+            if !plugin.get_params_schema().is_empty() {
+                let (key, value) = plugin_to_paths_to_schemas_entry(
+                    plugin.get_path(),
+                    plugin.get_params_schema(),
+                    plugin_schema.clone(),
+                );
+                plugin_paths_to_schemas.insert(key, value);
+            }
         });
         // can probably avoid some cloning using into_iter...
+        // FIXME: right now, the innermost schema bears the "$schema" property
+        // should be the outermost schema, if any
         let conditional_schema = plugin_paths_to_schemas.iter().fold(
             plugin_schema.schema.clone(),
             |acc, (plugin_path, plugin_schema_object)| {
