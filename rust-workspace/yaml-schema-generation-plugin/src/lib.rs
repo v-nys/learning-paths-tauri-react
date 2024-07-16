@@ -84,6 +84,7 @@ impl ClusterProcessingPlugin for YamlSchemaGenerationPlugin {
         cluster_path: &Path,
         cluster: &domain::Cluster,
     ) -> Result<HashSet<ArtifactMapping>, anyhow::Error> {
+        let mut overall_schema = schema_for!(deserialization::ClusterForSerialization);
         let mut plugin_schema = schemars::schema_for!(deserialization::PluginForSerialization);
         plugin_schema.meta_schema = None;
         let mut node_schema = schemars::schema_for!(deserialization::Node);
@@ -104,6 +105,11 @@ impl ClusterProcessingPlugin for YamlSchemaGenerationPlugin {
                         .object()
                         .properties
                         .insert(field.into(), Object(field_schema.schema));
+                    // TODO: copy definitions
+                    // I guess these should be in field_schema
+                    field_schema.definitions.iter().for_each(|(ref_string, schema)| {
+                        overall_schema.definitions.insert(ref_string.into(), schema.clone());
+                    });
                 });
         });
         let mut plugin_paths_to_schemas: HashMap<&String, SchemaObject> = cluster
@@ -167,17 +173,12 @@ impl ClusterProcessingPlugin for YamlSchemaGenerationPlugin {
                 conditional
             },
         );
-        let mut overall_schema = schema_for!(deserialization::ClusterForSerialization);
         overall_schema
             .definitions
             .insert("PluginForSerialization".into(), Object(conditional_schema));
         overall_schema
             .definitions
             .insert("Node".into(), Object(node_schema.schema));
-
-
-        println!("{}",
-            &serde_json::to_string_pretty(&overall_schema)?);
 
         std::fs::write(
             cluster_path.join("cluster_schema.json"),

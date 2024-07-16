@@ -74,6 +74,26 @@
   },
   "additionalProperties": false,
   "definitions": {
+    "Assignment": {
+      "type": "object",
+      "required": [
+        "id"
+      ],
+      "properties": {
+        "attachments": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "string"
+          }
+        },
+        "id": {
+          "type": "string"
+        }
+      }
+    },
     "Edge": {
       "type": "object",
       "required": [
