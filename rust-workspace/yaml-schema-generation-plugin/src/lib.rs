@@ -12,7 +12,7 @@ use schemars::{
     schema::{
         InstanceType, RootSchema, Schema::Object, SchemaObject, SingleOrVec, StringValidation,
     },
-    JsonSchema,
+    schema_for, JsonSchema,
 };
 use serde_yaml::Value;
 use std::path::Path;
@@ -68,9 +68,10 @@ fn plugin_to_paths_to_schemas_entry(
             if *required {
                 required_properties_for_plugin.insert(param.into());
             }
-            let param_schema = serde_json::from_value(param_schema.clone())
+            let mut param_schema: RootSchema = serde_json::from_value(param_schema.clone())
                 .expect("Assuming (de)serializating by libraries works.");
-            properties_for_plugin.insert(param.into(), param_schema);
+            param_schema.meta_schema = None;
+            properties_for_plugin.insert(param.into(), Object(param_schema.schema));
         });
     schema_for_plugin.schema.object().required = required_properties_for_plugin;
     schema_for_plugin.schema.object().properties = properties_for_plugin;
@@ -83,7 +84,8 @@ impl ClusterProcessingPlugin for YamlSchemaGenerationPlugin {
         _cluster_path: &Path,
         cluster: &domain::Cluster,
     ) -> Result<HashSet<ArtifactMapping>, anyhow::Error> {
-        let plugin_schema = schemars::schema_for!(deserialization::PluginForSerialization);
+        let mut plugin_schema = schemars::schema_for!(deserialization::PluginForSerialization);
+        plugin_schema.meta_schema = None;
         // could just chain all types of plugins if trait upcasting was a thing
         // but this is currently experimental
         // see https://github.com/rust-lang/rust/issues/65991
@@ -120,9 +122,6 @@ impl ClusterProcessingPlugin for YamlSchemaGenerationPlugin {
                 plugin_paths_to_schemas.insert(key, value);
             }
         });
-        // can probably avoid some cloning using into_iter...
-        // FIXME: right now, the innermost schema bears the "$schema" property
-        // should be the outermost schema, if any
         let conditional_schema = plugin_paths_to_schemas.iter().fold(
             plugin_schema.schema.clone(),
             |acc, (plugin_path, plugin_schema_object)| {
@@ -151,10 +150,15 @@ impl ClusterProcessingPlugin for YamlSchemaGenerationPlugin {
                 conditional
             },
         );
+        let mut overall_schema = schema_for!(deserialization::ClusterForSerialization);
+        overall_schema
+            .definitions
+            .insert("PluginForSerialization".into(), Object(conditional_schema));
         println!(
-            "Modified plugin schema:\n\n{}",
-            serde_json::to_string_pretty(&conditional_schema).unwrap()
+            "Modified schema:\n\n{}",
+            serde_json::to_string_pretty(&overall_schema).unwrap()
         );
+
         Ok(HashSet::new())
     }
 }
