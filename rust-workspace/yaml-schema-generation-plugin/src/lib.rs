@@ -59,7 +59,7 @@ fn plugin_to_paths_to_schemas_entry(
     plugin_path: &String,
     params_and_schemas: HashMap<(String, bool), serde_json::Value>,
     mut schema_for_plugin: RootSchema,
-) -> (&String, SchemaObject) {
+) -> (&String, RootSchema) {
     let mut required_properties_for_plugin = schema_for_plugin.schema.object().required.clone();
     let mut properties_for_plugin = schema_for_plugin.schema.object().properties.clone();
     params_and_schemas
@@ -75,7 +75,7 @@ fn plugin_to_paths_to_schemas_entry(
         });
     schema_for_plugin.schema.object().required = required_properties_for_plugin;
     schema_for_plugin.schema.object().properties = properties_for_plugin;
-    (plugin_path, schema_for_plugin.schema)
+    (plugin_path, schema_for_plugin)
 }
 
 impl ClusterProcessingPlugin for YamlSchemaGenerationPlugin {
@@ -105,14 +105,12 @@ impl ClusterProcessingPlugin for YamlSchemaGenerationPlugin {
                         .object()
                         .properties
                         .insert(field.into(), Object(field_schema.schema));
-                    // TODO: copy definitions
-                    // I guess these should be in field_schema
                     field_schema.definitions.iter().for_each(|(ref_string, schema)| {
                         overall_schema.definitions.insert(ref_string.into(), schema.clone());
                     });
                 });
         });
-        let mut plugin_paths_to_schemas: HashMap<&String, SchemaObject> = cluster
+        let mut plugin_paths_to_schemas: HashMap<&String, RootSchema> = cluster
             .node_plugins
             .iter()
             // filtering is not necessary but simplifies the eventual schema
@@ -145,6 +143,11 @@ impl ClusterProcessingPlugin for YamlSchemaGenerationPlugin {
                 plugin_paths_to_schemas.insert(key, value);
             }
         });
+        plugin_paths_to_schemas.values().for_each(|root_schema| {
+            root_schema.definitions.iter().for_each(|(ref_string, schema)| {
+                overall_schema.definitions.insert(ref_string.into(), schema.clone());
+            });
+        });
         let conditional_schema = plugin_paths_to_schemas.iter().fold(
             plugin_schema.schema.clone(),
             |acc, (plugin_path, plugin_schema_object)| {
@@ -168,7 +171,7 @@ impl ClusterProcessingPlugin for YamlSchemaGenerationPlugin {
                 let conditional_subschemas = conditional.subschemas();
                 conditional_subschemas.if_schema = Some(Box::new(Object(if_clause)));
                 conditional_subschemas.then_schema =
-                    Some(Box::new(Object(plugin_schema_object.clone())));
+                    Some(Box::new(Object(plugin_schema_object.schema.clone())));
                 conditional_subschemas.else_schema = Some(Box::new(Object(acc)));
                 conditional
             },
