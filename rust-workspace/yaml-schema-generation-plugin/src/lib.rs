@@ -81,14 +81,31 @@ fn plugin_to_paths_to_schemas_entry(
 impl ClusterProcessingPlugin for YamlSchemaGenerationPlugin {
     fn process_cluster(
         &self,
-        _cluster_path: &Path,
+        cluster_path: &Path,
         cluster: &domain::Cluster,
     ) -> Result<HashSet<ArtifactMapping>, anyhow::Error> {
         let mut plugin_schema = schemars::schema_for!(deserialization::PluginForSerialization);
         plugin_schema.meta_schema = None;
-        // could just chain all types of plugins if trait upcasting was a thing
-        // but this is currently experimental
-        // see https://github.com/rust-lang/rust/issues/65991
+        let mut node_schema = schemars::schema_for!(deserialization::Node);
+        node_schema.meta_schema = None;
+        cluster.node_plugins.iter().for_each(|node_plugin| {
+            let extension_field_schema = node_plugin.get_extension_field_schema();
+            extension_field_schema
+                .iter()
+                .for_each(|((field, required), field_schema)| {
+                    if *required {
+                        node_schema.schema.object().required.insert(field.into());
+                    }
+                    let mut field_schema: RootSchema = serde_json::from_value(field_schema.clone())
+                        .expect("Assuming (de)serializating by libraries works.");
+                    field_schema.meta_schema = None;
+                    node_schema
+                        .schema
+                        .object()
+                        .properties
+                        .insert(field.into(), Object(field_schema.schema));
+                });
+        });
         let mut plugin_paths_to_schemas: HashMap<&String, SchemaObject> = cluster
             .node_plugins
             .iter()
@@ -154,11 +171,18 @@ impl ClusterProcessingPlugin for YamlSchemaGenerationPlugin {
         overall_schema
             .definitions
             .insert("PluginForSerialization".into(), Object(conditional_schema));
-        println!(
-            "Modified schema:\n\n{}",
-            serde_json::to_string_pretty(&overall_schema).unwrap()
-        );
+        overall_schema
+            .definitions
+            .insert("Node".into(), Object(node_schema.schema));
 
+
+        println!("{}",
+            &serde_json::to_string_pretty(&overall_schema)?);
+
+        std::fs::write(
+            cluster_path.join("cluster_schema.json"),
+            &serde_json::to_string_pretty(&overall_schema)?,
+        )?;
         Ok(HashSet::new())
     }
 }

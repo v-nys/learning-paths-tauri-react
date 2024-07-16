@@ -16,7 +16,7 @@ use crate::domain;
 /// Deserialization counterpart for the domain concept `Node`.
 #[derive(Clone, Debug, JsonSchema)]
 #[schemars(deny_unknown_fields)]
-struct Node {
+pub struct Node {
     /// An ID should be locally unique inside a `Cluster` and is used to refer to a node inside its `Cluster`.
     ///
     /// The ID also be used to refer to the node from outside its `Cluster`, if it is preceded by the `Cluster`'s namespace prefix.
