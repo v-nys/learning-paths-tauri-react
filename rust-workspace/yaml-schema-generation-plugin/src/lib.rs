@@ -82,7 +82,7 @@ impl YamlSchemaGenerationPlugin {
     fn process_cluster_with_writer(
         &self,
         cluster: &domain::Cluster,
-        mut writer: impl std::io::Write
+        writer: &mut impl std::io::Write,
     ) -> Result<HashSet<ArtifactMapping>, anyhow::Error> {
         let mut overall_schema = schema_for!(deserialization::ClusterForSerialization);
         let mut plugin_schema = schemars::schema_for!(deserialization::PluginForSerialization);
@@ -193,10 +193,202 @@ impl YamlSchemaGenerationPlugin {
             .definitions
             .insert("Node".into(), Object(node_schema.schema));
 
-        writer.write(
-            &serde_json::to_string_pretty(&overall_schema)?.as_bytes(),
-        )?;
+        writer.write(&serde_json::to_string_pretty(&overall_schema)?.as_bytes())?;
         Ok(HashSet::new())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use learning_paths_tauri_react::deserialization::ClusterForSerialization;
+    use std::path::PathBuf;
+
+    use super::*;
+
+    #[test]
+    fn cluster_without_plugins() {
+        // normally, the plugin would be part of this cluster
+        // but testing that would require much more scaffolding
+        // specifically, downcasting to YamlGenerationPlugin
+        // this requires an external crate
+        // so here we *apply* the plugin to a cluster that does not actually have this plugin
+        let current_dir = std::env::current_dir().expect("Should be accessible.");
+        let cluster_contents = current_dir.join("tests/dummycluster_without_plugins/contents.lc.yaml");
+        let cluster: ClusterForSerialization = serde_yaml::from_str(
+            &std::fs::read_to_string(cluster_contents)
+                .expect("File should be there and should be readable."),
+        )
+        .expect("Should be able to deserialize.");
+        let node_namespace = "dummycluster".into();
+        let cluster = cluster.build(node_namespace);
+        assert!(cluster.is_ok());
+        let cluster = cluster.unwrap();
+        assert_eq!(cluster.pre_cluster_plugins.iter().len(), 0);
+        let plugin = YamlSchemaGenerationPlugin {
+            path: "fake_path_because_plugin_was_not_dynamically_loaded_in_test".into(),
+        };
+        let mut writer = Vec::new();
+        let _ = plugin
+            .process_cluster_with_writer(&cluster, &mut writer)
+            .expect("There should be a processing result.");
+        let schema = String::from_utf8(writer).expect("Should have a valid schema string.");
+        assert_eq!(
+            schema.trim(),
+            r###"
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "ClusterForSerialization",
+  "description": "A representation of a `Cluster` which is more suitable for (de)serialization.\n\nIt does not require a namespace prefix, as that is assumed to match the name of the file to which it is serialized. It uses disjoint, optional sets of edges because that saves a lot of repetition when writing in a data format.",
+  "type": "object",
+  "required": [
+    "nodes"
+  ],
+  "properties": {
+    "all_type_edges": {
+      "description": "Strict dependencies. A non-root `Node` can only be accessed if all of its dependencies of this type have been marked complete, along with one interchangeable dependency of this `Node` or of a `Node` which is strictly dependent on this `Node`.",
+      "type": [
+        "array",
+        "null"
+      ],
+      "items": {
+        "$ref": "#/definitions/Edge"
+      }
+    },
+    "any_type_edges": {
+      "description": "Interchangeable dependencies. A non-root `Node` can only be accessed if one dependency of this type has been marked complete for this node or for a `Node` which is strictly dependent on this `Node`. Furthermore, all strict dependencies must still be marked complete.",
+      "type": [
+        "array",
+        "null"
+      ],
+      "items": {
+        "$ref": "#/definitions/Edge"
+      }
+    },
+    "node_plugins": {
+      "type": [
+        "array",
+        "null"
+      ],
+      "items": {
+        "$ref": "#/definitions/PluginForSerialization"
+      }
+    },
+    "nodes": {
+      "description": "Units of information inside this `Cluster`.",
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/Node"
+      }
+    },
+    "pre_cluster_plugins": {
+      "type": [
+        "array",
+        "null"
+      ],
+      "items": {
+        "$ref": "#/definitions/PluginForSerialization"
+      }
+    },
+    "pre_zip_plugins": {
+      "type": [
+        "array",
+        "null"
+      ],
+      "items": {
+        "$ref": "#/definitions/PluginForSerialization"
+      }
+    },
+    "roots": {
+      "description": "IDs of `Node`s with no dependencies whatsoever, i.e. the only `Node`s which can be accessed unconditionally.",
+      "type": [
+        "array",
+        "null"
+      ],
+      "items": {
+        "type": "string"
+      }
+    }
+  },
+  "additionalProperties": false,
+  "definitions": {
+    "Edge": {
+      "type": "object",
+      "required": [
+        "end_id",
+        "start_id"
+      ],
+      "properties": {
+        "end_id": {
+          "type": "string"
+        },
+        "start_id": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    },
+    "Node": {
+      "title": "Node",
+      "description": "Deserialization counterpart for the domain concept `Node`.",
+      "type": "object",
+      "required": [
+        "id",
+        "title"
+      ],
+      "properties": {
+        "id": {
+          "description": "An ID should be locally unique inside a `Cluster` and is used to refer to a node inside its `Cluster`.\n\nThe ID also be used to refer to the node from outside its `Cluster`, if it is preceded by the `Cluster`'s namespace prefix.",
+          "type": "string"
+        },
+        "title": {
+          "description": "Human-readable title for this unit of knowledge.\n\nThis is not required to be unique at any level.",
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    },
+    "PluginForSerialization": {
+      "title": "PluginForSerialization",
+      "type": "object",
+      "required": [
+        "path"
+      ],
+      "properties": {
+        "path": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}
+                   "###.trim()
+        );
+    }
+
+    #[test]
+    fn cluster_with_parameterized_node_plugin() {
+        todo!("implement!")
+    }
+
+    #[test]
+    fn cluster_with_parameterized_pre_cluster_plugin() {
+        todo!("implement!")
+    }
+
+    #[test]
+    fn cluster_with_parameterized_pre_project_plugin() {
+        todo!("implement!")
+    }
+
+    #[test]
+    fn cluster_with_all_types_of_plugin() {
+        todo!("implement!")
+    }
+
+    #[test]
+    fn cluster_with_nodes_with_extension_fields_from_multiple_plugins() {
+        todo!("implement!")
     }
 }
 
@@ -206,8 +398,8 @@ impl ClusterProcessingPlugin for YamlSchemaGenerationPlugin {
         cluster_path: &Path,
         cluster: &domain::Cluster,
     ) -> Result<HashSet<ArtifactMapping>, anyhow::Error> {
-        let file = std::fs::File::open(cluster_path.join("cluster_schema.json"))?;
-        self.process_cluster_with_writer(cluster, file)
+        let mut file = std::fs::File::open(cluster_path.join("cluster_schema.json"))?;
+        self.process_cluster_with_writer(cluster, &mut file)
     }
 }
 

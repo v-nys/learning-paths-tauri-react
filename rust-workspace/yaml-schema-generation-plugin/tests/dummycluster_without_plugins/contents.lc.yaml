@@ -1,0 +1,11 @@
+nodes:
+  - id: intro
+    title: "Introduction"
+  - id: implementation
+    title: "Implementation"
+all_type_edges: []
+any_type_edges:
+  - start_id: intro
+    end_id: implementation
+roots:
+  - intro
