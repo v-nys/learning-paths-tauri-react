@@ -1,0 +1,15 @@
+nodes:
+  - id: intro
+    title: "Introduction"
+  - id: implementation
+    title: "Implementation"
+all_type_edges: []
+any_type_edges:
+  - start_id: intro
+    end_id: implementation
+roots:
+  - intro
+node_plugins:
+  - path: "$FLAKE_DIR/rust-workspace/target/release/libdummy_node_plugin.so"
+    param1: 1
+    param2: True

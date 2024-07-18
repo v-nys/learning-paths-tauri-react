@@ -46,13 +46,11 @@
               export XDG_DATA_DIRS=${pkgs.gsettings-desktop-schemas}/share/gsettings-schemas/${pkgs.gsettings-desktop-schemas.name}:${pkgs.gtk3}/share/gsettings-schemas/${pkgs.gtk3.name}:$XDG_DATA_DIRS
               export FLAKE_DIR=$(pwd)
 
-              base_path="./rust-workspace/learning-paths-tauri-react/tests"
+              base_path="./rust-workspace"
               for pre_content_file in $(find $base_path -type f -name "pre-contents.lc.yaml"); do
                 content_file=$(echo $pre_content_file | sed 's/pre-//')
                 envsubst -i $pre_content_file > $content_file
               done
-#               envsubst -i ./rust-workspace/learning-paths-tauri-react/tests/technicalinfo/pre-contents.lc.yaml > ./rust-workspace/learning-paths-tauri-react/tests/technicalinfo/contents.lc.yaml
-#               envsubst -i ./rust-workspace/learning-paths-tauri-react/tests/simpleproject/pre-contents.lc.yaml > ./rust-workspace/learning-paths-tauri-react/tests/simpleproject/contents.lc.yaml
               npm install
             '';
         };

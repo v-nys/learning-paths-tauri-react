@@ -201,29 +201,44 @@ impl YamlSchemaGenerationPlugin {
 #[cfg(test)]
 mod tests {
     use learning_paths_tauri_react::deserialization::ClusterForSerialization;
-    use std::path::PathBuf;
 
     use super::*;
 
-    #[test]
-    fn cluster_without_plugins() {
+    fn template(
+        cluster_name: &str,
+        number_of_node_plugins: usize,
+        number_of_pre_cluster_plugins: usize,
+        number_of_pre_zip_plugins: usize,
+        expected_schema_contents: &str,
+    ) {
         // normally, the plugin would be part of this cluster
         // but testing that would require much more scaffolding
         // specifically, downcasting to YamlGenerationPlugin
         // this requires an external crate
         // so here we *apply* the plugin to a cluster that does not actually have this plugin
         let current_dir = std::env::current_dir().expect("Should be accessible.");
-        let cluster_contents = current_dir.join("tests/dummycluster_without_plugins/contents.lc.yaml");
+        let cluster_contents = current_dir.join(format!("tests/{}/contents.lc.yaml", cluster_name));
         let cluster: ClusterForSerialization = serde_yaml::from_str(
             &std::fs::read_to_string(cluster_contents)
                 .expect("File should be there and should be readable."),
         )
         .expect("Should be able to deserialize.");
-        let node_namespace = "dummycluster".into();
+        let node_namespace = cluster_name.into();
         let cluster = cluster.build(node_namespace);
         assert!(cluster.is_ok());
         let cluster = cluster.unwrap();
-        assert_eq!(cluster.pre_cluster_plugins.iter().len(), 0);
+        assert_eq!(
+            cluster.pre_cluster_plugins.iter().len(),
+            number_of_node_plugins
+        );
+        assert_eq!(
+            cluster.pre_cluster_plugins.iter().len(),
+            number_of_pre_cluster_plugins
+        );
+        assert_eq!(
+            cluster.pre_cluster_plugins.iter().len(),
+            number_of_pre_zip_plugins
+        );
         let plugin = YamlSchemaGenerationPlugin {
             path: "fake_path_because_plugin_was_not_dynamically_loaded_in_test".into(),
         };
@@ -232,8 +247,16 @@ mod tests {
             .process_cluster_with_writer(&cluster, &mut writer)
             .expect("There should be a processing result.");
         let schema = String::from_utf8(writer).expect("Should have a valid schema string.");
-        assert_eq!(
-            schema.trim(),
+        assert_eq!(schema.trim(), expected_schema_contents.trim());
+    }
+
+    #[test]
+    fn cluster_without_plugins() {
+        template(
+            "dummycluster_without_plugins",
+            0,
+            0,
+            0,
             r###"
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
@@ -362,30 +385,67 @@ mod tests {
     }
   }
 }
-                   "###.trim()
+                   "###,
         );
     }
 
     #[test]
     fn cluster_with_parameterized_node_plugin() {
-        todo!("implement!")
+template(
+            "dummycluster_with_parameterized_node_plugin",
+            1,
+            0,
+            0,
+            r###"
+            {
+            }
+                   "###,
+        );
     }
 
     #[test]
     fn cluster_with_parameterized_pre_cluster_plugin() {
-        todo!("implement!")
+template(
+            "dummycluster_with_parameterized_pre_cluster_plugin",
+            0,
+            1,
+            0,
+            r###"
+            {
+            }
+                   "###,
+        );
     }
 
     #[test]
-    fn cluster_with_parameterized_pre_project_plugin() {
-        todo!("implement!")
+    fn cluster_with_parameterized_pre_zip_plugin() {
+template(
+            "dummycluster_with_parameterized_pre_zip_plugin",
+            0,
+            0,
+            1,
+            r###"
+            {
+            }
+                   "###,
+        );
     }
 
     #[test]
-    fn cluster_with_all_types_of_plugin() {
-        todo!("implement!")
+    fn cluster_with_each_type_of_plugin() {
+template(
+            "dummycluster_with_each_type_of_plugin",
+            1,
+            1,
+            1,
+            r###"
+            {
+            }
+                   "###,
+        );
     }
 
+    #[ignore]
     #[test]
     fn cluster_with_nodes_with_extension_fields_from_multiple_plugins() {
         todo!("implement!")

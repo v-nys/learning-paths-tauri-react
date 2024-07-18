@@ -1,0 +1,14 @@
+[package]
+name = "dummy-node-plugin"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+learning-paths-tauri-react = { path = "../learning-paths-tauri-react/" }
+schemars = "0.8.21"
+serde_json = "1.0.120"
+serde_yaml = "0.9.34"

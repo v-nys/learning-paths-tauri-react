@@ -869,6 +869,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "dummy-node-plugin"
+version = "0.1.0"
+dependencies = [
+ "learning-paths-tauri-react",
+ "schemars",
+ "serde_json",
+ "serde_yaml",
+]
+
+[[package]]
 name = "dunce"
 version = "1.0.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
