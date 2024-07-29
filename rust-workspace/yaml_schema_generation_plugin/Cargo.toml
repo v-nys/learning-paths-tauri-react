@@ -9,7 +9,7 @@ crate-type = ["cdylib"]
 
 [dependencies]
 anyhow = "1.0.86"
-logic_based_learning_paths = { path = "../logic_based_learning_paths/" }
+logic_based_learning_paths = "0.0.0"
 regex = "1.10.5"
 schemars = "0.8.21"
 serde = { version = "1", features = [ "derive" ] }

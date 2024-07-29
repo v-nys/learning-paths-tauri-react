@@ -22,7 +22,7 @@ graphviz-rust = "0.6"
 serde_yaml = "0.9"
 anyhow = "1.0.86"
 zip = "0.6.6"
-logic_based_learning_paths = { path = "../logic_based_learning_paths/" }
+logic_based_learning_paths = "0.0.0"
 
 [features]
 # this feature is used for production builds or when `devPath` points to the filesystem

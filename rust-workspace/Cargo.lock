@@ -127,7 +127,7 @@ name = "assignments_plugin"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "logic_based_learning_paths",
+ "logic_based_learning_paths 0.0.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "schemars",
  "serde",
  "serde_json",
@@ -871,7 +871,7 @@ dependencies = [
 name = "dummy_node_plugin"
 version = "0.1.0"
 dependencies = [
- "logic_based_learning_paths",
+ "logic_based_learning_paths 0.0.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "schemars",
  "serde_json",
  "serde_yaml",
@@ -1915,12 +1915,29 @@ dependencies = [
 ]
 
 [[package]]
+name = "logic_based_learning_paths"
+version = "0.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7d81ddfb60d1c00e0d0d6b5821b9a4c7a014f05e3350b30e7a97f7e69525a511"
+dependencies = [
+ "anyhow",
+ "lazy-regex",
+ "libloading",
+ "paste",
+ "petgraph",
+ "schemars",
+ "serde",
+ "serde_json",
+ "serde_yaml",
+]
+
+[[package]]
 name = "logic_based_learning_paths_bin"
 version = "0.0.0"
 dependencies = [
  "anyhow",
  "graphviz-rust",
- "logic_based_learning_paths",
+ "logic_based_learning_paths 0.0.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "petgraph",
  "serde",
  "serde_json",
@@ -1968,7 +1985,7 @@ dependencies = [
  "anyhow",
  "base64 0.22.1",
  "comrak",
- "logic_based_learning_paths",
+ "logic_based_learning_paths 0.0.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "regex",
  "schemars",
  "serde_json",
@@ -2047,7 +2064,7 @@ name = "moodle_format_plugin"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "logic_based_learning_paths",
+ "logic_based_learning_paths 0.0.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "schemars",
  "serde",
  "serde_json",
@@ -4616,7 +4633,7 @@ name = "yaml_schema_generation_plugin"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "logic_based_learning_paths",
+ "logic_based_learning_paths 0.0.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "regex",
  "schemars",
  "serde",
