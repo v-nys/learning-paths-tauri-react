@@ -1904,7 +1904,6 @@ name = "logic_based_learning_paths"
 version = "0.0.0"
 dependencies = [
  "anyhow",
- "graphviz-rust",
  "lazy-regex",
  "libloading",
  "paste",
@@ -1913,10 +1912,22 @@ dependencies = [
  "serde",
  "serde_json",
  "serde_yaml",
+]
+
+[[package]]
+name = "logic_based_learning_paths_bin"
+version = "0.0.0"
+dependencies = [
+ "anyhow",
+ "graphviz-rust",
+ "logic_based_learning_paths",
+ "petgraph",
+ "serde",
+ "serde_json",
+ "serde_yaml",
  "tauri",
  "tauri-build",
  "tauri-plugin-fs-watch",
- "walkdir",
  "zip",
 ]
 

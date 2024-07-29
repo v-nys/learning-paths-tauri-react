@@ -1,0 +1,30 @@
+[package]
+name = "logic_based_learning_paths_bin"
+version = "0.0.0"
+description = "A Tauri App for building organized project-based learning paths"
+authors = ["Vincent Nys"]
+license = ""
+repository = ""
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[build-dependencies]
+tauri-build = { version = "1", features = [] }
+
+[dependencies]
+tauri = { version = "1", features = ["shell-open", "window-all"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tauri-plugin-fs-watch = { git = "https://github.com/tauri-apps/plugins-workspace", rev = "dce0f02bc571128308c30278cde3233f341e6a50" }
+petgraph = { version = "0.6", features = [ "serde-1" ] }
+graphviz-rust = "0.6"
+serde_yaml = "0.9"
+anyhow = "1.0.86"
+zip = "0.6.6"
+logic_based_learning_paths = { path = "../logic_based_learning_paths/" }
+
+[features]
+# this feature is used for production builds or when `devPath` points to the filesystem
+# DO NOT REMOVE!!
+custom-protocol = ["tauri/custom-protocol"]

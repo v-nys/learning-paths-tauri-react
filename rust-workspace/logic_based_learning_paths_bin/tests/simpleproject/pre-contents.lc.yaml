@@ -1,0 +1,22 @@
+nodes:
+  - id: intro
+    title: "Introduction"
+  - id: implementation
+    title: "Implementation"
+all_type_edges:
+  - start_id: technicalinfo__concept_C
+    end_id: implementation
+any_type_edges:
+  - start_id: intro
+    end_id: implementation
+roots:
+  - intro
+# not actually using but just to see whether schema generation plugin is performing as expected
+node_plugins:
+  - path: "$FLAKE_DIR/rust-workspace/target/release/libassignments_plugin.so"
+    require_solutions: False
+pre_cluster_plugins:
+  - path: "$FLAKE_DIR/rust-workspace/target/release/libmarkdown_rendering_plugin.so"
+  - path: "$FLAKE_DIR/rust-workspace/target/release/libyaml_schema_generation_plugin.so"
+pre_zip_plugins:
+  - path: "$FLAKE_DIR/rust-workspace/target/release/libmoodle_format_plugin.so"

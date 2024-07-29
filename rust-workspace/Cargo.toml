@@ -1,6 +1,7 @@
 [workspace]
 members = [
     "logic_based_learning_paths",
+    "logic_based_learning_paths_bin",
     "assignments_plugin",
     "markdown_rendering_plugin",
     "moodle_format_plugin",
