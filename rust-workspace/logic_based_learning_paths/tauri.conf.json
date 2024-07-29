@@ -7,7 +7,7 @@
     "withGlobalTauri": false
   },
   "package": {
-    "productName": "learning-paths-tauri-react",
+    "productName": "logic_based_learning_paths",
     "version": "0.0.0"
   },
   "tauri": {
@@ -30,7 +30,7 @@
         "icons/icon.icns",
         "icons/icon.ico"
       ],
-      "identifier": "com.programmingemu.learningpaths",
+      "identifier": "com.programmingemu.logicbasedlearningpaths",
       "targets": ["deb", "msi"]
     },
     "security": {
@@ -43,7 +43,7 @@
       {
         "fullscreen": false,
         "resizable": true,
-        "title": "learning-paths-tauri-react",
+        "title": "Logic Based Learning Paths",
         "width": 800,
         "height": 600
       }

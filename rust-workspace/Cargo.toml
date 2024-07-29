@@ -1,9 +1,12 @@
 [workspace]
 members = [
-    "learning-paths-tauri-react",
-    "assignments-plugin",
-    "markdown-rendering-plugin"
-, "moodle-format-plugin", "yaml-schema-generation-plugin", "dummy-node-plugin"]
+    "logic_based_learning_paths",
+    "assignments_plugin",
+    "markdown_rendering_plugin",
+    "moodle_format_plugin",
+    "yaml_schema_generation_plugin",
+    "dummy_node_plugin"
+]
 [package]
 name = "workspace"
 version = "0.1.0"

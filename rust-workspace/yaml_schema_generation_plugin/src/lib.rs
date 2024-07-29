@@ -2,7 +2,7 @@
 
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
-use learning_paths_tauri_react::{
+use logic_based_learning_paths::{
     deserialization, domain,
     plugins::{ArtifactMapping, ClusterProcessingPlugin, Plugin},
 };
@@ -200,7 +200,7 @@ impl YamlSchemaGenerationPlugin {
 
 #[cfg(test)]
 mod tests {
-    use learning_paths_tauri_react::deserialization::ClusterForSerialization;
+    use logic_based_learning_paths::deserialization::ClusterForSerialization;
 
     use super::*;
 

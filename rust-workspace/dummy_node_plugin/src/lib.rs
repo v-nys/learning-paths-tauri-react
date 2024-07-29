@@ -4,8 +4,8 @@ use std::path::Path;
 use schemars::JsonSchema;
 use std::collections::{HashSet, HashMap};
 use serde_yaml::Value;
-use learning_paths_tauri_react::domain;
-use learning_paths_tauri_react::plugins::{Plugin, NodeProcessingPlugin, NodeProcessingError, ArtifactMapping};
+use logic_based_learning_paths::domain;
+use logic_based_learning_paths::plugins::{Plugin, NodeProcessingPlugin, NodeProcessingError, ArtifactMapping};
 
 
 pub struct DummyNodePlugin {

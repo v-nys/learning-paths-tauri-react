@@ -1,7 +1,7 @@
 // Prevents additional console window on Windows in release, DO NOT REMOVE!!
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 use anyhow;
-use learning_paths_tauri_react::plugins::{
+use logic_based_learning_paths::plugins::{
     ArtifactMapping, NodeProcessingError,
 };
 use petgraph::adj::List;
@@ -29,9 +29,9 @@ use std::{collections::HashMap, fmt, fs::File, ops::Index, path::Path};
 mod rendering;
 
 use crate::rendering::svgify;
-use learning_paths_tauri_react::domain;
-use learning_paths_tauri_react::deserialization;
-use learning_paths_tauri_react::domain::{
+use logic_based_learning_paths::domain;
+use logic_based_learning_paths::deserialization;
+use logic_based_learning_paths::domain::{
     EdgeData, EdgeType, Graph, NodeID, StructuralError, TypedEdge,
 };
 

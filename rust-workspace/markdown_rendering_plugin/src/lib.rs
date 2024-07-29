@@ -1,12 +1,12 @@
 #![allow(improper_ctypes_definitions)]
 #![allow(deprecated)]
 
-extern crate learning_paths_tauri_react;
+extern crate logic_based_learning_paths;
 
 use base64::encode;
 use comrak::{markdown_to_html, ComrakOptions};
-use learning_paths_tauri_react::domain;
-use learning_paths_tauri_react::plugins::{ArtifactMapping, ClusterProcessingPlugin, Plugin};
+use logic_based_learning_paths::domain;
+use logic_based_learning_paths::plugins::{ArtifactMapping, ClusterProcessingPlugin, Plugin};
 use regex;
 use schemars::JsonSchema;
 use serde_json;

@@ -1,14 +1,14 @@
 #![allow(improper_ctypes_definitions)]
 
-extern crate learning_paths_tauri_react;
+extern crate logic_based_learning_paths;
 
 use std::path::PathBuf;
 use std::collections::{HashSet, HashMap};
 use std::fs::File;
 use schemars::{schema_for, JsonSchema};
 
-use learning_paths_tauri_react::domain;
-use learning_paths_tauri_react::plugins::{
+use logic_based_learning_paths::domain;
+use logic_based_learning_paths::plugins::{
     ArtifactMapping, NodeProcessingError, NodeProcessingPlugin, Plugin,
 };
 use serde::Deserialize;
