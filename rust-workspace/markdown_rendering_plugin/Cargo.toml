@@ -2,6 +2,8 @@
 name = "lblp_markdown_rendering_plugin"
 version = "0.1.0"
 edition = "2021"
+license = "MIT"
+description = "A markdown rendering plugin for Logic Based Learning Paths"
 
 [lib]
 crate-type = ["cdylib"]
