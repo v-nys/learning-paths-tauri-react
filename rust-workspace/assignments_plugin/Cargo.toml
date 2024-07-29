@@ -1,5 +1,5 @@
 [package]
-name = "assignments_plugin"
+name = "lblp_assignments_plugin"
 version = "0.1.0"
 edition = "2021"
 

@@ -1,5 +1,5 @@
 [package]
-name = "yaml_schema_generation_plugin"
+name = "lblp_yaml_schema_generation_plugin"
 version = "0.1.0"
 edition = "2021"
 

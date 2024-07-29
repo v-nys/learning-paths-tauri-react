@@ -1,5 +1,5 @@
 [package]
-name = "markdown_rendering_plugin"
+name = "lblp_markdown_rendering_plugin"
 version = "0.1.0"
 edition = "2021"
 
