@@ -1828,7 +1828,7 @@ name = "lblp_assignments_plugin"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "logic_based_learning_paths 0.0.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "logic_based_learning_paths 0.0.0",
  "schemars",
  "serde",
  "serde_json",
@@ -1839,7 +1839,7 @@ dependencies = [
 name = "lblp_dummy_node_plugin"
 version = "0.1.0"
 dependencies = [
- "logic_based_learning_paths 0.0.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "logic_based_learning_paths 0.0.1",
  "schemars",
  "serde_json",
  "serde_yaml",
@@ -1852,7 +1852,7 @@ dependencies = [
  "anyhow",
  "base64 0.22.1",
  "comrak",
- "logic_based_learning_paths 0.0.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "logic_based_learning_paths 0.0.0",
  "regex",
  "schemars",
  "serde_json",
@@ -1865,7 +1865,7 @@ name = "lblp_moodle_format_plugin"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "logic_based_learning_paths 0.0.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "logic_based_learning_paths 0.0.0",
  "schemars",
  "serde",
  "serde_json",
@@ -1878,7 +1878,7 @@ name = "lblp_yaml_schema_generation_plugin"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "logic_based_learning_paths 0.0.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "logic_based_learning_paths 0.0.1",
  "regex",
  "schemars",
  "serde",
@@ -1943,6 +1943,8 @@ checksum = "a7a70ba024b9dc04c27ea2f0c0548feb474ec5c54bba33a7f72f873a39d07b24"
 [[package]]
 name = "logic_based_learning_paths"
 version = "0.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7d81ddfb60d1c00e0d0d6b5821b9a4c7a014f05e3350b30e7a97f7e69525a511"
 dependencies = [
  "anyhow",
  "lazy-regex",
@@ -1957,9 +1959,7 @@ dependencies = [
 
 [[package]]
 name = "logic_based_learning_paths"
-version = "0.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7d81ddfb60d1c00e0d0d6b5821b9a4c7a014f05e3350b30e7a97f7e69525a511"
+version = "0.0.1"
 dependencies = [
  "anyhow",
  "lazy-regex",
@@ -1978,7 +1978,7 @@ version = "0.0.0"
 dependencies = [
  "anyhow",
  "graphviz-rust",
- "logic_based_learning_paths 0.0.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "logic_based_learning_paths 0.0.0",
  "petgraph",
  "serde",
  "serde_json",
