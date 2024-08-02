@@ -48,8 +48,8 @@ impl Plugin for DummyNodePlugin {
         let u64_schema = schemars::schema_for!(u64);
         let bool_schema = schemars::schema_for!(bool);
         let mut parameters = HashMap::new();
-        parameters.insert(("param1".into(), true), serde_json::to_value(u64_schema).unwrap());
-        parameters.insert(("param2".into(), true), serde_json::to_value(bool_schema).unwrap());
+        // parameters.insert(("param1".into(), true), serde_json::to_value(u64_schema).unwrap());
+        // parameters.insert(("param2".into(), true), serde_json::to_value(bool_schema).unwrap());
         parameters
     }
 
