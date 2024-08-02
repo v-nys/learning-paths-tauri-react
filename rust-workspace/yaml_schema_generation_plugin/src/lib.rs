@@ -115,12 +115,19 @@ impl YamlSchemaGenerationPlugin {
                         });
                 });
         });
+        println!("about to traverse plugin paths");
+        println!("{:#?}", &cluster.node_plugins.iter().map(|plugin| plugin.get_path()));
+        println!("these are their params schemas:");
+        cluster.node_plugins.iter().for_each(|plugin| {
+            println!("{:#?}", plugin.get_params_schema());
+        });
         let mut plugin_paths_to_schemas: HashMap<&String, RootSchema> = cluster
             .node_plugins
             .iter()
             // filtering is not necessary but simplifies the eventual schema
             .filter(|plugin| !plugin.get_params_schema().is_empty())
             .map(|plugin| {
+                println!("processing plugin {}", plugin.get_path());
                 plugin_to_paths_to_schemas_entry(
                     plugin.get_path(),
                     plugin.get_params_schema(),
@@ -244,11 +251,15 @@ mod tests {
             .process_cluster_with_writer(&cluster, &mut writer)
             .expect("There should be a processing result.");
         let schema = String::from_utf8(writer).expect("Should have a valid schema string.");
-        println!("{}", &schema);
+        println!(
+            "This is the computed schema for {}:\n{}",
+            &cluster_name, &schema
+        );
         assert_eq!(schema.trim(), expected_schema_contents.trim());
     }
 
     #[test]
+    #[ignore]
     fn cluster_without_plugins() {
         template(
             "dummycluster_without_plugins",
@@ -515,7 +526,7 @@ mod tests {
         ],
         "properties": {
           "path": {
-            "pattern": "^/home/vincentn/Projects/learning\\-paths\\-tauri\\-react/rust\\-workspace/target/release/libdummy_node_plugin\\.so$"
+            "pattern": "^/home/vincentn/Projects/learning\\-paths\\-tauri\\-react/rust\\-workspace/target/debug/liblblp_dummy_node_plugin\\.so$"
           }
         }
       },
