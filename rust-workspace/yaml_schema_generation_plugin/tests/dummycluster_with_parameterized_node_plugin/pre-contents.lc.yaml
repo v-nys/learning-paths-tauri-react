@@ -13,5 +13,5 @@ roots:
 # because this cluster is intended for testing
 node_plugins:
   - path: "$FLAKE_DIR/rust-workspace/target/debug/liblblp_dummy_node_plugin.so"
-    # param1: 1
-    # param2: True
+    param1: 1
+    param2: True
