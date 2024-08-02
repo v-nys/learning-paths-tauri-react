@@ -10,6 +10,6 @@ any_type_edges:
 roots:
   - intro
 node_plugins:
-  - path: "$FLAKE_DIR/rust-workspace/target/release/libdummy_node_plugin.so"
+  - path: "$FLAKE_DIR/rust-workspace/target/release/liblblp_dummy_node_plugin.so"
     param1: 1
     param2: True

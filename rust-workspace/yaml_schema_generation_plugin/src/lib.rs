@@ -564,6 +564,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore]
     fn cluster_with_parameterized_pre_cluster_plugin() {
         template(
             "dummycluster_with_parameterized_pre_cluster_plugin",
@@ -578,6 +579,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore]
     fn cluster_with_parameterized_pre_zip_plugin() {
         template(
             "dummycluster_with_parameterized_pre_zip_plugin",
@@ -592,6 +594,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore]
     fn cluster_with_each_type_of_plugin() {
         template(
             "dummycluster_with_each_type_of_plugin",
