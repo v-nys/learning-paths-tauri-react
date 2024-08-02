@@ -9,7 +9,9 @@ any_type_edges:
     end_id: implementation
 roots:
   - intro
+# debug versions need to be used here
+# because this cluster is intended for testing
 node_plugins:
-  - path: "$FLAKE_DIR/rust-workspace/target/release/liblblp_dummy_node_plugin.so"
-    param1: 1
-    param2: True
+  - path: "$FLAKE_DIR/rust-workspace/target/debug/liblblp_dummy_node_plugin.so"
+    # param1: 1
+    # param2: True
