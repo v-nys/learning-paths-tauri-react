@@ -1,0 +1,20 @@
+nodes:
+  - id: intro
+    title: "Introduction"
+  - id: implementation
+    title: "Implementation"
+all_type_edges: []
+any_type_edges:
+  - start_id: intro
+    end_id: implementation
+roots:
+  - intro
+# debug versions need to be used here
+# because this cluster is intended for testing
+node_plugins:
+  - path: "$FLAKE_DIR/rust-workspace/target/debug/liblblp_dummy_node_plugin_with_extension_field_1.so"
+    param1: 1
+    param2: True
+  - path: "$FLAKE_DIR/rust-workspace/target/debug/liblblp_dummy_node_plugin_with_extension_field_2.so"
+    param1: 1
+    param2: True

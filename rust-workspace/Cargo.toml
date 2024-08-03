@@ -8,7 +8,9 @@ members = [
     "yaml_schema_generation_plugin",
     "dummy_node_plugin",
     "dummy_cluster_plugin",
-    "dummy_zip_plugin"
+    "dummy_zip_plugin",
+    "dummy_node_plugin_with_extension_field_1",
+    "dummy_node_plugin_with_extension_field_2"
 ]
 [package]
 name = "workspace"
