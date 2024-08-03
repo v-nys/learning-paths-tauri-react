@@ -6,7 +6,8 @@ members = [
     "markdown_rendering_plugin",
     "moodle_format_plugin",
     "yaml_schema_generation_plugin",
-    "dummy_node_plugin"
+    "dummy_node_plugin",
+    "dummy_cluster_plugin"
 ]
 [package]
 name = "workspace"
