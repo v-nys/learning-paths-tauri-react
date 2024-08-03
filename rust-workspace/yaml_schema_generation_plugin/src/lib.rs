@@ -336,6 +336,8 @@ $cluster_for_serialization_definition, $node_definition)
       "additionalProperties": false
     }"###;
 
+    const FLAKE_DIR: &str = env!("FLAKE_DIR");
+
     fn template(
         cluster_name: &str,
         number_of_node_plugins: usize,
@@ -407,6 +409,65 @@ $cluster_for_serialization_definition, $node_definition)
 
     #[test]
     fn cluster_with_parameterized_node_plugin() {
+        let mut expected_output_builder = String::new();
+        // doing it this way because { would need to become {{ to use format!
+        expected_output_builder.push_str(
+            r###"{
+      "if": {
+        "type": "object",
+        "required": [
+          "path"
+        ],
+        "properties": {
+          "path": {
+            "pattern": "^"###,
+        );
+        expected_output_builder.push_str(&regex::escape(FLAKE_DIR));
+        expected_output_builder.push_str(
+            r###"/rust\\-workspace/target/debug/liblblp_dummy_node_plugin\\.so$"
+          }
+        }
+      },
+      "then": {
+        "title": "PluginForSerialization",
+        "type": "object",
+        "required": [
+          "param1",
+          "param2",
+          "path"
+        ],
+        "properties": {
+          "param1": {
+            "title": "uint64",
+            "type": "integer",
+            "format": "uint64",
+            "minimum": 0.0
+          },
+          "param2": {
+            "title": "Boolean",
+            "type": "boolean"
+          },
+          "path": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      },
+      "else": {
+        "title": "PluginForSerialization",
+        "type": "object",
+        "required": [
+          "path"
+        ],
+        "properties": {
+          "path": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      }
+    }"###,
+        );
         template(
             "dummycluster_with_parameterized_node_plugin",
             1,
@@ -414,7 +475,16 @@ $cluster_for_serialization_definition, $node_definition)
             0,
             &format_cluster_schema!(
                 NODE_DEFINITION_WITHOUT_EXTENSION_FIELDS,
-                r###"{
+                &expected_output_builder
+            ),
+        );
+    }
+
+    #[test]
+    fn cluster_with_parameterized_pre_cluster_plugin() {
+        let mut expected_output_builder = String::new();
+        expected_output_builder.push_str(
+            r###"{
       "if": {
         "type": "object",
         "required": [
@@ -422,7 +492,11 @@ $cluster_for_serialization_definition, $node_definition)
         ],
         "properties": {
           "path": {
-            "pattern": "^/home/vincentn/Projects/logic_based_learning_paths/rust\\-workspace/target/debug/liblblp_dummy_node_plugin\\.so$"
+            "pattern": "^"###,
+        );
+        expected_output_builder.push_str(FLAKE_DIR);
+        expected_output_builder.push_str(
+            r###"/rust\\-workspace/target/debug/liblblp_dummy_cluster_plugin\\.so$"
           }
         }
       },
@@ -464,13 +538,8 @@ $cluster_for_serialization_definition, $node_definition)
         },
         "additionalProperties": false
       }
-    }"###
-            ),
+    }"###,
         );
-    }
-
-    #[test]
-    fn cluster_with_parameterized_pre_cluster_plugin() {
         template(
             "dummycluster_with_parameterized_pre_cluster_plugin",
             0,
@@ -478,63 +547,18 @@ $cluster_for_serialization_definition, $node_definition)
             0,
             &format_cluster_schema!(
                 NODE_DEFINITION_WITHOUT_EXTENSION_FIELDS,
-                r###"{
-      "if": {
-        "type": "object",
-        "required": [
-          "path"
-        ],
-        "properties": {
-          "path": {
-            "pattern": "^/home/vincentn/Projects/logic_based_learning_paths/rust\\-workspace/target/debug/liblblp_dummy_cluster_plugin\\.so$"
-          }
-        }
-      },
-      "then": {
-        "title": "PluginForSerialization",
-        "type": "object",
-        "required": [
-          "param1",
-          "param2",
-          "path"
-        ],
-        "properties": {
-          "param1": {
-            "title": "uint64",
-            "type": "integer",
-            "format": "uint64",
-            "minimum": 0.0
-          },
-          "param2": {
-            "title": "Boolean",
-            "type": "boolean"
-          },
-          "path": {
-            "type": "string"
-          }
-        },
-        "additionalProperties": false
-      },
-      "else": {
-        "title": "PluginForSerialization",
-        "type": "object",
-        "required": [
-          "path"
-        ],
-        "properties": {
-          "path": {
-            "type": "string"
-          }
-        },
-        "additionalProperties": false
-      }
-    }"###
+                expected_output_builder
             ),
         );
     }
 
     #[test]
     fn cluster_with_parameterized_pre_zip_plugin() {
+        let mut expected_output_builder = String::new();
+        expected_output_builder.push_str(r###""###);
+        expected_output_builder.push_str(FLAKE_DIR);
+        expected_output_builder.push_str(r###""###);
+
         template(
             "dummycluster_with_parameterized_pre_zip_plugin",
             0,
@@ -599,6 +623,11 @@ $cluster_for_serialization_definition, $node_definition)
 
     #[test]
     fn cluster_with_each_type_of_plugin() {
+        let mut expected_output_builder = String::new();
+        expected_output_builder.push_str(r###""###);
+        expected_output_builder.push_str(FLAKE_DIR);
+        expected_output_builder.push_str(r###""###);
+
         template(
             "dummycluster_with_each_type_of_plugin",
             1,
@@ -739,6 +768,10 @@ $cluster_for_serialization_definition, $node_definition)
 
     #[test]
     fn cluster_with_nodes_with_extension_fields_from_multiple_plugins() {
+        let mut expected_output_builder = String::new();
+        expected_output_builder.push_str(r###""###);
+        expected_output_builder.push_str(FLAKE_DIR);
+        expected_output_builder.push_str(r###""###);
         template(
             "dummycluster_with_extension_fields_from_multiple_plugins",
             2,
