@@ -52,7 +52,7 @@ pub mod plugins {
         }
     }
 
-    pub trait NodeProcessingPlugin: Plugin {
+    pub trait NodeProcessingPlugin: Plugin + Send + Sync {
 
         fn process_extension_field(
             &self,
@@ -68,7 +68,7 @@ pub mod plugins {
         fn get_mandatory_fields(&self) -> HashSet<String>;
     }
 
-    pub trait ClusterProcessingPlugin: Plugin {
+    pub trait ClusterProcessingPlugin: Plugin + Send + Sync {
         fn process_cluster(
             &self,
             cluster_path: &Path,
@@ -76,7 +76,7 @@ pub mod plugins {
         ) -> Result<HashSet<ArtifactMapping>, anyhow::Error>;
     }
 
-    pub trait PreZipPlugin: Plugin {
+    pub trait PreZipPlugin: Plugin + Send + Sync {
         fn process_project(
             &self,
             cluster_paths: Vec<&Path>,
@@ -135,7 +135,7 @@ pub mod plugins {
                     let mut plugins = VecDeque::new();
                     for domain::UnloadedPlugin { path, parameters } in unloaded_plugins {
                         unsafe {
-                            let lib = Library::new(path.clone()).map_err(|_| "failed to load library".to_owned())?;
+                            let lib = Library::new(path.clone()).map_err(|_| format!("failed to load library at {}", path))?;
                             let constructor: Symbol<unsafe extern "C" fn() -> *mut dyn $plugin_trait> =
                                 lib.get(b"create_plugin").map_err(|_| "failed to find symbol".to_owned())?;
                             let mut plugin = Box::from_raw(constructor());

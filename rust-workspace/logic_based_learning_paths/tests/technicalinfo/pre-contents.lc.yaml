@@ -25,9 +25,9 @@ all_type_edges:
   - start_id: concept_Q
     end_id: concept_C
 node_plugins:
-  - path: "$FLAKE_DIR/rust-workspace/target/release/libassignments_plugin.so"
+  - path: "$FLAKE_DIR/rust-workspace/target/debug/liblblp_assignments_plugin.so"
     require_solutions: False
 pre_cluster_plugins:
-  - path: "$FLAKE_DIR/rust-workspace/target/release/libmarkdown_rendering_plugin.so"
-  - path: "$FLAKE_DIR/rust-workspace/target/release/libyaml_schema_generation_plugin.so"
+  - path: "$FLAKE_DIR/rust-workspace/target/debug/liblblp_markdown_rendering_plugin.so"
+  - path: "$FLAKE_DIR/rust-workspace/target/debug/liblblp_yaml_schema_generation_plugin.so"
 

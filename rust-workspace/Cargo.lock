@@ -1968,7 +1968,7 @@ version = "0.0.0"
 dependencies = [
  "anyhow",
  "graphviz-rust",
- "logic_based_learning_paths 0.0.0",
+ "logic_based_learning_paths 0.0.1",
  "petgraph",
  "serde",
  "serde_json",

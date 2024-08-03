@@ -13,10 +13,10 @@ roots:
   - intro
 # not actually using but just to see whether schema generation plugin is performing as expected
 node_plugins:
-  - path: "$FLAKE_DIR/rust-workspace/target/release/libassignments_plugin.so"
+  - path: "$FLAKE_DIR/rust-workspace/target/debug/liblblp_assignments_plugin.so"
     require_solutions: False
 pre_cluster_plugins:
-  - path: "$FLAKE_DIR/rust-workspace/target/release/libmarkdown_rendering_plugin.so"
-  - path: "$FLAKE_DIR/rust-workspace/target/release/libyaml_schema_generation_plugin.so"
+  - path: "$FLAKE_DIR/rust-workspace/target/debug/liblblp_markdown_rendering_plugin.so"
+  - path: "$FLAKE_DIR/rust-workspace/target/debug/liblblp_yaml_schema_generation_plugin.so"
 pre_zip_plugins:
-  - path: "$FLAKE_DIR/rust-workspace/target/release/libmoodle_format_plugin.so"
+  - path: "$FLAKE_DIR/rust-workspace/target/debug/liblblp_moodle_format_plugin.so"

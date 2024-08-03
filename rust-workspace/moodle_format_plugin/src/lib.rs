@@ -3,9 +3,9 @@
 extern crate logic_based_learning_paths;
 
 use schemars::JsonSchema;
-use serde_json;
 use std::collections::{HashMap, HashSet};
 
+use logic_based_learning_paths::prelude::{schemars, serde_json, serde_yaml, anyhow};
 use logic_based_learning_paths::plugins::{ArtifactMapping, Plugin, PreZipPlugin};
 use serde_yaml::Value;
 use std::path::Path;
