@@ -116,23 +116,13 @@ impl YamlSchemaGenerationPlugin {
                         });
                 });
         });
-        println!("running schema generation plugin to process clusters");
-        println!("these are clusters and their params schemas:");
         // seems like iterating over the node plugins is causing an issue
-        cluster.node_plugins.iter().for_each(|plugin| {
-            // disabling this line postpones the error
-            // so the call to get_params_schema is the issue
-            println!("{}", plugin.get_name());
-            println!("{:#?}", plugin.get_params_schema());
-        });
-        println!("displayed the schemas");
         let mut plugin_paths_to_schemas: HashMap<&String, RootSchema> = cluster
             .node_plugins
             .iter()
             // filtering is not necessary but simplifies the eventual schema
             .filter(|plugin| !plugin.get_params_schema().is_empty())
             .map(|plugin| {
-                println!("processing plugin {}", plugin.get_path());
                 plugin_to_paths_to_schemas_entry(
                     plugin.get_path(),
                     plugin.get_params_schema(),
@@ -238,9 +228,7 @@ mod tests {
         )
         .expect("Should be able to deserialize.");
         let node_namespace = cluster_name.into();
-        println!("about to build cluster");
         let cluster = cluster.build(node_namespace);
-        println!("built cluster");
         assert!(cluster.is_ok());
         let cluster = cluster.unwrap();
         assert_eq!(cluster.node_plugins.iter().len(), number_of_node_plugins);
@@ -252,20 +240,14 @@ mod tests {
             cluster.pre_zip_plugins.iter().len(),
             number_of_pre_zip_plugins
         );
-        println!("loading fake path plugin");
         let plugin = YamlSchemaGenerationPlugin {
             path: "fake_path_because_plugin_was_not_dynamically_loaded_in_test".into(),
         };
-        println!("loaded fake path plugin");
         let mut writer = Vec::new();
         let _ = plugin
             .process_cluster_with_writer(&cluster, &mut writer)
             .expect("There should be a processing result.");
         let schema = String::from_utf8(writer).expect("Should have a valid schema string.");
-        println!(
-            "This is the computed schema for {}:\n{}",
-            &cluster_name, &schema
-        );
         assert_eq!(schema.trim(), expected_schema_contents.trim());
     }
 
@@ -585,7 +567,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore]
     fn cluster_with_parameterized_pre_cluster_plugin() {
         template(
             "dummycluster_with_parameterized_pre_cluster_plugin",
@@ -600,7 +581,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore]
     fn cluster_with_parameterized_pre_zip_plugin() {
         template(
             "dummycluster_with_parameterized_pre_zip_plugin",
@@ -615,7 +595,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore]
     fn cluster_with_each_type_of_plugin() {
         template(
             "dummycluster_with_each_type_of_plugin",
@@ -629,10 +608,18 @@ mod tests {
         );
     }
 
-    #[ignore]
     #[test]
     fn cluster_with_nodes_with_extension_fields_from_multiple_plugins() {
-        todo!("implement!")
+        template(
+            "dummycluster_with_extension_fields_from_multiple_plugins",
+            2,
+            0,
+            0,
+            r###"
+            {
+            }
+                   "###,
+        );
     }
 }
 

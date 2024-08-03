@@ -6,7 +6,6 @@ use serde::Serialize;
 use serde_yaml::Value;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::fmt;
-use std::sync::Arc;
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub enum EdgeType {
