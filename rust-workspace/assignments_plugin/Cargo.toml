@@ -7,9 +7,5 @@ edition = "2021"
 crate-type = ["cdylib"]
 
 [dependencies]
-anyhow = "1.0.86"
-logic_based_learning_paths = "0.0.0"
-schemars = "0.8.21"
+logic_based_learning_paths = { version = "0.0.1", path = "../logic_based_learning_paths/" }
 serde = { version = "1", features = [ "derive" ] }
-serde_json = "1.0.120"
-serde_yaml = "0.9.34"

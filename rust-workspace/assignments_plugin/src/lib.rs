@@ -1,6 +1,6 @@
 #![allow(improper_ctypes_definitions)]
 
-extern crate logic_based_learning_paths;
+// extern crate logic_based_learning_paths;
 
 use std::path::PathBuf;
 use std::collections::{HashSet, HashMap};
@@ -8,13 +8,14 @@ use std::fs::File;
 use schemars::{schema_for, JsonSchema};
 
 use logic_based_learning_paths::domain;
+use logic_based_learning_paths::prelude::{serde_yaml, serde_json, schemars, anyhow};
 use logic_based_learning_paths::plugins::{
     ArtifactMapping, NodeProcessingError, NodeProcessingPlugin, Plugin,
 };
 use serde::Deserialize;
 use serde_yaml::Value;
 use std::path::Path;
-use serde_json;
+// use serde_json;
 
 pub struct AssignmentsPlugin {
     params: HashMap<String, Value>,

@@ -2,7 +2,9 @@
 
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
+
 use logic_based_learning_paths::{
+    prelude::{schemars, serde_yaml, serde_json, anyhow},
     deserialization, domain,
     plugins::{ArtifactMapping, ClusterProcessingPlugin, Plugin},
 };
@@ -115,12 +117,15 @@ impl YamlSchemaGenerationPlugin {
                         });
                 });
         });
-        println!("about to traverse plugin paths");
-        println!("{:#?}", &cluster.node_plugins.iter().map(|plugin| plugin.get_path()));
-        println!("these are their params schemas:");
+        println!("running schema generation plugin to process clusters");
+        println!("these are clusters' params schemas:");
+        // seems like iterating over the node plugins is causing an issue
         cluster.node_plugins.iter().for_each(|plugin| {
+            // disabling this line postpones the error
+            // so the call to get_params_schema is the issue
             println!("{:#?}", plugin.get_params_schema());
         });
+        println!("displayed the schemas");
         let mut plugin_paths_to_schemas: HashMap<&String, RootSchema> = cluster
             .node_plugins
             .iter()
@@ -231,7 +236,9 @@ mod tests {
         )
         .expect("Should be able to deserialize.");
         let node_namespace = cluster_name.into();
+        println!("about to build cluster");
         let cluster = cluster.build(node_namespace);
+        println!("built cluster");
         assert!(cluster.is_ok());
         let cluster = cluster.unwrap();
         assert_eq!(cluster.node_plugins.iter().len(), number_of_node_plugins);
@@ -243,9 +250,11 @@ mod tests {
             cluster.pre_zip_plugins.iter().len(),
             number_of_pre_zip_plugins
         );
+        println!("loading fake path plugin");
         let plugin = YamlSchemaGenerationPlugin {
             path: "fake_path_because_plugin_was_not_dynamically_loaded_in_test".into(),
         };
+        println!("loaded fake path plugin");
         let mut writer = Vec::new();
         let _ = plugin
             .process_cluster_with_writer(&cluster, &mut writer)

@@ -34,15 +34,15 @@ pub struct UnlockingCondition {
 /// A `Cluster` has a (non-nested) namespace prefix, which can be used to refer to nodes in the `Cluster`.
 /// E.g. if a `Cluster's` namespace prefix is `"foo"` and the `Cluster` contains a `Node` whose ID is `bar`, this node can be referred to as `foo__bar`.
 /// The namespace and node ID are always separated by `"__"`.
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub struct Cluster {
     pub namespace_prefix: String,
     pub nodes: Vec<Node>,
     pub edges: Vec<TypedEdge>,
     pub roots: Vec<NodeID>,
-    pub pre_cluster_plugins: Arc<VecDeque<ClusterProcessingPluginContainer>>, // Rc makes it possible to derive Clone
-    pub node_plugins: Arc<VecDeque<NodeProcessingPluginContainer>>,
-    pub pre_zip_plugins: Arc<VecDeque<PreZipPluginContainer>>
+    pub pre_cluster_plugins: VecDeque<ClusterProcessingPluginContainer>,
+    pub node_plugins: VecDeque<NodeProcessingPluginContainer>,
+    pub pre_zip_plugins: VecDeque<PreZipPluginContainer>
 }
 
 #[derive(Clone, Debug)]

@@ -1,16 +1,19 @@
 #![allow(improper_ctypes_definitions)]
 
-use std::path::Path;
-use schemars::JsonSchema;
-use std::collections::{HashSet, HashMap};
-use serde_yaml::Value;
-use logic_based_learning_paths::domain;
-use logic_based_learning_paths::plugins::{Plugin, NodeProcessingPlugin, NodeProcessingError, ArtifactMapping};
+use logic_based_learning_paths::prelude::{schemars, serde_json, serde_yaml};
 
+use logic_based_learning_paths::domain;
+use logic_based_learning_paths::plugins::{
+    ArtifactMapping, NodeProcessingError, NodeProcessingPlugin, Plugin,
+};
+use schemars::JsonSchema;
+use serde_yaml::Value;
+use std::collections::{HashMap, HashSet};
+use std::path::Path;
 
 pub struct DummyNodePlugin {
     params: HashMap<String, Value>,
-    path: String
+    path: String,
 }
 
 #[derive(JsonSchema)]
@@ -18,11 +21,10 @@ pub struct DummyNodePlugin {
 #[allow(dead_code)]
 pub struct PluginParameters {
     param1: u64,
-    param2: bool
+    param2: bool,
 }
 
 impl Plugin for DummyNodePlugin {
-
     fn set_path(&mut self, path: String) {
         self.path = path;
     }
@@ -48,15 +50,16 @@ impl Plugin for DummyNodePlugin {
         let u64_schema = schemars::schema_for!(u64);
         let bool_schema = schemars::schema_for!(bool);
         let mut parameters = HashMap::new();
+        // println!("inserting bogus parameter");
+        // parameters.insert(("test".into(), false), serde_json::json!("test test"));
+        // println!("inserted bogus parameter");
         // parameters.insert(("param1".into(), true), serde_json::to_value(u64_schema).unwrap());
         // parameters.insert(("param2".into(), true), serde_json::to_value(bool_schema).unwrap());
         parameters
     }
-
 }
 
 impl NodeProcessingPlugin for DummyNodePlugin {
-
     fn get_mandatory_fields(&self) -> HashSet<String> {
         HashSet::new()
     }
@@ -78,6 +81,9 @@ impl NodeProcessingPlugin for DummyNodePlugin {
 
 #[no_mangle]
 pub extern "C" fn create_plugin() -> *mut dyn NodeProcessingPlugin {
-    let plugin = Box::new(DummyNodePlugin { params: HashMap::new(), path: "".into() });
+    let plugin = Box::new(DummyNodePlugin {
+        params: HashMap::new(),
+        path: "".into(),
+    });
     Box::into_raw(plugin)
 }

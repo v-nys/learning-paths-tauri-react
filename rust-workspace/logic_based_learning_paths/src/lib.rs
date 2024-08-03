@@ -1,6 +1,13 @@
 pub mod domain;
 pub mod deserialization;
 
+pub mod prelude {
+    pub use serde_yaml;
+    pub use serde_json;
+    pub use schemars;
+    pub use anyhow;
+}
+
 pub mod plugins {
     use crate::domain;
     use libloading::{Library, Symbol};

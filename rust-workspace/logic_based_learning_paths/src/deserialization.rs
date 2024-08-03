@@ -9,7 +9,6 @@ use serde::Deserializer;
 use serde_yaml::Value;
 use std::collections::HashMap;
 use std::fmt;
-use std::sync::Arc;
 
 use crate::domain;
 
@@ -276,7 +275,7 @@ impl ClusterForSerialization {
         println!("Outcome 1: {:#?}", node_plugins);
         let node_plugins = node_plugins.map_err(|e| anyhow::format_err!(e))?;
         println!("Outcome 2: {:#?}", node_plugins);
-        let node_plugins = Arc::new(node_plugins);
+        // let node_plugins = Arc::new(node_plugins);
         println!("Done loading node plugins");
         Ok(domain::Cluster {
             namespace_prefix: folder_name.clone(),
@@ -305,7 +304,7 @@ impl ClusterForSerialization {
                 })
                 .collect(),
             // pre_cluster_... is een Vec<PluginForSerialization>
-            pre_cluster_plugins: Arc::new(
+            pre_cluster_plugins: 
                 load_cluster_processing_plugins(
                     self.pre_cluster_plugins
                         .unwrap_or_default()
@@ -317,9 +316,8 @@ impl ClusterForSerialization {
                         .collect(),
                 )
                 .map_err(|e| anyhow::format_err!(e))?,
-            ),
             node_plugins,
-            pre_zip_plugins: Arc::new(
+            pre_zip_plugins:
                 load_pre_zip_plugins(
                     self.pre_zip_plugins
                         .unwrap_or_default()
@@ -331,7 +329,6 @@ impl ClusterForSerialization {
                         .collect(),
                 )
                 .map_err(|e| anyhow::format_err!(e))?,
-            ),
         })
     }
 }

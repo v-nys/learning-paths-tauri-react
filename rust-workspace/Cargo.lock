@@ -1827,12 +1827,8 @@ checksum = "bbd2bcb4c963f2ddae06a2efc7e9f3591312473c50c6685e1f298068316e66fe"
 name = "lblp_assignments_plugin"
 version = "0.1.0"
 dependencies = [
- "anyhow",
- "logic_based_learning_paths 0.0.0",
- "schemars",
+ "logic_based_learning_paths 0.0.1",
  "serde",
- "serde_json",
- "serde_yaml",
 ]
 
 [[package]]
@@ -1840,9 +1836,6 @@ name = "lblp_dummy_node_plugin"
 version = "0.1.0"
 dependencies = [
  "logic_based_learning_paths 0.0.1",
- "schemars",
- "serde_json",
- "serde_yaml",
 ]
 
 [[package]]
@@ -1877,13 +1870,8 @@ dependencies = [
 name = "lblp_yaml_schema_generation_plugin"
 version = "0.1.0"
 dependencies = [
- "anyhow",
  "logic_based_learning_paths 0.0.1",
  "regex",
- "schemars",
- "serde",
- "serde_json",
- "serde_yaml",
 ]
 
 [[package]]
