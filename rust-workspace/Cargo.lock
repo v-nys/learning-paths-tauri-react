@@ -1852,6 +1852,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "lblp_dummy_zip_plugin"
+version = "0.1.0"
+dependencies = [
+ "logic_based_learning_paths 0.0.1",
+]
+
+[[package]]
 name = "lblp_markdown_rendering_plugin"
 version = "0.1.0"
 dependencies = [

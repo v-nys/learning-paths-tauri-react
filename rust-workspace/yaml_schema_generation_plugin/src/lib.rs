@@ -750,9 +750,172 @@ mod tests {
             0,
             1,
             r###"
-            {
-            }
-                   "###,
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "ClusterForSerialization",
+  "description": "A representation of a `Cluster` which is more suitable for (de)serialization.\n\nIt does not require a namespace prefix, as that is assumed to match the name of the file to which it is serialized. It uses disjoint, optional sets of edges because that saves a lot of repetition when writing in a data format.",
+  "type": "object",
+  "required": [
+    "nodes"
+  ],
+  "properties": {
+    "all_type_edges": {
+      "description": "Strict dependencies. A non-root `Node` can only be accessed if all of its dependencies of this type have been marked complete, along with one interchangeable dependency of this `Node` or of a `Node` which is strictly dependent on this `Node`.",
+      "type": [
+        "array",
+        "null"
+      ],
+      "items": {
+        "$ref": "#/definitions/Edge"
+      }
+    },
+    "any_type_edges": {
+      "description": "Interchangeable dependencies. A non-root `Node` can only be accessed if one dependency of this type has been marked complete for this node or for a `Node` which is strictly dependent on this `Node`. Furthermore, all strict dependencies must still be marked complete.",
+      "type": [
+        "array",
+        "null"
+      ],
+      "items": {
+        "$ref": "#/definitions/Edge"
+      }
+    },
+    "node_plugins": {
+      "type": [
+        "array",
+        "null"
+      ],
+      "items": {
+        "$ref": "#/definitions/PluginForSerialization"
+      }
+    },
+    "nodes": {
+      "description": "Units of information inside this `Cluster`.",
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/Node"
+      }
+    },
+    "pre_cluster_plugins": {
+      "type": [
+        "array",
+        "null"
+      ],
+      "items": {
+        "$ref": "#/definitions/PluginForSerialization"
+      }
+    },
+    "pre_zip_plugins": {
+      "type": [
+        "array",
+        "null"
+      ],
+      "items": {
+        "$ref": "#/definitions/PluginForSerialization"
+      }
+    },
+    "roots": {
+      "description": "IDs of `Node`s with no dependencies whatsoever, i.e. the only `Node`s which can be accessed unconditionally.",
+      "type": [
+        "array",
+        "null"
+      ],
+      "items": {
+        "type": "string"
+      }
+    }
+  },
+  "additionalProperties": false,
+  "definitions": {
+    "Edge": {
+      "type": "object",
+      "required": [
+        "end_id",
+        "start_id"
+      ],
+      "properties": {
+        "end_id": {
+          "type": "string"
+        },
+        "start_id": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    },
+    "Node": {
+      "title": "Node",
+      "description": "Deserialization counterpart for the domain concept `Node`.",
+      "type": "object",
+      "required": [
+        "id",
+        "title"
+      ],
+      "properties": {
+        "id": {
+          "description": "An ID should be locally unique inside a `Cluster` and is used to refer to a node inside its `Cluster`.\n\nThe ID also be used to refer to the node from outside its `Cluster`, if it is preceded by the `Cluster`'s namespace prefix.",
+          "type": "string"
+        },
+        "title": {
+          "description": "Human-readable title for this unit of knowledge.\n\nThis is not required to be unique at any level.",
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    },
+    "PluginForSerialization": {
+      "if": {
+        "type": "object",
+        "required": [
+          "path"
+        ],
+        "properties": {
+          "path": {
+            "pattern": "^/home/vincentn/Projects/logic_based_learning_paths/rust\\-workspace/target/debug/liblblp_dummy_zip_plugin\\.so$"
+          }
+        }
+      },
+      "then": {
+        "title": "PluginForSerialization",
+        "type": "object",
+        "required": [
+          "param1",
+          "param2",
+          "path"
+        ],
+        "properties": {
+          "param1": {
+            "title": "uint64",
+            "type": "integer",
+            "format": "uint64",
+            "minimum": 0.0
+          },
+          "param2": {
+            "title": "Boolean",
+            "type": "boolean"
+          },
+          "path": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      },
+      "else": {
+        "title": "PluginForSerialization",
+        "type": "object",
+        "required": [
+          "path"
+        ],
+        "properties": {
+          "path": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      }
+    }
+  }
+}
+"###,
         );
     }
 
