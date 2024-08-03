@@ -1,0 +1,25 @@
+nodes:
+  - id: intro
+    title: "Introduction"
+  - id: implementation
+    title: "Implementation"
+all_type_edges: []
+any_type_edges:
+  - start_id: intro
+    end_id: implementation
+roots:
+  - intro
+# debug versions need to be used here
+# because this cluster is intended for testing
+node_plugins:
+  - path: "$FLAKE_DIR/rust-workspace/target/debug/liblblp_dummy_node_plugin.so"
+    param1: 1
+    param2: True
+pre_cluster_plugins:
+  - path: "$FLAKE_DIR/rust-workspace/target/debug/liblblp_dummy_cluster_plugin.so"
+    param1: 2
+    param2: False
+pre_zip_plugins:
+  - path: "$FLAKE_DIR/rust-workspace/target/debug/liblblp_dummy_zip_plugin.so"
+    param1: 3
+    param2: True
