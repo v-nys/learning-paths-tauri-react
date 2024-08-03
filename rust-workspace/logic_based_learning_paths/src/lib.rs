@@ -33,7 +33,7 @@ pub mod plugins {
         fn set_path(&mut self, path: String);
         fn get_path(&self) -> &String;
         // bool is to indicate whether the property is required
-        fn get_params_schema(&self) -> HashMap<(String, bool), String>;
+        fn get_params_schema(&self) -> HashMap<(String, bool), serde_json::Value>;
     }
 
     #[derive(Debug)]

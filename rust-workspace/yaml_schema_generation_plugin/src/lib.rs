@@ -43,7 +43,7 @@ impl Plugin for YamlSchemaGenerationPlugin {
         }
     }
 
-    fn get_params_schema(&self) -> HashMap<(String, bool), String> {
+    fn get_params_schema(&self) -> HashMap<(String, bool), serde_json::Value> {
         HashMap::new()
     }
 
@@ -58,7 +58,7 @@ impl Plugin for YamlSchemaGenerationPlugin {
 
 fn plugin_to_paths_to_schemas_entry(
     plugin_path: &String,
-    params_and_schemas: HashMap<(String, bool), String>,
+    params_and_schemas: HashMap<(String, bool), serde_json::Value>,
     mut schema_for_plugin: RootSchema,
 ) -> (&String, RootSchema) {
     let mut required_properties_for_plugin = schema_for_plugin.schema.object().required.clone();
@@ -69,7 +69,7 @@ fn plugin_to_paths_to_schemas_entry(
             if *required {
                 required_properties_for_plugin.insert(param.into());
             }
-            let mut param_schema: RootSchema = serde_json::from_str(&param_schema.clone())
+            let mut param_schema: RootSchema = serde_json::from_value(param_schema.clone())
                 .expect("Assuming (de)serializating by libraries works.");
             param_schema.meta_schema = None;
             properties_for_plugin.insert(param.into(), Object(param_schema.schema));

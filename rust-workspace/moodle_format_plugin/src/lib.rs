@@ -30,7 +30,7 @@ impl Plugin for MoodleFormatPlugin {
         &self.path
     }
 
-    fn get_params_schema(&self) -> HashMap<(String, bool), String> {
+    fn get_params_schema(&self) -> HashMap<(String, bool),serde_json::Value> {
         HashMap::new()
     }
 

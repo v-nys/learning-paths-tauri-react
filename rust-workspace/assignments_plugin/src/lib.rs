@@ -63,12 +63,12 @@ impl Plugin for AssignmentsPlugin {
         Ok(())
     }
 
-    fn get_params_schema(&self) -> HashMap<(String, bool), String> {
+    fn get_params_schema(&self) -> HashMap<(String, bool), serde_json::Value> {
         let schema = schemars::schema_for!(Option<bool>);
         let mut parameters = HashMap::new();
         parameters.insert(
             ("require_model_solutions".into(), false),
-            serde_json::to_string(&schema).expect("Should be stringifyable")
+            serde_json::to_value(schema).expect("Should be convertible.")
         );
         parameters
     }
