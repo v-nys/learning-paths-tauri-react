@@ -160,7 +160,9 @@ impl YamlSchemaGenerationPlugin {
                         .insert(ref_string.into(), schema.clone());
                 });
         });
-        let conditional_schema = plugin_paths_to_schemas.iter().fold(
+        let mut sorted_plugin_paths_to_schemas = plugin_paths_to_schemas.iter().collect::<Vec<_>>();
+        sorted_plugin_paths_to_schemas.sort_by(|a, b| a.0.cmp(b.0));
+        let conditional_schema = sorted_plugin_paths_to_schemas.iter().fold(
             plugin_schema.schema.clone(),
             |acc, (plugin_path, plugin_schema_object)| {
                 let mut if_clause = SchemaObject::new_ref("dummy-ref".into());
@@ -1047,7 +1049,7 @@ mod tests {
         ],
         "properties": {
           "path": {
-            "pattern": "^/home/vincentn/Projects/logic_based_learning_paths/rust\\-workspace/target/debug/liblblp_dummy_node_plugin\\.so$"
+            "pattern": "^/home/vincentn/Projects/logic_based_learning_paths/rust\\-workspace/target/debug/liblblp_dummy_zip_plugin\\.so$"
           }
         }
       },
@@ -1084,7 +1086,7 @@ mod tests {
           ],
           "properties": {
             "path": {
-              "pattern": "^/home/vincentn/Projects/logic_based_learning_paths/rust\\-workspace/target/debug/liblblp_dummy_cluster_plugin\\.so$"
+              "pattern": "^/home/vincentn/Projects/logic_based_learning_paths/rust\\-workspace/target/debug/liblblp_dummy_node_plugin\\.so$"
             }
           }
         },
@@ -1121,7 +1123,7 @@ mod tests {
             ],
             "properties": {
               "path": {
-                "pattern": "^/home/vincentn/Projects/logic_based_learning_paths/rust\\-workspace/target/debug/liblblp_dummy_zip_plugin\\.so$"
+                "pattern": "^/home/vincentn/Projects/logic_based_learning_paths/rust\\-workspace/target/debug/liblblp_dummy_cluster_plugin\\.so$"
               }
             }
           },
