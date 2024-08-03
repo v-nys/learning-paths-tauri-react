@@ -2,7 +2,6 @@
 
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
-
 use logic_based_learning_paths::{
     prelude::{schemars, serde_yaml, serde_json, anyhow},
     deserialization, domain,
@@ -214,6 +213,8 @@ impl YamlSchemaGenerationPlugin {
 #[cfg(test)]
 mod tests {
     use logic_based_learning_paths::deserialization::ClusterForSerialization;
+    use pretty_assertions::assert_eq;
+
 
     use super::*;
 
@@ -269,7 +270,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore]
     fn cluster_without_plugins() {
         template(
             "dummycluster_without_plugins",
@@ -536,7 +536,7 @@ mod tests {
         ],
         "properties": {
           "path": {
-            "pattern": "^/home/vincentn/Projects/learning\\-paths\\-tauri\\-react/rust\\-workspace/target/debug/liblblp_dummy_node_plugin\\.so$"
+            "pattern": "^/home/vincentn/Projects/logic_based_learning_paths/rust\\-workspace/target/debug/liblblp_dummy_node_plugin\\.so$"
           }
         }
       },
