@@ -46,15 +46,12 @@ impl Plugin for DummyNodePlugin {
         Ok(())
     }
 
-    fn get_params_schema(&self) -> HashMap<(String, bool), serde_json::Value> {
+    fn get_params_schema(&self) -> HashMap<(String, bool), String> {
         let u64_schema = schemars::schema_for!(u64);
         let bool_schema = schemars::schema_for!(bool);
         let mut parameters = HashMap::new();
-        // println!("inserting bogus parameter");
-        // parameters.insert(("test".into(), false), serde_json::json!("test test"));
-        // println!("inserted bogus parameter");
-        parameters.insert(("param1".into(), true), serde_json::to_value(u64_schema).unwrap());
-        parameters.insert(("param2".into(), true), serde_json::to_value(bool_schema).unwrap());
+        parameters.insert(("param1".into(), true), serde_json::to_string(&u64_schema).expect("Should be stringifyable."));
+        parameters.insert(("param2".into(), true), serde_json::to_string(&bool_schema).expect("Should be stringifyable."));
         parameters
     }
 }

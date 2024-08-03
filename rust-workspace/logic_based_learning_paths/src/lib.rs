@@ -33,7 +33,7 @@ pub mod plugins {
         fn set_path(&mut self, path: String);
         fn get_path(&self) -> &String;
         // bool is to indicate whether the property is required
-        fn get_params_schema(&self) -> HashMap<(String, bool), serde_json::Value>;
+        fn get_params_schema(&self) -> HashMap<(String, bool), String>;
     }
 
     #[derive(Debug)]
@@ -89,7 +89,6 @@ pub mod plugins {
             paste::paste! {
                 pub struct [<$plugin_trait Container>] {
                     pub plugin: Box<dyn $plugin_trait>,
-                    // note: Library is Send + Sync
                     _lib: Library // Holds the library to ensure it lives as long as the plugin
                 }
             }

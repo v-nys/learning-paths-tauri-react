@@ -1857,12 +1857,7 @@ dependencies = [
 name = "lblp_moodle_format_plugin"
 version = "0.1.0"
 dependencies = [
- "anyhow",
- "logic_based_learning_paths 0.0.0",
- "schemars",
- "serde",
- "serde_json",
- "serde_yaml",
+ "logic_based_learning_paths 0.0.1",
  "yaml2json-rs",
 ]
 
