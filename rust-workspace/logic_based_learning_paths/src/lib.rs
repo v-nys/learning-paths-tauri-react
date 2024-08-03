@@ -52,7 +52,7 @@ pub mod plugins {
         }
     }
 
-    pub trait NodeProcessingPlugin: Plugin + Send + Sync {
+    pub trait NodeProcessingPlugin: Plugin {
 
         fn process_extension_field(
             &self,
@@ -68,7 +68,7 @@ pub mod plugins {
         fn get_mandatory_fields(&self) -> HashSet<String>;
     }
 
-    pub trait ClusterProcessingPlugin: Plugin + Send + Sync {
+    pub trait ClusterProcessingPlugin: Plugin {
         fn process_cluster(
             &self,
             cluster_path: &Path,
@@ -76,7 +76,7 @@ pub mod plugins {
         ) -> Result<HashSet<ArtifactMapping>, anyhow::Error>;
     }
 
-    pub trait PreZipPlugin: Plugin + Send + Sync {
+    pub trait PreZipPlugin: Plugin {
         fn process_project(
             &self,
             cluster_paths: Vec<&Path>,

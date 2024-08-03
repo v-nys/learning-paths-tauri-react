@@ -53,8 +53,8 @@ impl Plugin for DummyNodePlugin {
         // println!("inserting bogus parameter");
         // parameters.insert(("test".into(), false), serde_json::json!("test test"));
         // println!("inserted bogus parameter");
-        // parameters.insert(("param1".into(), true), serde_json::to_value(u64_schema).unwrap());
-        // parameters.insert(("param2".into(), true), serde_json::to_value(bool_schema).unwrap());
+        parameters.insert(("param1".into(), true), serde_json::to_value(u64_schema).unwrap());
+        parameters.insert(("param2".into(), true), serde_json::to_value(bool_schema).unwrap());
         parameters
     }
 }

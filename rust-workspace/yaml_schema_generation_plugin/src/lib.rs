@@ -118,11 +118,12 @@ impl YamlSchemaGenerationPlugin {
                 });
         });
         println!("running schema generation plugin to process clusters");
-        println!("these are clusters' params schemas:");
+        println!("these are clusters and their params schemas:");
         // seems like iterating over the node plugins is causing an issue
         cluster.node_plugins.iter().for_each(|plugin| {
             // disabling this line postpones the error
             // so the call to get_params_schema is the issue
+            println!("{}", plugin.get_name());
             println!("{:#?}", plugin.get_params_schema());
         });
         println!("displayed the schemas");
