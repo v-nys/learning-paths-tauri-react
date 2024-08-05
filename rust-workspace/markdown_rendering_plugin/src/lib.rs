@@ -1,15 +1,14 @@
 #![allow(improper_ctypes_definitions)]
 #![allow(deprecated)]
 
-extern crate logic_based_learning_paths;
-
 use base64::encode;
-use comrak::{markdown_to_html, ComrakOptions};
+use comrak::nodes::NodeValue;
+use comrak::{parse_document, Arena, ComrakOptions};
 use logic_based_learning_paths::domain;
 use logic_based_learning_paths::plugins::{ArtifactMapping, ClusterProcessingPlugin, Plugin};
 use regex;
+use logic_based_learning_paths::prelude::{anyhow, serde_json, serde_yaml, schemars};
 use schemars::JsonSchema;
-use serde_json;
 use serde_yaml::Value;
 use std::collections::{HashMap, HashSet};
 use std::io::Read;
@@ -46,63 +45,62 @@ fn find_md_files(dir: &Path) -> Vec<PathBuf> {
 }
 
 fn read_markdown_to_html_with_inlined_images(md_path: &PathBuf) -> anyhow::Result<String> {
+    let protocol_re = regex::Regex::new(r#"[A-Za-z]+://.+"#)
+        .expect("This regex has been tested. It won't fail to compile.");
     let markdown = std::fs::read_to_string(md_path)?;
-    let options = ComrakOptions::default();
-    let original_html = markdown_to_html(&markdown, &options);
-    let mut substituted_html = original_html.clone();
-    // FIXME: this searches for .md syntax in the HTML
-    // obviously wrong
-    // using a Regex for the HTML seems like a bad idea
-    // there could be other occurrences (e.g. inside a code block)
-    let re = regex::Regex::new(r#"!\[.*?\]\((.*?)\)"#).unwrap();
-    for cap in re.captures_iter(&original_html) {
-        let img_path = &cap[1];
-        let inlined_img = image_path_to_tag(md_path, img_path)?;
-        substituted_html = substituted_html.replace(&cap[0], &inlined_img);
-    }
-    Ok(substituted_html)
-}
-
-fn image_path_to_tag(md_path: &PathBuf, img_path: &str) -> anyhow::Result<String> {
-    let protocol_re = regex::Regex::new(r#"[A-Za-z]+://.+"#).unwrap();
-    if protocol_re.is_match(img_path) {
-        Ok(format!(r#"<img src="{}" />"#, img_path))
-    } else if img_path.contains("\\") {
-        Err(anyhow::anyhow!(format!(
-            "Path {} contains backslash. Use forward slash, even on Windows.",
-            img_path
-        )))
-    }
-    else {
-        let mut img_path = PathBuf::from_str(img_path)?;
-        if img_path.is_relative() {
-            img_path = md_path.with_file_name(&img_path);
+    // TODO: get rid of tl dependency?
+    let arena = Arena::new();
+    let root = parse_document(&arena, &markdown, &ComrakOptions::default());
+    for node in root.descendants() {
+        if let NodeValue::Image(ref mut link) = node.data.borrow_mut().value {
+            // see https://docs.rs/comrak/0.26.0/comrak/nodes/struct.NodeLink.html
+            let existing_url = &link.url.clone();
+            if !protocol_re.is_match(existing_url) {
+                if existing_url.contains("\\") {
+                    Err(anyhow::anyhow!(format!(
+                        "Path {} contains backslash. Use forward slash, even on Windows.",
+                        existing_url
+                    )))?
+                } else {
+                    let url_path = std::path::PathBuf::from_str(existing_url)?;
+                    if url_path.is_absolute() {
+                        Err(anyhow::anyhow!(format!(
+                            "Path {} is absolute. For portability reasons, this is not allowed.",
+                            existing_url
+                        )))?
+                    } else {
+                        let img_path = md_path.with_file_name(&url_path);
+                        let ext = img_path
+                            .extension()
+                            .and_then(std::ffi::OsStr::to_str)
+                            .ok_or(anyhow::anyhow!(
+                                "Image lacks an extension: {}",
+                                img_path.to_string_lossy()
+                            ))?;
+                        let mime_type = match ext {
+                            "jpg" | "jpeg" => "image/jpeg",
+                            "gif" => "image/gif",
+                            "png" => "image/png",
+                            _ => Err(anyhow::anyhow!(
+                                "Unsupported extension for {}",
+                                img_path.to_string_lossy()
+                            ))?,
+                        };
+                        let mut file = fs::File::open(img_path)?;
+                        let mut buf = Vec::new();
+                        file.read_to_end(&mut buf)?;
+                        let base64_img = encode(&buf);
+                        link.url = format!(r#"data:{};base64,{}"#, mime_type, base64_img)
+                    }
+                }
+            }
         }
-        let ext = img_path
-            .extension()
-            .and_then(std::ffi::OsStr::to_str)
-            .ok_or(anyhow::anyhow!(
-                "Image lacks an extension: {}",
-                img_path.to_string_lossy()
-            ))?;
-        let mime_type = match ext {
-            "jpg" | "jpeg" => "image/jpeg",
-            "gif" => "image/gif",
-            "png" => "image/png",
-            _ => Err(anyhow::anyhow!(
-                "Unsupported extension for {}",
-                img_path.to_string_lossy()
-            ))?,
-        };
-        let mut file = fs::File::open(img_path)?;
-        let mut buf = Vec::new();
-        file.read_to_end(&mut buf)?;
-        let base64_img = encode(&buf);
-        Ok(format!(
-            r#"<img src="data:{};base64,{}" />"#,
-            mime_type, base64_img
-        ))
     }
+    let mut html = vec![];
+    comrak::format_html(root, &comrak::Options::default(), &mut html)?;
+    String::from_utf8(html).map_err(|_| {
+      anyhow::anyhow!("Encoding error".to_owned())
+    })
 }
 
 fn get_modification_date(path: &PathBuf) -> Option<SystemTime> {

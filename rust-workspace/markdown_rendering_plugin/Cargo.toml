@@ -9,13 +9,9 @@ description = "A markdown rendering plugin for Logic Based Learning Paths"
 crate-type = ["cdylib"]
 
 [dependencies]
-anyhow = "1.0.86"
 base64 = "0.22.1"
 comrak = { version = "0.24.1", features = [ "syntect", "emojis" ] }
-logic_based_learning_paths = "0.0.0"
+logic_based_learning_paths = { version = "0.0.1", path = "../logic_based_learning_paths/" }
 pretty_assertions = "1.4.0"
 regex = "1.10.5"
-schemars = "0.8.21"
-serde_json = "1.0.120"
-serde_yaml = "0.9.34"
 walkdir = "2.5.0"

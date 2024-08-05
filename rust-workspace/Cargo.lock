@@ -1833,7 +1833,7 @@ checksum = "bbd2bcb4c963f2ddae06a2efc7e9f3591312473c50c6685e1f298068316e66fe"
 name = "lblp_assignments_plugin"
 version = "0.1.0"
 dependencies = [
- "logic_based_learning_paths 0.0.1",
+ "logic_based_learning_paths",
  "serde",
 ]
 
@@ -1841,50 +1841,46 @@ dependencies = [
 name = "lblp_dummy_cluster_plugin"
 version = "0.1.0"
 dependencies = [
- "logic_based_learning_paths 0.0.1",
+ "logic_based_learning_paths",
 ]
 
 [[package]]
 name = "lblp_dummy_node_plugin"
 version = "0.1.0"
 dependencies = [
- "logic_based_learning_paths 0.0.1",
+ "logic_based_learning_paths",
 ]
 
 [[package]]
 name = "lblp_dummy_node_plugin_with_extension_field_1"
 version = "0.1.0"
 dependencies = [
- "logic_based_learning_paths 0.0.1",
+ "logic_based_learning_paths",
 ]
 
 [[package]]
 name = "lblp_dummy_node_plugin_with_extension_field_2"
 version = "0.1.0"
 dependencies = [
- "logic_based_learning_paths 0.0.1",
+ "logic_based_learning_paths",
 ]
 
 [[package]]
 name = "lblp_dummy_zip_plugin"
 version = "0.1.0"
 dependencies = [
- "logic_based_learning_paths 0.0.1",
+ "logic_based_learning_paths",
 ]
 
 [[package]]
 name = "lblp_markdown_rendering_plugin"
 version = "0.1.0"
 dependencies = [
- "anyhow",
  "base64 0.22.1",
  "comrak",
- "logic_based_learning_paths 0.0.0",
+ "logic_based_learning_paths",
  "pretty_assertions",
  "regex",
- "schemars",
- "serde_json",
- "serde_yaml",
  "walkdir",
 ]
 
@@ -1892,7 +1888,7 @@ dependencies = [
 name = "lblp_moodle_format_plugin"
 version = "0.1.0"
 dependencies = [
- "logic_based_learning_paths 0.0.1",
+ "logic_based_learning_paths",
  "yaml2json-rs",
 ]
 
@@ -1900,7 +1896,7 @@ dependencies = [
 name = "lblp_yaml_schema_generation_plugin"
 version = "0.1.0"
 dependencies = [
- "logic_based_learning_paths 0.0.1",
+ "logic_based_learning_paths",
  "pretty_assertions",
  "regex",
 ]
@@ -1961,23 +1957,6 @@ checksum = "a7a70ba024b9dc04c27ea2f0c0548feb474ec5c54bba33a7f72f873a39d07b24"
 
 [[package]]
 name = "logic_based_learning_paths"
-version = "0.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7d81ddfb60d1c00e0d0d6b5821b9a4c7a014f05e3350b30e7a97f7e69525a511"
-dependencies = [
- "anyhow",
- "lazy-regex",
- "libloading",
- "paste",
- "petgraph",
- "schemars",
- "serde",
- "serde_json",
- "serde_yaml",
-]
-
-[[package]]
-name = "logic_based_learning_paths"
 version = "0.0.1"
 dependencies = [
  "anyhow",
@@ -1997,7 +1976,7 @@ version = "0.0.0"
 dependencies = [
  "anyhow",
  "graphviz-rust",
- "logic_based_learning_paths 0.0.1",
+ "logic_based_learning_paths",
  "petgraph",
  "serde",
  "serde_json",
