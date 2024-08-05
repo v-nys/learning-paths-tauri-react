@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, Fragment } from "react";
 import TextareaAutosize from 'react-textarea-autosize';
 import { ReadResult } from "./ReadResult";
 import { Lv1ReadResult } from "./iointerfaces";
@@ -56,6 +56,7 @@ const COMPLETE_GRAPH_LABEL = "Supercluster";
 function App() {
 
     // TODO: consider making more use of useReducer
+    const [collections, setCollections] = useState(new Map());
     const [loading, setLoading] = useState(false);
     const [zipping, setZipping] = useState(false);
     const [paths, setPaths] = useState("");
@@ -81,6 +82,28 @@ function App() {
         //return async () => { const fn = await unlisten; fn(); }
         return () => { unlisten.then((fn) => fn()) }
     });
+
+    useEffect(() => {
+        invoke("read_collections", {})
+            .then((collections) => {
+                setCollections(new Map(Object.entries(collections as object)));
+            })
+            .catch((e) => {
+                alert(`Failed to set initial list of collections: ${e}`);
+            });
+    }, []);
+
+    async function storeCollection() {
+        const collection = prompt("How will you refer to this collection of paths?");
+        try {
+            const collections = await invoke("store_collection", { collection, paths });
+            setCollections(new Map(Object.entries(collections as object)));
+        } catch (e) {
+            alert(e as string);
+        }
+    }
+
+
 
     useEffect(() => {
         if (!eventToHandle) {
@@ -196,33 +219,72 @@ function App() {
     const buttonSection =
         loading ?
             <p>Please hold</p> :
-            <div className="row">
-                {
-                    /* Could split into separate component? */
-                    Array.from(readResults.entries())
-                        .map(([k, v]) => {
-                            let icon = "✅";
-                            if (v.Err) {
-                                icon = "✖️"
-                            }
-                            else if (v.Ok && v.Ok.length > 0 && v.Ok[0].length > 0) {
-                                icon = "⚠️"
-                            }
-                            return (<div key={k}>
-                                <input
-                                    name="active-path"
-                                    type="radio"
-                                    id={`radio-button-${k}`}
-                                    value={k}
-                                    checked={pathToDisplayOnceRead === k}
-                                    onChange={onOptionChange}
-                                />
-                                <label htmlFor={`radio-button-${k}`}>{commonPrefix !== k && k !== COMPLETE_GRAPH_LABEL ? `...${k.substring(commonPrefix.length)}` : k} {icon}</label>
-                            </div>
-                            )
-                        })
-                }
-            </div>
+            <>
+                <div className="row">
+                    {
+                        /* Could split into separate component? */
+                        Array.from(readResults.entries())
+                            .map(([k, v]) => {
+                                let icon = "✅";
+                                if (v.Err) {
+                                    icon = "✖️"
+                                }
+                                else if (v.Ok && v.Ok.length > 0 && v.Ok[0].length > 0) {
+                                    icon = "⚠️"
+                                }
+                                return (<div key={k}>
+                                    <input
+                                        name="active-path"
+                                        type="radio"
+                                        id={`radio-button-${k}`}
+                                        value={k}
+                                        checked={pathToDisplayOnceRead === k}
+                                        onChange={onOptionChange}
+                                    />
+                                    <label htmlFor={`radio-button-${k}`}>{commonPrefix !== k && k !== COMPLETE_GRAPH_LABEL ? `...${k.substring(commonPrefix.length)}` : k} {icon}</label>
+                                </div>
+                                )
+                            })
+                    }
+                </div>
+                <div className="row">
+                    <button onClick={(e) => {
+                        e.preventDefault();
+                        storeCollection();
+                    }}>Store cluster collection</button>
+                    {
+                        collections.keys() ?
+                            Array.from(collections).map(([collectionName, collectionText]) => {
+                                return (<div className="collection-controls" key={collectionName} >
+                                    <button
+                                        onClick={() => {
+                                          console.log("setting paths:");
+                                          console.debug(collectionText);
+                                          setPaths(collectionText);
+                                        }}>
+                                        load collection: {collectionName}
+                                    </button>
+                                    <button
+                                        onClick={async () => {
+                                            try {
+                                                // copy shenanigans to force React to update
+                                                const newCollections = new Map(collections);
+                                                newCollections.delete(collectionName);
+                                                await invoke("remove_collection", { name: collectionName });
+                                                setCollections(newCollections);
+                                            }
+                                            catch (e) {
+                                                alert(e as string);
+                                            }
+                                        }}>
+                                        delete collection: {collectionName}
+                                    </button>
+                                </div>)
+                            })
+                            : <Fragment />
+                    }
+                </div>
+            </>
     const displayedResult = pathToDisplayOnceRead && readResults.get(pathToDisplayOnceRead);
     const readResultSection =
         displayedResult ?
@@ -237,6 +299,7 @@ function App() {
             <div className="container">
                 <TextareaAutosize
                     id="files-input"
+                    value={paths}
                     onChange={(e) => setPaths(e.currentTarget.value)}
                     placeholder="Enter &quot;;&quot;-separated paths"
                 />

@@ -34,6 +34,9 @@ Therefore, test clusters cannot refer to plugin files directly in their YAML fil
 Rather than using relative paths etc. for these clusters (which would leave absolute paths untested), the clusters' YAML file templates should be run through `envsubst`.
 This happens automatically when the Nix development environment is activated.
 
+For coverage, use `cargo build --workspace; cargo tarpaulin --skip-clean --workspace --out Html`.
+Have to skip cleaning stage because that removes dynamically linked libraries.
+
 #### End-to-end tests
 Unfortunately, I am having trouble running Tauri end-to-end tests.
 There will be some mention of them in the project history, but they do not work at the current time.
