@@ -22,7 +22,7 @@ use std::{
 use walkdir::WalkDir;
 
 pub struct MarkdownRenderingPlugin {
-    path: String
+    path: String,
 }
 
 #[derive(JsonSchema)]
@@ -31,7 +31,6 @@ pub struct PluginParameters {}
 
 fn find_md_files(dir: &Path) -> Vec<PathBuf> {
     let mut md_files = Vec::new();
-
     for entry in WalkDir::new(dir).into_iter().filter_map(Result::ok) {
         let path = entry.path();
         if path.is_file() {
@@ -42,7 +41,6 @@ fn find_md_files(dir: &Path) -> Vec<PathBuf> {
             }
         }
     }
-
     md_files
 }
 
@@ -50,7 +48,6 @@ fn markdown_to_html_with_inlined_images(markdown: &str) -> String {
     let options = ComrakOptions::default();
     let original_html = markdown_to_html(markdown, &options);
     let mut substituted_html = original_html.clone();
-
     // Find all image tags and inline the images
     let re = regex::Regex::new(r#"!\[.*?\]\((.*?)\)"#).unwrap();
     for cap in re.captures_iter(&original_html) {
@@ -79,7 +76,6 @@ fn inline_image(path: &str) -> Result<String, std::io::Error> {
         "png" => "image/png",
         _ => "application/octet-stream",
     };
-
     Ok(format!(
         r#"<img src="data:{};base64,{}" />"#,
         mime_type, base64_img
@@ -93,13 +89,7 @@ fn get_modification_date(path: &PathBuf) -> Option<SystemTime> {
     }
 }
 
-// fn file_is_readable(file_path: &Path) -> bool {
-//     file_path.is_file() && File::open(file_path).is_ok()
-// }
-
 impl Plugin for MarkdownRenderingPlugin {
-
-
     fn set_path(&mut self, path: String) {
         self.path = path;
     }
@@ -165,8 +155,118 @@ impl ClusterProcessingPlugin for MarkdownRenderingPlugin {
 
 #[no_mangle]
 pub extern "C" fn create_plugin() -> *mut dyn ClusterProcessingPlugin {
-    let plugin = Box::new(MarkdownRenderingPlugin {
-        path: "".into()
-    });
+    let plugin = Box::new(MarkdownRenderingPlugin { path: "".into() });
     Box::into_raw(plugin)
+}
+
+#[cfg(test)]
+mod tests {
+    use pretty_assertions::assert_eq;
+
+    use std::str::FromStr;
+
+    const FLAKE_DIR: &str = env!("FLAKE_DIR");
+
+    use super::*;
+
+    #[test]
+    fn find_only_md_files_in_flat_dir() {
+        let mut plugin_path = std::path::PathBuf::from_str(FLAKE_DIR).expect("Is infallible.");
+        plugin_path.push("rust-workspace/markdown_rendering_plugin");
+        let search_dir = plugin_path.join("tests/flat-dir/");
+        let mut md_files = find_md_files(&search_dir);
+        md_files.sort();
+        let file2_path = plugin_path.join("tests/flat-dir/file2.md");
+        let file3_path = plugin_path.join("tests/flat-dir/file3.md");
+        assert_eq!(md_files, vec![file2_path, file3_path]);
+    }
+
+    #[test]
+    fn find_only_md_files_in_dir_hierarchy() {
+        let mut plugin_path = std::path::PathBuf::from_str(FLAKE_DIR).expect("Is infallible.");
+        plugin_path.push("rust-workspace/markdown_rendering_plugin");
+        let search_dir = plugin_path.join("tests/nested-dir/");
+        let mut md_files = find_md_files(&search_dir);
+        md_files.sort();
+        let a_path = plugin_path.join("tests/nested-dir/a.md");
+        let c_path = plugin_path.join("tests/nested-dir/subdir1/c.md");
+        let d_path = plugin_path.join("tests/nested-dir/subdir1/subdir1A/d.md");
+        let g_path = plugin_path.join("tests/nested-dir/subdir2/subdir2B/g.md");
+        assert_eq!(md_files, vec![a_path, c_path, d_path, g_path]);
+    }
+
+    #[test]
+    fn inline_image_in_missing_file() {
+        let mut plugin_path = std::path::PathBuf::from_str(FLAKE_DIR).expect("Is infallible.");
+        plugin_path.push("rust-workspace/markdown_rendering_plugin");
+        let file_path = plugin_path.join("tests/folder-without-html/index.html");
+        let inline_result = inline_image(&file_path.to_string_lossy());
+        assert!(inline_result.is_err());
+    }
+
+    #[test]
+    #[ignore]
+    fn inline_unsupported_image_type() {
+        todo!("implement")
+    }
+
+    #[test]
+    #[ignore]
+    fn inline_jpgs_in_simple_page() {
+        todo!("implement")
+    }
+
+    #[test]
+    #[ignore]
+    fn inline_gifs_in_simple_page() {
+        todo!("implement")
+    }
+
+    #[test]
+    fn inline_pngs_in_simple_page() {
+        // FIXME: test is not checking right thing
+        // inline_image only produces the replacement text for the image
+        // i.e. the img tag
+        let mut plugin_path = std::path::PathBuf::from_str(FLAKE_DIR).expect("Is infallible.");
+        plugin_path.push("rust-workspace/markdown_rendering_plugin");
+        let file_path = plugin_path.join("tests/page-with-pngs/index.html");
+        let inline_result = inline_image(&file_path.to_string_lossy());
+        assert!(inline_result.is_ok());
+        let text = inline_result.unwrap();
+        assert_eq!(text,
+                   r###"<!doctype html>
+<html>
+    <head></head>
+    <body>
+        <img src="..." />
+        <img src="..." />
+    </body>
+</html>"###);
+
+    }
+
+    #[test]
+    #[ignore]
+    fn inline_webps_in_simple_page() {
+        todo!("implement")
+    }
+
+    #[test]
+    #[ignore]
+    fn inline_svgs_in_simple_page() {
+        todo!("implement")
+    }
+
+    #[test]
+    #[ignore]
+    fn full_md_transformation() {
+        todo!("implement")
+    }
+
+
+    #[test]
+    #[ignore]
+    fn process_dummy_cluster() {
+        todo!("implement")
+    }
 }

@@ -1880,6 +1880,7 @@ dependencies = [
  "base64 0.22.1",
  "comrak",
  "logic_based_learning_paths 0.0.0",
+ "pretty_assertions",
  "regex",
  "schemars",
  "serde_json",
