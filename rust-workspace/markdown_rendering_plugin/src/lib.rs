@@ -6,8 +6,8 @@ use comrak::nodes::NodeValue;
 use comrak::{parse_document, Arena, ComrakOptions};
 use logic_based_learning_paths::domain;
 use logic_based_learning_paths::plugins::{ArtifactMapping, ClusterProcessingPlugin, Plugin};
+use logic_based_learning_paths::prelude::{anyhow, schemars, serde_json, serde_yaml};
 use regex;
-use logic_based_learning_paths::prelude::{anyhow, serde_json, serde_yaml, schemars};
 use schemars::JsonSchema;
 use serde_yaml::Value;
 use std::collections::{HashMap, HashSet};
@@ -98,9 +98,7 @@ fn read_markdown_to_html_with_inlined_images(md_path: &PathBuf) -> anyhow::Resul
     }
     let mut html = vec![];
     comrak::format_html(root, &comrak::Options::default(), &mut html)?;
-    String::from_utf8(html).map_err(|_| {
-      anyhow::anyhow!("Encoding error".to_owned())
-    })
+    String::from_utf8(html).map_err(|_| anyhow::anyhow!("Encoding error".to_owned()))
 }
 
 fn get_modification_date(path: &PathBuf) -> Option<SystemTime> {
@@ -157,22 +155,10 @@ impl ClusterProcessingPlugin for MarkdownRenderingPlugin {
                 .map(|(md_time, html_time)| md_time.cmp(&html_time));
             match relation {
                 None | Some(Ordering::Equal) | Some(Ordering::Greater) => {
-                    // provide path, not just contents
-                    // let file_contents = std::fs::read_to_string(md_file);
                     let html_output = read_markdown_to_html_with_inlined_images(md_file)?;
                     std::fs::write(html_counterpart, &html_output)
                         .map(|_| empty_set)
                         .map_err(|e| e.into())
-
-                    /*match file_contents {
-                        Err(e) => Err(e.into()),
-                        Ok(file_contents) => {
-                            let html_output = markdown_to_html_with_inlined_images(&file_contents)?;
-                            std::fs::write(html_counterpart, &html_output)
-                                .map(|_| empty_set)
-                                .map_err(|e| e.into())
-                        }
-                    }*/
                 }
                 Some(Ordering::Less) => Ok(empty_set),
             }
@@ -273,8 +259,9 @@ mod tests {
         let text = inline_result.unwrap();
         assert_eq!(
             text,
-            r###"<p><img src="..." alt="" />
-<img src="..." alt="" /></p>"###
+            r###"<p><img src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAABg2lDQ1BJQ0MgcHJvZmlsZQAAKJF9kT1Iw0AcxV9TS0upONhBxCFgdbKLijjWKhShQqgVWnUwuX5Ck4YkxcVRcC04+LFYdXBx1tXBVRAEP0CcHZwUXaTE/yWFFjEeHPfj3b3H3TtAaNWYavYlAFWzjEwqKebyq2LwFSEEEEYQozIz9TlJSsNzfN3Dx9e7OM/yPvfn6C8UTQb4ROIE0w2LeIN4ZtPSOe8TR1lFLhCfE08YdEHiR64rLr9xLjss8Myokc3ME0eJxXIPKz3MKoZKPE0cK6ga5Qs5lwuctzirtQbr3JO/MFLUVpa5TnMEKSxiCRJEKGigihosxGnVSDGRof2kh3/Y8UvkUshVBSPHAupQITt+8D/43a1Zmpp0kyJJIPBi2x9jQHAXaDdt+/vYttsngP8ZuNK6/noLmP0kvdnVYkfAwDZwcd3VlD3gcgcYetJlQ3YkP02hVALez+ib8sDgLRBec3vr7OP0AchSV+kb4OAQGC9T9rrHu0O9vf17ptPfDz/8cpI+ix9OAAAACXBIWXMAAC4jAAAuIwF4pT92AAAAB3RJTUUH6AgFCggeDiy6AQAAABl0RVh0Q29tbWVudABDcmVhdGVkIHdpdGggR0lNUFeBDhcAAAAMSURBVAjXY/jPwAAAAwEBABjdjbAAAAAASUVORK5CYII=" alt="red dot" />
+<img src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAABhGlDQ1BJQ0MgcHJvZmlsZQAAKJF9kT1Iw0AYht+mlpZScbCDiEOG6mSXKuJYq1CECqFWaNXB5NI/aNKSpLg4Cq4FB38Wqw4uzro6uAqC4A+Is4OToouU+F1SaBHjwd09vPe9L3ffAUK7xjRzIAloumVk0ykxX1gVg68IIYAwrQmZmY05ScrAc3zdw8f3uzjP8q77cwyqRZMBPpE4yRqGRbxBPLNpNTjvE0dZRVaJz4knDbog8SPXFZffOJcdFnhm1Mhl54mjxGK5j5U+ZhVDI54mjqmaTvlC3mWV8xZnrdZk3XvyF0aK+soy12mOIY1FLEGCCAVNVFGDhTjtOikmsnSe8vCPOn6JXAq5qmDkWEAdGmTHD/4Hv3trlqYSblIkBQRebPtjHAjuAp2WbX8f23bnBPA/A1d6z19vA7OfpLd6WuwIGNoGLq57mrIHXO4AI08N2ZAdyU9TKJWA9zP6pgIwfAuE19y+dc9x+gDkqFeZG+DgEJgoU/a6x7tD/X37t6bbvx9nznKid75KdgAAAAlwSFlzAAAuIwAALiMBeKU/dgAAAAd0SU1FB+gIBQoKA18ctFoAAAAZdEVYdENvbW1lbnQAQ3JlYXRlZCB3aXRoIEdJTVBXgQ4XAAAADElEQVQI12Ng+M8AAAICAQCqKp4nAAAAAElFTkSuQmCC" alt="green dot" /></p>
+"###
         );
     }
 
@@ -287,12 +274,6 @@ mod tests {
     #[test]
     #[ignore]
     fn inline_svgs_in_simple_page() {
-        todo!("implement")
-    }
-
-    #[test]
-    #[ignore]
-    fn full_md_transformation() {
         todo!("implement")
     }
 
