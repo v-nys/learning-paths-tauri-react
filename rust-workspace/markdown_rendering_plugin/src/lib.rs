@@ -50,6 +50,7 @@ fn read_markdown_to_html_with_inlined_images(md_path: &PathBuf) -> anyhow::Resul
     let markdown = std::fs::read_to_string(md_path)?;
     let arena = Arena::new();
     let root = parse_document(&arena, &markdown, &ComrakOptions::default());
+    let mut scrubbed = vec![];
     for node in root.descendants() {
         let mut is_relative_svg = false;
         if let NodeValue::Image(ref mut link) = node.data.borrow_mut().value {
@@ -101,14 +102,20 @@ fn read_markdown_to_html_with_inlined_images(md_path: &PathBuf) -> anyhow::Resul
             }
         }
         if is_relative_svg {
-            // this is needed because alt text will otherwise appear as inline text
-            /*node.children().for_each(|child| {
-                child.detach();
-            });*/
+            node.children().for_each(|child| {
+                // remove "alt text" (which would just appear inline)
+                // should not invoke child.detach() here
+                // think this messes up traversal order
+                // tests show that second SVG is not inlined if we do this
+                scrubbed.push(child);
+            });
             let mut to_be_replaced = node.data.borrow_mut();
             to_be_replaced.value = NodeValue::HtmlInline(r#"<svg></svg>"#.into());
         }
     }
+    scrubbed.into_iter().for_each(|scrubbed| {
+        scrubbed.detach();
+    });
     let mut html = vec![];
     let mut render_options = comrak::Options::default();
     // needed to render inline SVGs, as there is no element for that
