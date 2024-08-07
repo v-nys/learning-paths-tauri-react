@@ -52,7 +52,11 @@ fn read_markdown_to_html_with_inlined_images(md_path: &PathBuf) -> anyhow::Resul
     let root = parse_document(&arena, &markdown, &ComrakOptions::default());
     let mut scrubbed = vec![];
     for node in root.descendants() {
+        // in this case, img tag will have to be removed entirely
+        // that entails some extra work later
         let mut is_relative_svg = false;
+        // this needs to be in this scope because it is also needed for svg
+        let mut img_path = PathBuf::new();
         if let NodeValue::Image(ref mut link) = node.data.borrow_mut().value {
             // see https://docs.rs/comrak/0.26.0/comrak/nodes/struct.NodeLink.html
             let existing_url = &link.url.clone();
@@ -70,7 +74,7 @@ fn read_markdown_to_html_with_inlined_images(md_path: &PathBuf) -> anyhow::Resul
                             existing_url
                         )))?
                     } else {
-                        let img_path = md_path.with_file_name(&url_path);
+                        img_path = md_path.with_file_name(&url_path);
                         let ext = img_path
                             .extension()
                             .and_then(std::ffi::OsStr::to_str)
@@ -91,7 +95,10 @@ fn read_markdown_to_html_with_inlined_images(md_path: &PathBuf) -> anyhow::Resul
                                     img_path.to_string_lossy()
                                 ))?,
                             };
-                            let mut file = fs::File::open(img_path)?;
+                            // borrow checker can't tell
+                            // moving this value means that we do not have a relative svg
+                            // but clone is enough to satisfy it...
+                            let mut file = fs::File::open(img_path.clone())?;
                             let mut buf = Vec::new();
                             file.read_to_end(&mut buf)?;
                             let base64_img = encode(&buf);
@@ -110,7 +117,12 @@ fn read_markdown_to_html_with_inlined_images(md_path: &PathBuf) -> anyhow::Resul
                 scrubbed.push(child);
             });
             let mut to_be_replaced = node.data.borrow_mut();
-            to_be_replaced.value = NodeValue::HtmlInline(r#"<svg></svg>"#.into());
+            let svg_contents = std::fs::read_to_string(img_path)?;
+            let actual_svg_start = svg_contents
+                .find("<svg")
+                .ok_or(anyhow::anyhow!("Could not find svg tag in svg file."))?;
+            let (_doctypestuff, actual_svg) = svg_contents.split_at(actual_svg_start);
+            to_be_replaced.value = NodeValue::HtmlInline(actual_svg.into());
         }
     }
     scrubbed.into_iter().for_each(|scrubbed| {
@@ -235,25 +247,43 @@ mod tests {
     fn inline_image_in_missing_file() {
         let mut plugin_path = std::path::PathBuf::from_str(FLAKE_DIR).expect("Is infallible.");
         plugin_path.push("rust-workspace/markdown_rendering_plugin");
-        let file_path = plugin_path.join("tests/folder-without-html/index.html");
-        todo!("complete")
-        // let inline_result = image_path_to_tag(&file_path.to_string_lossy());
-        // assert!(inline_result.is_err());
+        let file_path = plugin_path.join("tests/folder-without-files/index.md");
+        let inline_result = read_markdown_to_html_with_inlined_images(&file_path);
+        assert!(inline_result.is_err());
     }
 
     #[test]
     fn do_not_inline_when_protocol_is_specified() {
-        todo!("implement")
+        let mut plugin_path = std::path::PathBuf::from_str(FLAKE_DIR).expect("Is infallible.");
+        plugin_path.push("rust-workspace/markdown_rendering_plugin");
+        let file_path = plugin_path.join("tests/page-with-pngs/index-with-absolute-links.md");
+        let inline_result = read_markdown_to_html_with_inlined_images(&file_path);
+        assert!(inline_result.is_ok());
+        let text = inline_result.unwrap();
+        assert_eq!(
+            text,
+            r###"<p><img src="https://google.com/1.png" alt="red dot" />
+<img src="https://google.com/2.png" alt="green dot" /></p>
+"###
+        );
     }
 
     #[test]
     fn inline_unsupported_image_type() {
-        todo!("implement")
+        let mut plugin_path = std::path::PathBuf::from_str(FLAKE_DIR).expect("Is infallible.");
+        plugin_path.push("rust-workspace/markdown_rendering_plugin");
+        let file_path = plugin_path.join("tests/page-with-tiffs/index.md");
+        let inline_result = read_markdown_to_html_with_inlined_images(&file_path);
+        assert!(inline_result.is_err());
     }
 
     #[test]
     fn inline_missing_image() {
-        todo!("implement")
+        let mut plugin_path = std::path::PathBuf::from_str(FLAKE_DIR).expect("Is infallible.");
+        plugin_path.push("rust-workspace/markdown_rendering_plugin");
+        let file_path = plugin_path.join("tests/page-with-pngs/index-with-missing-image.md");
+        let inline_result = read_markdown_to_html_with_inlined_images(&file_path);
+        assert!(inline_result.is_err());
     }
 
     #[test]
@@ -378,6 +408,7 @@ mod tests {
        y="112.86578" />
   </g>
 </svg>
+
 <svg
    width="15.103628mm"
    height="15.103628mm"
