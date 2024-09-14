@@ -463,7 +463,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore]
     fn process_dummy_cluster() {
         todo!("implement")
     }

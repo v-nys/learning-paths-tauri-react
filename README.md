@@ -16,7 +16,7 @@ Run `envsubst` as in the Nix flake.
 From the project root, run `npm run tauri dev` and the application should start.
 
 ### NixOS
-If you are running Nix with flakes, just run `nix develop` from the project root and `npm run tauri dev` should then work fine from that shell. Dependencies other than Rust itself are handled by the flake.
+If you are running Nix with flakes, just run `nix develop` from the project root (or rely on `direnv` to do so automatically) and `npm run tauri dev` should then work fine from that shell. Dependencies other than Rust itself are handled by the flake.
 
 ## Development
 
