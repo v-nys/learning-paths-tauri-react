@@ -49,7 +49,9 @@ fn read_markdown_to_html_with_inlined_images(md_path: &PathBuf) -> anyhow::Resul
         .expect("This regex has been tested. It won't fail to compile.");
     let markdown = std::fs::read_to_string(md_path)?;
     let arena = Arena::new();
-    let root = parse_document(&arena, &markdown, &ComrakOptions::default());
+    let mut comrak_options = ComrakOptions::default();
+    comrak_options.extension.table = true;
+    let root = parse_document(&arena, &markdown, &comrak_options);
     let mut scrubbed = vec![];
     for node in root.descendants() {
         // in this case, img tag will have to be removed entirely
@@ -132,8 +134,10 @@ fn read_markdown_to_html_with_inlined_images(md_path: &PathBuf) -> anyhow::Resul
     let mut render_options = comrak::Options::default();
     // needed to render inline SVGs, as there is no element for that
     render_options.render.unsafe_ = true;
+    render_options.extension.table = true;
     comrak::format_html(root, &render_options, &mut html)?;
-    String::from_utf8(html).map_err(|_| anyhow::anyhow!("Encoding error".to_owned()))
+    String::from_utf8(html)
+        .map_err(|_| anyhow::anyhow!("Encoding error".to_owned()))
 }
 
 fn get_modification_date(path: &PathBuf) -> Option<SystemTime> {
