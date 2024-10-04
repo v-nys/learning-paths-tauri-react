@@ -11,6 +11,7 @@ crate-type = ["cdylib"]
 [dependencies]
 base64 = "0.22.1"
 comrak = { version = "0.24.1", features = [ "syntect", "emojis" ] }
+ego-tree = "0.6.2" # needs to match scraper
 logic_based_learning_paths = { version = "0.0.1", path = "../logic_based_learning_paths/" }
 pretty_assertions = "1.4.0"
 regex = "1.10.5"

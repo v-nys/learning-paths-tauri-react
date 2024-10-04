@@ -4,11 +4,14 @@
 use base64::encode;
 use comrak::nodes::NodeValue;
 use comrak::{parse_document, Arena, ComrakOptions};
+use ego_tree;
 use logic_based_learning_paths::domain;
 use logic_based_learning_paths::plugins::{ArtifactMapping, ClusterProcessingPlugin, Plugin};
 use logic_based_learning_paths::prelude::{anyhow, schemars, serde_json, serde_yaml};
 use regex;
+use regex::Regex;
 use schemars::JsonSchema;
+use scraper::{ElementRef, Html, Node};
 use serde_yaml::Value;
 use std::collections::{HashMap, HashSet};
 use std::io::Read;
@@ -20,6 +23,46 @@ use std::{
     path::{Path, PathBuf},
 };
 use walkdir::WalkDir;
+
+fn normalize_whitespace(text: &str) -> String {
+    let re = Regex::new(r"\s+").unwrap();
+    re.replace_all(text, " ").to_string()
+}
+
+fn recurse(node: ego_tree::NodeRef<Node>, new_html: &mut String) {
+    match node.value() {
+        Node::Doctype(doctype) => {
+            new_html.push_str(&format!("<!doctype {}>", doctype.name()));
+        }
+        Node::Comment(_) => {}
+        Node::Element(elem) => {
+            let elem_ref = ElementRef::wrap(node).expect("Specifically works in this case.");
+            let tag = elem_ref.value().name();
+            match tag {
+                "pre" | "code" | "textarea" | "svg" => new_html.push_str(&elem_ref.html()),
+                _ => {
+                    new_html.push_str(&format!("<{}", tag));
+                    // attributes include classes!
+                    for (attr_name, attr_value) in elem.attrs() {
+                        new_html.push_str(&format!(" {attr_name}=\"{attr_value}\""));
+                    }
+                    new_html.push_str(">");
+                    for node in elem_ref.children() {
+                        recurse(node, new_html);
+                    }
+                    new_html.push_str(&format!("</{}>", tag));
+                }
+            }
+        }
+        Node::Text(text) => {
+            new_html.push_str(&normalize_whitespace(&text.to_string()));
+        }
+        Node::Document => {}
+        Node::Fragment | Node::ProcessingInstruction(_) => {
+            unimplemented!("these nodes are not supported");
+        }
+    }
+}
 
 pub struct MarkdownRenderingPlugin {
     path: String,
@@ -137,6 +180,14 @@ fn read_markdown_to_html_with_inlined_images(md_path: &PathBuf) -> anyhow::Resul
     render_options.extension.table = true;
     comrak::format_html(root, &render_options, &mut html)?;
     String::from_utf8(html)
+        .map(|s| {
+            let document = Html::parse_document(&s);
+            let mut new_html = String::new();
+            for node in document.tree.root().children() {
+                recurse(node, &mut new_html);
+            }
+            dbg!(new_html)
+        })
         .map_err(|_| anyhow::anyhow!("Encoding error".to_owned()))
 }
 
