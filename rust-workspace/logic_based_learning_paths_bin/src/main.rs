@@ -9,6 +9,18 @@ use std::collections::HashSet;
 use std::io::{Read, Write};
 use zip::write::FileOptions;
 use zip::CompressionMethod;
+use git2::Repository;
+
+fn is_ignored_by_git(file_path: &str) -> bool {
+    if let Ok(repo) = Repository::discover(file_path) {
+        match repo.is_path_ignored(file_path) {
+            Ok(ignored) => ignored,
+            Err(_) => false,
+        }
+    } else {
+        false
+    }
+}
 
 use petgraph::{
     algo::{
@@ -1466,11 +1478,20 @@ fn store_collection(collection: &str, paths: &str) -> Result<HashMap<String, Str
     Ok(current_collections)
 }
 
+#[tauri::command]
+fn can_trigger_change(path: &str) -> bool {
+    // this is pretty ad hoc
+    // might want to come up with a more general solution to exceptions
+    // but only one I can see ATM
+    !path.ends_with("contents.lc.yaml") && !is_ignored_by_git(path)
+}
+
 fn main() {
     tauri::Builder::default()
         .manage(AppState::default())
         .plugin(tauri_plugin_fs_watch::init())
         .invoke_handler(tauri::generate_handler![
+            can_trigger_change,
             read_contents,
             associate_parents_children,
             check_learning_path_stateful,

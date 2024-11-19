@@ -261,7 +261,6 @@ impl ClusterForSerialization {
         let nodes: Vec<_> = self.nodes.iter().map(|n| n.build(&folder_name)).collect();
         // turn it into a result for a vector
         let nodes: Result<Vec<_>, _> = nodes.into_iter().collect();
-        println!("about to create new ClusterForSerialization");
         let node_plugins = load_node_processing_plugins(
             self.node_plugins
                 .unwrap_or_default()
@@ -272,11 +271,8 @@ impl ClusterForSerialization {
                 })
                 .collect(),
         );
-        println!("Outcome 1: {:#?}", node_plugins);
         let node_plugins = node_plugins.map_err(|e| anyhow::format_err!(e))?;
-        println!("Outcome 2: {:#?}", node_plugins);
         // let node_plugins = Arc::new(node_plugins);
-        println!("Done loading node plugins");
         Ok(domain::Cluster {
             namespace_prefix: folder_name.clone(),
             nodes: nodes?,

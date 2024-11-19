@@ -3,6 +3,7 @@ members = [
     "logic_based_learning_paths",
     "logic_based_learning_paths_bin",
     "assignments_plugin",
+    "envsubst_pre_contents_plugin",
     "markdown_rendering_plugin",
     "moodle_format_plugin",
     "yaml_schema_generation_plugin",
@@ -16,7 +17,3 @@ members = [
 name = "workspace"
 version = "0.1.0"
 edition = "2021"
-
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
-
-[dependencies]

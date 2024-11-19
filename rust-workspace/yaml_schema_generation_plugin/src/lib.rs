@@ -85,6 +85,7 @@ impl YamlSchemaGenerationPlugin {
         cluster: &domain::Cluster,
         writer: &mut impl std::io::Write,
     ) -> Result<HashSet<ArtifactMapping>, anyhow::Error> {
+        println!("Running YAML schema generation with writer.");
         let mut overall_schema = schema_for!(deserialization::ClusterForSerialization);
         let mut plugin_schema = schemars::schema_for!(deserialization::PluginForSerialization);
         plugin_schema.meta_schema = None;
@@ -175,7 +176,8 @@ impl YamlSchemaGenerationPlugin {
                 let mut path_schema = SchemaObject::new_ref("dummy-ref".into());
                 path_schema.reference = None;
                 let mut path_string_validation = StringValidation::default();
-                let escaped_path_string = format!("^{}$", regex::escape(plugin_path));
+                let plugin_filename = Path::new(plugin_path).file_name().and_then(|file_name| file_name.to_str()).unwrap_or("problemwithpluginfilename");
+                let escaped_path_string = format!("{}$", regex::escape(plugin_filename));
                 path_string_validation.pattern = Some(escaped_path_string);
                 path_schema.string = Some(Box::new(path_string_validation));
                 if_clause_properties.insert("path".into(), Object(path_schema));
@@ -879,7 +881,8 @@ impl ClusterProcessingPlugin for YamlSchemaGenerationPlugin {
         cluster_path: &Path,
         cluster: &domain::Cluster,
     ) -> Result<HashSet<ArtifactMapping>, anyhow::Error> {
-        let mut file = std::fs::File::open(cluster_path.join("cluster_schema.json"))?;
+        let file = std::fs::File::create(cluster_path.join("cluster_schema.json"));
+        let mut file = file?;
         self.process_cluster_with_writer(cluster, &mut file)
     }
 }

@@ -21,18 +21,19 @@ async function waitForEvents(parent: string, children: any[]) {
         parent,
         // actually produces an array, not a single event
         // so TS is mistaken about the lack of an iterator method...
-        (events: any) => {
+        async (events: any) => {
             let correctlyTypedEvents: DebouncedEvent[] = events;
             console.log("here are the events:");
             console.debug(correctlyTypedEvents);
-            let shouldReload = false;
+            let changedPath = null;
             for (let { path } of correctlyTypedEvents) {
                 if (children.find((child) => path.startsWith(child))) {
-                    shouldReload = true;
+                    changedPath = path;
                 }
             }
-            if (shouldReload) {
-                appWindow.emit('filechange');
+            // cannot check this on JS side
+            if (await invoke("can_trigger_change", { path: changedPath})) {
+                appWindow.emit('filechange', { path: changedPath });
             }
         },
         { recursive: true }
@@ -258,9 +259,9 @@ function App() {
                                 return (<div className="collection-controls" key={collectionName} >
                                     <button
                                         onClick={() => {
-                                          console.log("setting paths:");
-                                          console.debug(collectionText);
-                                          setPaths(collectionText);
+                                            console.log("setting paths:");
+                                            console.debug(collectionText);
+                                            setPaths(collectionText);
                                         }}>
                                         load collection: {collectionName}
                                     </button>

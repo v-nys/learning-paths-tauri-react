@@ -1,3 +1,4 @@
+# yaml-language-server: $schema=./cluster_schema.json
 nodes:
   - id: intro
     title: "Introduction"
