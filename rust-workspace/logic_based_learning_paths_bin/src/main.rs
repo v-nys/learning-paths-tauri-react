@@ -9,13 +9,23 @@ use std::collections::HashSet;
 use std::io::{Read, Write};
 use zip::write::FileOptions;
 use zip::CompressionMethod;
-use git2::Repository;
+use git2::{Repository, Status};
 
-fn is_ignored_by_git(file_path: &str) -> bool {
+fn is_under_vc(file_path: &str) -> bool {
+    // implementation is sloppy, should do proper error handling
     if let Ok(repo) = Repository::discover(file_path) {
-        match repo.is_path_ignored(file_path) {
-            Ok(ignored) => ignored,
-            Err(_) => false,
+        println!("discovered the repo");
+        let file_path = Path::new(file_path);
+        let repo_path = repo.path().parent().unwrap();
+        let relative_path = file_path.strip_prefix(repo_path).unwrap();
+        println!("repo path: {:#?}", repo_path);
+        let status_file = repo.status_file(relative_path);
+        println!("file status: {:#?}", status_file);
+        if let Ok(status_file) = status_file {
+            !status_file.contains(Status::WT_NEW) && !status_file.contains(Status::IGNORED)
+        }
+        else {
+            false
         }
     } else {
         false
@@ -497,7 +507,10 @@ fn process_and_comment_cluster(
     let mut remarks: Vec<String> = vec![];
     let cluster_path = Path::new(cluster_path);
     cluster.pre_cluster_plugins.iter().for_each(|p| {
-        let _ = p.process_cluster(cluster_path, cluster); // TODO: use Result
+        let res = p.process_cluster(cluster_path, cluster); // TODO: use Result
+        if res.is_err() {
+            dbg!(res);
+        }
     });
     artifacts.insert(ArtifactMapping {
         local_file: cluster_path.join("contents.lc.yaml"),
@@ -1482,8 +1495,7 @@ fn store_collection(collection: &str, paths: &str) -> Result<HashMap<String, Str
 fn can_trigger_change(path: &str) -> bool {
     // this is pretty ad hoc
     // might want to come up with a more general solution to exceptions
-    // but only one I can see ATM
-    !path.ends_with("contents.lc.yaml") && !is_ignored_by_git(path)
+    path.ends_with("contents.lc.yaml") || is_under_vc(path)
 }
 
 fn main() {

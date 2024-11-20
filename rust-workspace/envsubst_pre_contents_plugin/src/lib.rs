@@ -57,10 +57,22 @@ impl ClusterProcessingPlugin for EnvsubstPreContentsPlugin {
         cluster_path: &Path,
         _cluster: &domain::Cluster,
     ) -> Result<HashSet<ArtifactMapping>, anyhow::Error> {
+        println!("Running envsubst plugin.");
         let input_file_contents =
             std::fs::read_to_string(cluster_path.join("pre-contents.lc.yaml"))?;
-        let replacement_text = substitute(input_file_contents, &std::env::vars().filter(|e| e.0 == "APPLICATION_SOURCE_DIR").collect())?;
-        std::fs::write(cluster_path.join("contents.lc.yaml"), replacement_text)?;
+        println!("Read input file.");
+        let replacement_file_contents =
+            std::fs::read_to_string(cluster_path.join("contents.lc.yaml"))?;
+        let replacement_text = substitute(
+            input_file_contents,
+            &std::env::vars()
+                .filter(|e| e.0 == "APPLICATION_SOURCE_DIR")
+                .collect(),
+        )?;
+        if replacement_text != replacement_file_contents {
+            println!("Rewriting file.");
+            std::fs::write(cluster_path.join("contents.lc.yaml"), replacement_text)?;
+        }
         Ok(HashSet::new())
     }
 }

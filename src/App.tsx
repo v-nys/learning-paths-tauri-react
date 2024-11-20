@@ -25,15 +25,13 @@ async function waitForEvents(parent: string, children: any[]) {
             let correctlyTypedEvents: DebouncedEvent[] = events;
             console.log("here are the events:");
             console.debug(correctlyTypedEvents);
-            let changedPath = null;
             for (let { path } of correctlyTypedEvents) {
                 if (children.find((child) => path.startsWith(child))) {
-                    changedPath = path;
+                    if (await invoke("can_trigger_change", { path })) {
+                        console.debug(`change should be triggered by ${path}`);
+                        appWindow.emit('filechange', { path });
+                    }
                 }
-            }
-            // cannot check this on JS side
-            if (await invoke("can_trigger_change", { path: changedPath})) {
-                appWindow.emit('filechange', { path: changedPath });
             }
         },
         { recursive: true }
@@ -211,6 +209,9 @@ function App() {
                 }
             }
         }
+        // else {
+        //     console.log(`ran hook while loading with event to handle: ${eventToHandle}`);
+        // }
     })(), [loading, eventToHandle]);
 
     const onOptionChange: React.ChangeEventHandler<HTMLInputElement> = (e) => {
