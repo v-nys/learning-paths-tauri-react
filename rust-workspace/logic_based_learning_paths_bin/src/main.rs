@@ -14,7 +14,7 @@ use git2::{Repository, Status};
 fn is_under_vc(file_path: &str) -> bool {
     // implementation is sloppy, should do proper error handling
     if let Ok(repo) = Repository::discover(file_path) {
-        println!("discovered the repo");
+        println!("discovered the repo that {} belongs to", file_path);
         let file_path = Path::new(file_path);
         let repo_path = repo.path().parent().unwrap();
         let relative_path = file_path.strip_prefix(repo_path).unwrap();

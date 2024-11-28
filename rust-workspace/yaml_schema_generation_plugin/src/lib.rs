@@ -85,7 +85,7 @@ impl YamlSchemaGenerationPlugin {
         cluster: &domain::Cluster,
         writer: &mut impl std::io::Write,
     ) -> Result<HashSet<ArtifactMapping>, anyhow::Error> {
-        println!("Running YAML schema generation with writer.");
+        println!("Running YAML schema generation with writer for path {}.", self.path);
         let mut overall_schema = schema_for!(deserialization::ClusterForSerialization);
         let mut plugin_schema = schemars::schema_for!(deserialization::PluginForSerialization);
         plugin_schema.meta_schema = None;
