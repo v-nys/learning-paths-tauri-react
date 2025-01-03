@@ -8,29 +8,27 @@
     flake-utils.lib.eachDefaultSystem (system:
       let
         pkgs = nixpkgs.legacyPackages.${system};
-
         libraries = with pkgs;[
-          webkitgtk
+          webkitgtk_6_0
           gtk3
           cairo
           gdk-pixbuf
           glib
           dbus
-          openssl_3
+          openssl
           librsvg
         ];
-
         packages = with pkgs; [
           envsubst # to enable tests which use absolute paths
-          curl
+          curlFull
           wget
           pkg-config
           dbus
-          openssl_3
+          openssl
           glib
           gtk3
           libsoup
-          webkitgtk
+          webkitgtk_6_0
           librsvg
           graphviz
         ];

@@ -1,7 +1,4 @@
 use lazy_regex::regex;
-use crate::plugins::{
-    load_cluster_processing_plugins, load_node_processing_plugins, load_pre_zip_plugins,
-};
 use schemars::JsonSchema;
 use serde::de::{self, MapAccess, Visitor};
 use serde::Deserialize;
@@ -261,18 +258,6 @@ impl ClusterForSerialization {
         let nodes: Vec<_> = self.nodes.iter().map(|n| n.build(&folder_name)).collect();
         // turn it into a result for a vector
         let nodes: Result<Vec<_>, _> = nodes.into_iter().collect();
-        let node_plugins = load_node_processing_plugins(
-            self.node_plugins
-                .unwrap_or_default()
-                .into_iter()
-                .map(|pfs| domain::UnloadedPlugin {
-                    path: pfs.path,
-                    parameters: pfs.parameters,
-                })
-                .collect(),
-        );
-        let node_plugins = node_plugins.map_err(|e| anyhow::format_err!(e))?;
-        // let node_plugins = Arc::new(node_plugins);
         Ok(domain::Cluster {
             namespace_prefix: folder_name.clone(),
             nodes: nodes?,
@@ -300,31 +285,6 @@ impl ClusterForSerialization {
                 })
                 .collect(),
             // pre_cluster_... is een Vec<PluginForSerialization>
-            pre_cluster_plugins: 
-                load_cluster_processing_plugins(
-                    self.pre_cluster_plugins
-                        .unwrap_or_default()
-                        .into_iter()
-                        .map(|pfs| domain::UnloadedPlugin {
-                            path: pfs.path,
-                            parameters: pfs.parameters,
-                        })
-                        .collect(),
-                )
-                .map_err(|e| anyhow::format_err!(e))?,
-            node_plugins,
-            pre_zip_plugins:
-                load_pre_zip_plugins(
-                    self.pre_zip_plugins
-                        .unwrap_or_default()
-                        .into_iter()
-                        .map(|pfs| domain::UnloadedPlugin {
-                            path: pfs.path,
-                            parameters: pfs.parameters,
-                        })
-                        .collect(),
-                )
-                .map_err(|e| anyhow::format_err!(e))?,
         })
     }
 }

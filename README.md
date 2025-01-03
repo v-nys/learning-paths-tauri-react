@@ -20,17 +20,9 @@ If you are running Nix with flakes, just run `nix develop` from the project root
 
 ## Development
 
-### Workspace and further plugins
-Plugins have the core as a dependency.
-Example plugins (also useful for tests) are included in the Rust workspace, but additional plugins may be written as standalone projects.
-They just need to have the core as a dependency.
-
 ### Running tests
 
 #### Unit tests
-Clusters refer to plugins simply by the (absolute) path to a library file.
-This will be different on different machines.
-Therefore, test clusters cannot refer to plugin files directly in their YAML files.
 Rather than using relative paths etc. for these clusters (which would leave absolute paths untested), the clusters' YAML file templates should be run through `envsubst`.
 This happens automatically when the Nix development environment is activated.
 

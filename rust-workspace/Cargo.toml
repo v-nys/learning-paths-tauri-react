@@ -2,16 +2,6 @@
 members = [
     "logic_based_learning_paths",
     "logic_based_learning_paths_bin",
-    "assignments_plugin",
-    "envsubst_pre_contents_plugin",
-    "markdown_rendering_plugin",
-    "moodle_format_plugin",
-    "yaml_schema_generation_plugin",
-    "dummy_node_plugin",
-    "dummy_cluster_plugin",
-    "dummy_zip_plugin",
-    "dummy_node_plugin_with_extension_field_1",
-    "dummy_node_plugin_with_extension_field_2"
 ]
 [package]
 name = "workspace"

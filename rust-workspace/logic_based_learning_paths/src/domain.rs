@@ -1,10 +1,7 @@
-use crate::plugins::PreZipPluginContainer;
-
-use super::plugins::{ClusterProcessingPluginContainer, NodeProcessingPluginContainer};
 use lazy_regex::regex;
 use serde::Serialize;
 use serde_yaml::Value;
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::{HashMap, HashSet};
 use std::fmt;
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
@@ -39,9 +36,6 @@ pub struct Cluster {
     pub nodes: Vec<Node>,
     pub edges: Vec<TypedEdge>,
     pub roots: Vec<NodeID>,
-    pub pre_cluster_plugins: VecDeque<ClusterProcessingPluginContainer>,
-    pub node_plugins: VecDeque<NodeProcessingPluginContainer>,
-    pub pre_zip_plugins: VecDeque<PreZipPluginContainer>
 }
 
 #[derive(Clone, Debug)]
