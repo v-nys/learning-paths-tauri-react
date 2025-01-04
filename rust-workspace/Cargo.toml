@@ -1,9 +1,0 @@
-[workspace]
-members = [
-    "logic_based_learning_paths",
-    "logic_based_learning_paths_bin",
-]
-[package]
-name = "workspace"
-version = "0.1.0"
-edition = "2021"

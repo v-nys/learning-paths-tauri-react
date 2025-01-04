@@ -1,15 +1,14 @@
 // Prevents additional console window on Windows in release, DO NOT REMOVE!!
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 use anyhow;
-use logic_based_learning_paths::plugins::{ArtifactMapping, NodeProcessingError};
+use git2::{Repository, Status};
 use petgraph::adj::List;
 use petgraph::visit::IntoNeighbors;
 use serde::Serialize;
 use std::collections::HashSet;
-use std::io::{Read, Write};
+use std::io::Write;
 use zip::write::FileOptions;
 use zip::CompressionMethod;
-use git2::{Repository, Status};
 
 fn is_under_vc(file_path: &str) -> bool {
     // implementation is sloppy, should do proper error handling
@@ -23,8 +22,7 @@ fn is_under_vc(file_path: &str) -> bool {
         println!("file status: {:#?}", status_file);
         if let Ok(status_file) = status_file {
             !status_file.contains(Status::WT_NEW) && !status_file.contains(Status::IGNORED)
-        }
-        else {
+        } else {
             false
         }
     } else {
@@ -114,13 +112,7 @@ struct RootedSupercluster {
 
 #[derive(Default)]
 struct AppState {
-    supercluster_with_roots: Mutex<
-        Option<(
-            RootedSupercluster,
-            HashSet<ArtifactMapping>,
-            Vec<domain::Cluster>,
-        )>,
-    >,
+    supercluster_with_roots: Mutex<Option<(RootedSupercluster, Vec<domain::Cluster>)>>,
 }
 
 /// Given a sequence of filesystem paths, deserialize the cluster represented by each path and optionally run additional validation.
@@ -153,20 +145,13 @@ fn read_contents_with_test_dependencies<'a>(
     paths: &'a str,
     file_is_readable: fn(&Path) -> bool,
     directory_is_readable: fn(&Path) -> bool,
-    mut app_state: MutexGuard<
-        Option<(
-            RootedSupercluster,
-            HashSet<ArtifactMapping>,
-            Vec<domain::Cluster>,
-        )>,
-    >,
+    mut app_state: MutexGuard<Option<(RootedSupercluster, Vec<domain::Cluster>)>>,
 ) -> Vec<(&'a str, Result<(Vec<Comment>, SVGSource), String>)> {
     // in result, first str is "path" (but can also be "supercluster")
     let mut reader = RealFileReader {};
     let supercluster_result: Result<SuperclusterComposition, SuperclusterErrorBreakdown> =
         read_all_clusters_with_test_dependencies::<RealFileReader>(paths, &mut reader);
     let paths = paths.split(";");
-    let mut artifacts = HashSet::new();
     match supercluster_result {
         Ok(SuperclusterComposition {
             composition,
@@ -183,33 +168,18 @@ fn read_contents_with_test_dependencies<'a>(
             let paths_components_and_svgs: Vec<_> = paths.zip(components_and_svgs).collect();
             let paths_components_comments_and_svgs: Vec<_> = paths_components_and_svgs
                 .into_iter()
-                .map(|(path, (component, svg))| {
+                .map(|(path, (mut component, svg))| {
                     let processing_outcome = process_and_comment_cluster(
-                        &component.0,
+                        &mut component.0,
                         &component.1,
                         &PathBuf::from(path),
                         file_is_readable,
                         directory_is_readable,
-                        &mut artifacts,
                     );
                     (path, component, processing_outcome, svg)
                 })
                 .collect();
             let mut supercluster_comments = vec![];
-            let pre_zip_plugin_vectors: Vec<_> = paths_components_comments_and_svgs
-                .iter()
-                .map(|(_, triple, _, _)| &triple.0.pre_zip_plugins)
-                .collect();
-            if pre_zip_plugin_vectors
-                .iter()
-                .filter(|v| !v.is_empty())
-                .count()
-                > 1usize
-            {
-                supercluster_comments.push(
-                    "Multiple clusters define pre-zip plugins. This is not allowed.".to_owned(),
-                );
-            }
             comment_graph(&supercluster.graph, &mut supercluster_comments);
             let (paths_comments_and_svgs, components): (Vec<_>, Vec<_>) =
                 paths_components_comments_and_svgs
@@ -218,7 +188,6 @@ fn read_contents_with_test_dependencies<'a>(
                     .unzip();
             let _ = app_state.insert((
                 supercluster.clone(),
-                artifacts,
                 components.into_iter().map(|triple| triple.0).collect(),
             ));
             let mut path_result_tuples: Vec<_> = paths_comments_and_svgs
@@ -257,14 +226,13 @@ fn read_contents_with_test_dependencies<'a>(
                         (
                             path,
                             component_and_svg_result
-                                .map(|(triple, svg)| {
+                                .map(|(mut triple, svg)| {
                                     let processing_outcome = process_and_comment_cluster(
-                                        &triple.0,
+                                        &mut triple.0,
                                         &triple.1,
                                         &PathBuf::from(path),
                                         file_is_readable,
                                         directory_is_readable,
-                                        &mut artifacts,
                                     );
                                     (processing_outcome, svg)
                                 })
@@ -497,30 +465,18 @@ fn filter_redundant_edges<'a>(
 }
 
 fn process_and_comment_cluster(
-    cluster: &domain::Cluster,
+    cluster: &mut domain::Cluster,
     graph: &Graph,
     cluster_path: &PathBuf,
     file_is_readable: fn(&Path) -> bool,
     directory_is_readable: fn(&Path) -> bool,
-    artifacts: &mut HashSet<ArtifactMapping>,
 ) -> Vec<String> {
     let mut remarks: Vec<String> = vec![];
     let cluster_path = Path::new(cluster_path);
-    cluster.pre_cluster_plugins.iter().for_each(|p| {
-        let res = p.process_cluster(cluster_path, cluster); // TODO: use Result
-        if res.is_err() {
-            dbg!(res);
-        }
-    });
-    artifacts.insert(ArtifactMapping {
-        local_file: cluster_path.join("contents.lc.yaml"),
-        root_relative_target_dir: PathBuf::from(cluster.namespace_prefix.clone()),
-    });
-    let mandatory_fields: HashSet<_> = cluster
-        .node_plugins
-        .iter()
-        .flat_map(|p| p.get_mandatory_fields())
-        .collect();
+    for plugin in cluster.node_plugins.iter_mut() {
+        let res = plugin.call::<&str, &str>("count_vowels", "Hello, world!").unwrap();
+        println!("the number of vowels is {}", res);
+    }
     cluster.nodes.iter().for_each(|n| {
         let node_dir_is_readable =
             directory_is_readable(&cluster_path.join(&n.node_id.local_id).as_path());
@@ -531,45 +487,6 @@ fn process_and_comment_cluster(
                 n.node_id.local_id
             ));
         } else {
-            let missing_fields = mandatory_fields.iter().filter(|mandatory_field| {
-                !n.extension_fields.keys().any(|key| key.eq(*mandatory_field))
-            });
-            missing_fields.for_each(|field_name| {
-                remarks.push(format!("node {} is missing required field {}", n.node_id , field_name))
-            });
-            n.extension_fields.iter().for_each(|(k, v)| {
-                let first_processing_result = cluster
-                    .node_plugins
-                    .iter()
-                    // note that Rust iterators are lazy
-                    // so only the first runnable field processor has side-effects
-                    .map(|p| {
-                        p.process_extension_field(
-                            &cluster_path,
-                            n,
-                            k,
-                            v
-                        )
-                    })
-                    .find(|p| {
-                        p.is_ok()
-                            || p.as_ref()
-                                .is_err_and(|e| !e.indicates_inability_to_process_field())
-                    });
-                match first_processing_result {
-                    Some(Ok(extension_artifacts)) => {
-                        for artifact in extension_artifacts {
-                            artifacts.insert(artifact);
-                        }
-                    },
-                    Some(Err(NodeProcessingError::Remarks(additional_remarks))) => {
-                        remarks.extend(additional_remarks.into_iter());
-                    },
-                    Some(Err(NodeProcessingError::CannotProcessFieldType)) => { unreachable!("This indicates an inability to prcess the field, which is checked earlier."); },
-                    None => { remarks.push(format!("No plugin able to process field {}", k)) }
-                }
-            });
-
             let contents_file_path = &cluster_path
                 .join(&n.node_id.local_id)
                 .join("contents.html")
@@ -580,11 +497,6 @@ fn process_and_comment_cluster(
                     "Directory for node {} should contain a contents.html file.",
                     n.node_id.local_id
                 ));
-            } else {
-                artifacts.insert(ArtifactMapping {
-                    local_file: contents_file_path.to_path_buf(),
-                    root_relative_target_dir: PathBuf::from(format!("{}/{}", cluster.namespace_prefix, n.node_id.local_id))
-                });
             }
         }
     });
@@ -906,19 +818,17 @@ mod tests {
             MockFileReader::new(vec![&Path::new("tests/technicalinfo/contents.lc.yaml")]);
         let supercluster_analysis =
             read_all_clusters_with_test_dependencies("technicalinfo", &mut reader);
-        let mut artifacts = HashSet::new();
         assert!(supercluster_analysis.is_ok());
         let supercluster_analysis = supercluster_analysis.unwrap();
         assert_eq!(supercluster_analysis.composition.len(), 1);
         supercluster_analysis.composition.into_iter().for_each(
-            |ClusterDAGRootsTriple(cluster, graph, _roots)| {
+            |ClusterDAGRootsTriple(mut cluster, graph, _roots)| {
                 let comments = process_and_comment_cluster(
-                    &cluster,
+                    &mut cluster,
                     &graph,
                     &PathBuf::from("tests/technicalinfo"),
                     |_| true,
                     |_| true,
-                    &mut artifacts,
                 );
                 let expected_comments: Vec<String> = vec![];
                 assert_eq!(comments, expected_comments);
@@ -1052,56 +962,18 @@ fn build_zip(paths: &'_ str, state: tauri::State<'_, AppState>) -> Result<PathBu
     let zip_path = std::path::Path::new("archive.zip");
     let zip_file = std::fs::File::create(zip_path).map_err(|e| e.to_string())?;
     // copy clusters into zipped folder
-    let absolute_cluster_dirs: Vec<_> = paths.split(";").map(PathBuf::from).collect();
     let mut zip = zip::ZipWriter::new(zip_file);
     let mut mutex_guard = state
         .supercluster_with_roots
         .lock()
         .expect("Should always be able to gain access eventually.");
-    let (supercluster, artifacts, component_clusters) = mutex_guard
+    let (supercluster, component_clusters) = mutex_guard
         .as_mut()
         .expect("Should only be possible to invoke this command when there is a supercluster.");
 
-    let pre_zip_plugins = component_clusters
-        .iter()
-        .flat_map(|cluster| cluster.pre_zip_plugins.iter());
-    for pre_zip_plugin in pre_zip_plugins {
-        pre_zip_plugin
-            .process_project(
-                absolute_cluster_dirs
-                    .iter()
-                    .map(|pb| pb.as_path())
-                    .collect(),
-                artifacts,
-            )
-            .map_err(|e| format!("{:#?}", e))?;
-    }
     let options = FileOptions::default()
         .compression_method(CompressionMethod::Stored)
         .unix_permissions(0o755);
-    let mut buffer = Vec::new();
-    for ArtifactMapping {
-        local_file,
-        root_relative_target_dir,
-    } in artifacts.iter()
-    {
-        zip.start_file(
-            root_relative_target_dir
-                .join(
-                    local_file
-                        .file_name()
-                        .expect("Artifacts should be files, not directories."),
-                )
-                .to_string_lossy(),
-            options,
-        )
-        .map_err(|e| e.to_string())?;
-        let mut file = File::open(local_file).map_err(|e| e.to_string())?;
-        file.read_to_end(&mut buffer).map_err(|e| e.to_string())?;
-        zip.write_all(&buffer).map_err(|e| e.to_string())?;
-        buffer.clear();
-    }
-
     // TODO: factor this out?
     {
         let (supercluster, roots) = (&supercluster.graph, &supercluster.roots);

@@ -3,6 +3,7 @@ use serde::Serialize;
 use serde_yaml::Value;
 use std::collections::{HashMap, HashSet};
 use std::fmt;
+use extism;
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub enum EdgeType {
@@ -36,6 +37,7 @@ pub struct Cluster {
     pub nodes: Vec<Node>,
     pub edges: Vec<TypedEdge>,
     pub roots: Vec<NodeID>,
+    pub node_plugins: Vec<extism::Plugin>,
 }
 
 #[derive(Clone, Debug)]

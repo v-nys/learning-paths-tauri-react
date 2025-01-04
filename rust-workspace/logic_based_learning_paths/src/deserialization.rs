@@ -8,6 +8,7 @@ use std::collections::HashMap;
 use std::fmt;
 
 use crate::domain;
+use crate::plugins::load_node_processing_plugins;
 
 /// Deserialization counterpart for the domain concept `Node`.
 #[derive(Clone, Debug, JsonSchema)]
@@ -174,28 +175,6 @@ impl Edge {
     }
 }
 
-/// A representation of a `Cluster` which is more suitable for (de)serialization.
-///
-/// It does not require a namespace prefix, as that is assumed to match the name of the file to
-/// which it is serialized.
-/// It uses disjoint, optional sets of edges because that saves a lot of repetition when writing in
-/// a data format.
-#[derive(Deserialize, Clone, JsonSchema)]
-#[serde(deny_unknown_fields)]
-pub struct ClusterForSerialization {
-    /// Units of information inside this `Cluster`.
-    nodes: Vec<self::Node>,
-    /// Strict dependencies. A non-root `Node` can only be accessed if all of its dependencies of this type have been marked complete, along with one interchangeable dependency of this `Node` or of a `Node` which is strictly dependent on this `Node`.
-    all_type_edges: Option<Vec<Edge>>,
-    /// Interchangeable dependencies. A non-root `Node` can only be accessed if one dependency of this type has been marked complete for this node or for a `Node` which is strictly dependent on this `Node`. Furthermore, all strict dependencies must still be marked complete.
-    any_type_edges: Option<Vec<Edge>>,
-    /// IDs of `Node`s with no dependencies whatsoever, i.e. the only `Node`s which can be accessed unconditionally.
-    roots: Option<Vec<String>>,
-    pre_cluster_plugins: Option<Vec<PluginForSerialization>>,
-    node_plugins: Option<Vec<PluginForSerialization>>,
-    pre_zip_plugins: Option<Vec<PluginForSerialization>>,
-}
-
 #[derive(Clone, JsonSchema)]
 #[schemars(deny_unknown_fields)]
 pub struct PluginForSerialization {
@@ -252,12 +231,42 @@ impl<'de> Deserialize<'de> for PluginForSerialization {
     }
 }
 
+/// A representation of a `Cluster` which is more suitable for (de)serialization.
+///
+/// It does not require a namespace prefix, as that is assumed to match the name of the file to
+/// which it is serialized.
+/// It uses disjoint, optional sets of edges because that saves a lot of repetition when writing in
+/// a data format.
+#[derive(Deserialize, Clone, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct ClusterForSerialization {
+    /// Units of information inside this `Cluster`.
+    nodes: Vec<self::Node>,
+    /// Strict dependencies. A non-root `Node` can only be accessed if all of its dependencies of this type have been marked complete, along with one interchangeable dependency of this `Node` or of a `Node` which is strictly dependent on this `Node`.
+    all_type_edges: Option<Vec<Edge>>,
+    /// Interchangeable dependencies. A non-root `Node` can only be accessed if one dependency of this type has been marked complete for this node or for a `Node` which is strictly dependent on this `Node`. Furthermore, all strict dependencies must still be marked complete.
+    any_type_edges: Option<Vec<Edge>>,
+    /// IDs of `Node`s with no dependencies whatsoever, i.e. the only `Node`s which can be accessed unconditionally.
+    roots: Option<Vec<String>>,
+    node_plugins: Option<Vec<PluginForSerialization>>,
+}
+
 impl ClusterForSerialization {
     pub fn build(self, folder_name: String) -> Result<domain::Cluster, anyhow::Error> {
         // this gives a vector of results
         let nodes: Vec<_> = self.nodes.iter().map(|n| n.build(&folder_name)).collect();
         // turn it into a result for a vector
         let nodes: Result<Vec<_>, _> = nodes.into_iter().collect();
+        let node_plugins = load_node_processing_plugins(
+            self.node_plugins
+                .unwrap_or_default()
+                .into_iter()
+                .map(|pfs| domain::UnloadedPlugin {
+                    path: pfs.path,
+                    parameters: pfs.parameters,
+                })
+                .collect(),
+        );
         Ok(domain::Cluster {
             namespace_prefix: folder_name.clone(),
             nodes: nodes?,
@@ -284,7 +293,7 @@ impl ClusterForSerialization {
                     local_id: root_string,
                 })
                 .collect(),
-            // pre_cluster_... is een Vec<PluginForSerialization>
+            node_plugins,
         })
     }
 }

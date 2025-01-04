@@ -9,7 +9,7 @@
       let
         pkgs = nixpkgs.legacyPackages.${system};
         libraries = with pkgs;[
-          webkitgtk_6_0
+          webkitgtk
           gtk3
           cairo
           gdk-pixbuf
@@ -28,7 +28,7 @@
           glib
           gtk3
           libsoup
-          webkitgtk_6_0
+          webkitgtk
           librsvg
           graphviz
         ];
