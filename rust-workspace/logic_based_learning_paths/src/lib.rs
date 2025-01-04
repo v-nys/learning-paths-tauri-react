@@ -1,5 +1,6 @@
 pub mod deserialization;
 pub mod domain;
+pub mod domain_without_loading;
 
 pub mod prelude {
     pub use anyhow;
@@ -9,7 +10,7 @@ pub mod prelude {
 }
 
 pub mod plugins {
-    use crate::domain::{self, Node};
+    use crate::domain::{self,Node};
     use extism::{Manifest, Plugin, Wasm};
     use extism_convert::{Json, ToBytes};
     use serde::Serialize;
