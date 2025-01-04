@@ -1,11 +1,21 @@
+use extism_convert::{FromBytes, Json, ToBytes};
 use lazy_regex::regex;
 use serde::{Deserialize, Serialize};
 use serde_yaml::Value;
 use std::collections::{HashMap, HashSet};
 use std::fmt;
-use extism_convert::{FromBytes, Json, ToBytes};
 use std::path::PathBuf;
 
+// TODO: maybe the following structs aren't so much "domain"
+// they are all intended for communication with plugins...
+
+#[derive(PartialEq, Eq, Hash, Debug, Clone, Deserialize, Serialize)]
+pub struct ArtifactMapping {
+    pub local_file: PathBuf,
+    pub root_relative_target_dir: PathBuf,
+}
+
+// TODO: may want to merge with ExtensionFieldProcessingPayload, if it is not needed on its own
 #[derive(ToBytes, FromBytes, Serialize, Deserialize, Debug)]
 #[encoding(Json)]
 pub struct NodeProcessingPayload {
@@ -14,6 +24,40 @@ pub struct NodeProcessingPayload {
     pub cluster_path: PathBuf,
 }
 
+#[derive(ToBytes, FromBytes, Serialize, Deserialize, Debug)]
+#[encoding(Json)]
+pub struct ExtensionFieldProcessingPayload {
+    pub node_processing_payload: NodeProcessingPayload,
+    pub field_name: String,
+    pub value: serde_yaml::Value,
+}
+
+#[derive(ToBytes, FromBytes, Serialize, Deserialize, Debug)]
+#[encoding(Json)]
+// have to use newtype here to add these derives
+// TODO: see if there is any way around this
+// newtype means I need to wrap everything on the plugin side, too...
+pub struct ExtensionFieldProcessingResult {
+    pub result: anyhow::Result<HashSet<ArtifactMapping>, NodeProcessingError>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub enum NodeProcessingError {
+    CannotProcessFieldType,
+    Remarks(Vec<String>),
+}
+
+impl NodeProcessingError {
+    // this is here because I cannot derive Eq on NodeProcessingError
+    pub fn indicates_inability_to_process_field(&self) -> bool {
+        match self {
+            Self::CannotProcessFieldType => true,
+            _ => false,
+        }
+    }
+}
+
+// FROM HERE ON OUT, THEY ARE REALLY "DOMAIN"
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub enum EdgeType {
     All,

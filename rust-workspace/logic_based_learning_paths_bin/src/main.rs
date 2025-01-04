@@ -47,11 +47,12 @@ use std::{collections::HashMap, fmt, fs::File, ops::Index, path::Path};
 mod rendering;
 
 use crate::rendering::svgify;
-use logic_based_learning_paths_bin::deserialization;
 use logic_based_learning_paths_bin::domain;
 use logic_based_learning_paths_bin::domain::{
-    EdgeData, EdgeType, Graph, NodeID, StructuralError, TypedEdge,
+    EdgeData, EdgeType, ExtensionFieldProcessingResult, Graph, NodeID, NodeProcessingError,
+    StructuralError, TypedEdge,
 };
+use logic_based_learning_paths_bin::{deserialization, domain::ArtifactMapping};
 
 type SVGSource = String;
 type Comment = String;
@@ -152,6 +153,7 @@ fn read_contents_with_test_dependencies<'a>(
     let supercluster_result: Result<SuperclusterComposition, SuperclusterErrorBreakdown> =
         read_all_clusters_with_test_dependencies::<RealFileReader>(paths, &mut reader);
     let paths = paths.split(";");
+    let mut artifacts = HashSet::new();
     match supercluster_result {
         Ok(SuperclusterComposition {
             composition,
@@ -175,6 +177,7 @@ fn read_contents_with_test_dependencies<'a>(
                         &PathBuf::from(path),
                         file_is_readable,
                         directory_is_readable,
+                        &mut artifacts,
                     );
                     (path, component, processing_outcome, svg)
                 })
@@ -233,6 +236,7 @@ fn read_contents_with_test_dependencies<'a>(
                                         &PathBuf::from(path),
                                         file_is_readable,
                                         directory_is_readable,
+                                        &mut artifacts,
                                     );
                                     (processing_outcome, svg)
                                 })
@@ -470,9 +474,17 @@ fn process_and_comment_cluster(
     cluster_path: &PathBuf,
     file_is_readable: fn(&Path) -> bool,
     directory_is_readable: fn(&Path) -> bool,
+    artifacts: &mut HashSet<ArtifactMapping>,
 ) -> Vec<String> {
     let mut remarks: Vec<String> = vec![];
     let cluster_path = Path::new(cluster_path);
+    artifacts.insert(ArtifactMapping {
+        local_file: cluster_path.join("contents.lc.yaml"),
+        root_relative_target_dir: PathBuf::from(cluster.namespace_prefix.clone()),
+    });
+    dbg!("Still have a TODO here!");
+    // TODO: reintroduce check related to mandatory fields
+    // or actually use schema
     cluster.nodes.iter().for_each(|n| {
         let node_dir_is_readable =
             directory_is_readable(&cluster_path.join(&n.node_id.local_id).as_path());
@@ -483,6 +495,45 @@ fn process_and_comment_cluster(
                 n.node_id.local_id
             ));
         } else {
+            dbg!("Still have a TODO here!");
+            /*let missing_fields = mandatory_fields.iter().filter(|mandatory_field| {
+                !n.extension_fields.keys().any(|key| key.eq(*mandatory_field))
+            });
+            missing_fields.for_each(|field_name| {
+                remarks.push(format!("node {} is missing required field {}", n.node_id , field_name))
+            });*/
+            n.extension_fields.iter().for_each(|(k, v)| {
+                let first_processing_result = cluster
+                    .node_plugins
+                    .iter_mut()
+                    // note that Rust iterators are lazy
+                    // so only the first runnable field processor has side-effects
+                    .map(|p| {
+                        p.process_extension_field(
+                            &cluster_path,
+                            n,
+                            k,
+                            v
+                        )
+                    })
+                    .find(|p| {
+                        p.result.is_ok()
+                            || p.result.as_ref()
+                                .is_err_and(|e| !e.indicates_inability_to_process_field())
+                    });
+                match first_processing_result {
+                    Some(ExtensionFieldProcessingResult { result: Ok(extension_artifacts) }) => {
+                        for artifact in extension_artifacts {
+                            artifacts.insert(artifact);
+                        }
+                    },
+                    Some(ExtensionFieldProcessingResult { result: Err(NodeProcessingError::Remarks(additional_remarks)) }) => {
+                        remarks.extend(additional_remarks.into_iter());
+                    },
+                    Some(ExtensionFieldProcessingResult { result: Err(NodeProcessingError::CannotProcessFieldType) }) => { unreachable!("This indicates an inability to prcess the field, which is checked earlier."); },
+                    None => { remarks.push(format!("No plugin able to process field {}", k)) }
+                }
+            });
             let contents_file_path = &cluster_path
                 .join(&n.node_id.local_id)
                 .join("contents.html")
@@ -494,11 +545,10 @@ fn process_and_comment_cluster(
                     n.node_id.local_id
                 ));
             } else {
-                for plugin in cluster.node_plugins.iter_mut() {
-                    let node_plugin_result = plugin.run(&n, &cluster_path);
-                    // TODO: actually handle the result!
-                    dbg!(node_plugin_result);
-                }
+                artifacts.insert(ArtifactMapping {
+                    local_file: contents_file_path.to_path_buf(),
+                    root_relative_target_dir: PathBuf::from(format!("{}/{}", cluster.namespace_prefix, n.node_id.local_id))
+                });
             }
         }
     });
@@ -780,7 +830,7 @@ fn associate_parents_children(
 #[cfg(test)]
 mod tests {
     use std::{
-        collections::HashMap,
+        collections::{HashMap, HashSet},
         path::{Path, PathBuf},
     };
 
@@ -820,6 +870,7 @@ mod tests {
             MockFileReader::new(vec![&Path::new("tests/technicalinfo/contents.lc.yaml")]);
         let supercluster_analysis =
             read_all_clusters_with_test_dependencies("technicalinfo", &mut reader);
+        let mut artifacts = HashSet::new();
         assert!(supercluster_analysis.is_ok());
         let supercluster_analysis = supercluster_analysis.unwrap();
         assert_eq!(supercluster_analysis.composition.len(), 1);
@@ -831,6 +882,7 @@ mod tests {
                     &PathBuf::from("tests/technicalinfo"),
                     |_| true,
                     |_| true,
+                    &mut artifacts,
                 );
                 let expected_comments: Vec<String> = vec![];
                 assert_eq!(comments, expected_comments);
