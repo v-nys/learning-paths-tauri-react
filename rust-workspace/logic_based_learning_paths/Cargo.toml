@@ -19,3 +19,4 @@ lazy-regex = "3.1.0"
 serde_json = "1.0.120"
 petgraph = { version = "0.6", features = [ "serde-1" ] }
 anyhow = "1.0.86"
+extism-convert = "1.9.1"

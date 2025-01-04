@@ -11,23 +11,14 @@ pub mod prelude {
 pub mod plugins {
     use crate::domain::{self,Node};
     use extism::{Manifest, Plugin, Wasm};
-    use extism_convert::{Json, ToBytes};
-    use serde::Serialize;
     use serde_yaml;
-    use std::{collections::HashMap, path::Path, path::PathBuf};
+    use std::{collections::HashMap, path::Path};
+    use logic_based_learning_paths::domain_without_loading::NodeProcessingPayload;
 
     #[derive(Debug)]
     pub struct NodeProcessingPlugin {
         extism_plugin: Plugin,
         parameter_values: HashMap<String, serde_yaml::Value>,
-    }
-
-    #[derive(ToBytes, Serialize)]
-    #[encoding(Json)]
-    struct NodeProcessingPayload {
-        parameter_values: HashMap<String, serde_yaml::Value>,
-        node: Node,
-        cluster_path: PathBuf,
     }
 
     impl NodeProcessingPlugin {
@@ -37,9 +28,10 @@ pub mod plugins {
                 node: node.clone(),
                 cluster_path: cluster_path.to_owned(),
             };
+            // FIXME: should just expect the result to be () in the future
+            // but a String is useful for testing whether WASM code is running properly
             let res = self.extism_plugin.call("process_node", payload);
-            res
-            //todo!("continue implementing")
+            res.map(|representation: String| { println!("{representation}"); () })
         }
     }
 

@@ -1,8 +1,18 @@
 use lazy_regex::regex;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use serde_yaml::Value;
 use std::collections::{HashMap, HashSet};
 use std::fmt;
+use extism_convert::{FromBytes, Json, ToBytes};
+use std::path::PathBuf;
+
+#[derive(ToBytes, FromBytes, Serialize, Deserialize, Debug)]
+#[encoding(Json)]
+pub struct NodeProcessingPayload {
+    pub parameter_values: HashMap<String, serde_yaml::Value>,
+    pub node: Node,
+    pub cluster_path: PathBuf,
+}
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub enum EdgeType {
@@ -29,7 +39,7 @@ pub struct UnloadedPlugin {
     pub parameters: HashMap<String, Value>,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct NodeID {
     /// Each node is namespaced according to its `Cluster`.
     pub namespace: String,
@@ -70,7 +80,7 @@ impl NodeID {
 ///
 /// A `Node` represents knowledge that can be processed as one whole.
 /// It does not need to be entirely standalone, as it can have dependencies in the form of `Edge` values.
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Node {
     pub node_id: NodeID,
     /// Human-readable title for this unit of knowledge.

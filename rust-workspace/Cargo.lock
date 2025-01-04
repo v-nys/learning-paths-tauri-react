@@ -2397,6 +2397,7 @@ name = "logic_based_learning_paths"
 version = "0.0.1"
 dependencies = [
  "anyhow",
+ "extism-convert",
  "lazy-regex",
  "petgraph",
  "schemars",
