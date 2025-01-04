@@ -257,7 +257,7 @@ impl ClusterForSerialization {
         let nodes: Vec<_> = self.nodes.iter().map(|n| n.build(&folder_name)).collect();
         // turn it into a result for a vector
         let nodes: Result<Vec<_>, _> = nodes.into_iter().collect();
-        let node_plugins = load_node_processing_plugins(
+        let node_plugins_result: anyhow::Result<Vec<_>> = load_node_processing_plugins(
             self.node_plugins
                 .unwrap_or_default()
                 .into_iter()
@@ -266,7 +266,9 @@ impl ClusterForSerialization {
                     parameters: pfs.parameters,
                 })
                 .collect(),
-        );
+        )
+        .into_iter()
+        .collect();
         Ok(domain::Cluster {
             namespace_prefix: folder_name.clone(),
             nodes: nodes?,
@@ -293,7 +295,7 @@ impl ClusterForSerialization {
                     local_id: root_string,
                 })
                 .collect(),
-            node_plugins,
+            node_plugins: node_plugins_result?,
         })
     }
 }
