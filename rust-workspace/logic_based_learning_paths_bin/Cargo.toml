@@ -1,0 +1,39 @@
+[package]
+name = "logic_based_learning_paths_bin"
+version = "0.0.1"
+description = "A system for organizing project-based learning paths"
+authors = ["Vincent Nys"]
+license = "MIT"
+repository = "https://github.com/v-nys/learning-paths-tauri-react"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+# these versions should be matched by dependencies
+# or at least some...
+schemars = "0.8.21"
+serde = { version = "1.0.204", features = ["derive"] }
+serde_yaml = "0.9.34"
+lazy-regex = "3.1.0"
+libloading = "0.8.3"
+paste = "1.0.15"
+tauri = { version = "1", features = ["shell-open", "window-all"] }
+serde_json = "1.0.120"
+tauri-plugin-fs-watch = { git = "https://github.com/tauri-apps/plugins-workspace", rev = "dce0f02bc571128308c30278cde3233f341e6a50" }
+petgraph = { version = "0.6", features = [ "serde-1" ] }
+logic_based_learning_paths = { version = "0.0.1", path = "../logic_based_learning_paths/" }
+graphviz-rust = "0.6"
+anyhow = "1.0.86"
+zip = "0.6.6"
+git2 = "0.19.0"
+extism = "1.9.1"
+extism-convert = "1.9.1"
+
+[build-dependencies]
+tauri-build = { version = "1", features = [] }
+
+[features]
+# this feature is used for production builds or when `devPath` points to the filesystem
+# DO NOT REMOVE!!
+custom-protocol = ["tauri/custom-protocol"]

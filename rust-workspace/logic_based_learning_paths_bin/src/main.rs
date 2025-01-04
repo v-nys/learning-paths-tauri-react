@@ -47,9 +47,9 @@ use std::{collections::HashMap, fmt, fs::File, ops::Index, path::Path};
 mod rendering;
 
 use crate::rendering::svgify;
-use logic_based_learning_paths::deserialization;
-use logic_based_learning_paths::domain;
-use logic_based_learning_paths::domain::{
+use logic_based_learning_paths_bin::deserialization;
+use logic_based_learning_paths_bin::domain;
+use logic_based_learning_paths_bin::domain::{
     EdgeData, EdgeType, Graph, NodeID, StructuralError, TypedEdge,
 };
 
@@ -780,7 +780,7 @@ fn associate_parents_children(
 #[cfg(test)]
 mod tests {
     use std::{
-        collections::{HashMap, HashSet},
+        collections::HashMap,
         path::{Path, PathBuf},
     };
 

@@ -1,6 +1,6 @@
 use crate::plugins::NodeProcessingPlugin;
 
-pub use crate::domain_without_loading::*;
+pub use logic_based_learning_paths::domain_without_loading::*;
 
 /// An namespaced collection of `Node`s which may link to `Node`s in different namespaces.
 ///
