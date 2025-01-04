@@ -2398,6 +2398,7 @@ version = "0.0.1"
 dependencies = [
  "anyhow",
  "extism",
+ "extism-convert",
  "git2",
  "graphviz-rust",
  "lazy-regex",

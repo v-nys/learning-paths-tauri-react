@@ -5,6 +5,8 @@ use std::collections::{HashMap, HashSet};
 use std::fmt;
 use extism;
 
+use crate::plugins::NodeProcessingPlugin;
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub enum EdgeType {
     All,
@@ -37,7 +39,7 @@ pub struct Cluster {
     pub nodes: Vec<Node>,
     pub edges: Vec<TypedEdge>,
     pub roots: Vec<NodeID>,
-    pub node_plugins: Vec<extism::Plugin>,
+    pub node_plugins: Vec<NodeProcessingPlugin>,
 }
 
 #[derive(Clone, Debug)]
@@ -87,7 +89,7 @@ impl NodeID {
 ///
 /// A `Node` represents knowledge that can be processed as one whole.
 /// It does not need to be entirely standalone, as it can have dependencies in the form of `Edge` values.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize)]
 pub struct Node {
     pub node_id: NodeID,
     /// Human-readable title for this unit of knowledge.

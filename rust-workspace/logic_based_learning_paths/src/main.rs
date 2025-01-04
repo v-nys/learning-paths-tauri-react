@@ -473,10 +473,6 @@ fn process_and_comment_cluster(
 ) -> Vec<String> {
     let mut remarks: Vec<String> = vec![];
     let cluster_path = Path::new(cluster_path);
-    for plugin in cluster.node_plugins.iter_mut() {
-        let res = plugin.call::<&str, &str>("count_vowels", "Hello, world!").unwrap();
-        println!("the number of vowels is {}", res);
-    }
     cluster.nodes.iter().for_each(|n| {
         let node_dir_is_readable =
             directory_is_readable(&cluster_path.join(&n.node_id.local_id).as_path());
@@ -497,6 +493,12 @@ fn process_and_comment_cluster(
                     "Directory for node {} should contain a contents.html file.",
                     n.node_id.local_id
                 ));
+            } else {
+                for plugin in cluster.node_plugins.iter_mut() {
+                    let node_plugin_result = plugin.run(&n, &cluster_path);
+                    // TODO: actually handle the result!
+                    dbg!(node_plugin_result);
+                }
             }
         }
     });
