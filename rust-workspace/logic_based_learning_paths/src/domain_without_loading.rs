@@ -15,6 +15,14 @@ pub struct ArtifactMapping {
     pub root_relative_target_dir: PathBuf,
 }
 
+#[derive(ToBytes, Serialize)]
+#[encoding(Json)]
+pub struct BoolPayload {
+    pub value: bool,
+}
+
+
+
 // TODO: may want to merge with ExtensionFieldProcessingPayload, if it is not needed on its own
 #[derive(ToBytes, FromBytes, Serialize, Deserialize, Debug)]
 #[encoding(Json)]

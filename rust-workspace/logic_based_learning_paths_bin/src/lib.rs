@@ -12,30 +12,15 @@ pub mod plugins {
     use crate::domain::{self, Node};
     use extism::{host_fn, Manifest, Plugin, PluginBuilder, UserData, Wasm};
     use logic_based_learning_paths::domain_without_loading::{
-        ExtensionFieldProcessingPayload, ExtensionFieldProcessingResult, NodeProcessingError,
-        NodeProcessingPayload,
+        BoolPayload, ExtensionFieldProcessingPayload, ExtensionFieldProcessingResult,
+        NodeProcessingError, NodeProcessingPayload,
     };
     use serde_yaml;
     use std::{collections::HashMap, path::Path, path::PathBuf};
 
-    struct BogusUserData {}
-
-    // first parameter with type, followed by semicolon ⇒ UserData
-    // TODO: can I provide cluster_path instead?
-    // that way I could check that the plugin is only accessing part of the file system
-    host_fn!(file_exists(_user_data: BogusUserData; relative_path: String) -> () {
-      // bool isn't a supported type, so u32
-      // TODO: check that resulting path is still a descendant of cluster_path!
-      // also note that plugin really only sees relative path
-      // so really need to know location of the cluster and node...
-      // Ok(1);
-      Ok(())
+    host_fn!(file_exists(_user_data: (); relative_path: String) -> BoolPayload {
+      Ok(BoolPayload { value: false })
     });
-
-    // want this as a host fn...
-    // fn file_is_readable(file_path: &Path) -> bool {
-    //     file_path.is_file() && File::open(file_path).is_ok()
-    // }
 
     #[derive(Debug)]
     pub struct NodeProcessingPlugin {
@@ -103,10 +88,10 @@ pub mod plugins {
                     .with_function(
                         "file_exists",
                         [extism::PTR],
-                        [],
+                        [extism::PTR],
                         // actually not sure if this is correct wrt lifetimes etc.
                         // but not using it, so won't get dangling ref...
-                        UserData::new(BogusUserData {}),
+                        UserData::new(()),
                         file_exists,
                     )
                     .build();
