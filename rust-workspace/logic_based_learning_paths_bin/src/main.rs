@@ -563,6 +563,9 @@ fn merge_clusters(
     let clusters = read_results
         .into_iter()
         .map(|ReadResultForPath(r, p)| match r {
+            // FIXME: this is an issue
+            // want clusters to know their own location
+            // but it won't be deserialized
             Ok(ref text) => serde_yaml::from_str::<deserialization::ClusterForSerialization>(text)
                 .map_err(anyhow::Error::new)
                 .and_then(|cfs| {

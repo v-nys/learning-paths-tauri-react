@@ -9,6 +9,7 @@ use std::fmt;
 
 use crate::domain;
 use crate::plugins::load_node_processing_plugins;
+use std::path::PathBuf;
 
 /// Deserialization counterpart for the domain concept `Node`.
 #[derive(Clone, Debug, JsonSchema)]
