@@ -16,10 +16,24 @@ pub mod plugins {
         NodeProcessingError, NodeProcessingPayload,
     };
     use serde_yaml;
-    use std::{collections::HashMap, path::Path, path::PathBuf};
+    use std::{
+        collections::HashMap,
+        path::{Path, PathBuf},
+        str::FromStr,
+    };
 
-    host_fn!(file_exists(_user_data: (); relative_path: String) -> BoolPayload {
-      Ok(BoolPayload { value: false })
+    host_fn!(file_exists(user_data: PathBuf; relative_path: String) -> BoolPayload {
+      dbg!(&user_data);
+      let mut joined_path = user_data.get()
+          // TODO: under what circumstances would this fail?
+          .expect("Should be able to get inner value.")
+          .lock()
+          // TODO: under what circumstances would this fail?
+          .expect("Should be able to lock eventually.")
+          .clone();
+      joined_path.push(relative_path);
+      // TODO: also make sure joined_path is an EXTENSION of the cluster path
+      Ok(BoolPayload { value: joined_path.is_file() })
     });
 
     #[derive(Debug)]
@@ -83,6 +97,7 @@ pub mod plugins {
             .map(|unloaded_plugin| {
                 let url = Wasm::file(unloaded_plugin.path);
                 let manifest = Manifest::new([url]);
+                dbg!("Still have a TODO in with_function below.");
                 let plugin = PluginBuilder::new(manifest)
                     .with_wasi(true)
                     .with_function(
@@ -91,7 +106,9 @@ pub mod plugins {
                         [extism::PTR],
                         // actually not sure if this is correct wrt lifetimes etc.
                         // but not using it, so won't get dangling ref...
-                        UserData::new(()),
+                        // TODO: get rid of hardcoded value
+                        // should be the cluster's (or node's) path instead
+                        UserData::new(PathBuf::from_str("/home/vincentn/Documents/Lesmateriaal/2024-2025/clusters/PA/cluster-python-concepten").unwrap()),
                         file_exists,
                     )
                     .build();
