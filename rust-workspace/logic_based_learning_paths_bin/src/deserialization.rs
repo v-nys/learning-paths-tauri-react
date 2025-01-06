@@ -9,6 +9,7 @@ use std::fmt;
 
 use crate::domain;
 use crate::plugins::load_node_processing_plugins;
+use std::path::PathBuf;
 
 /// Deserialization counterpart for the domain concept `Node`.
 #[derive(Clone, Debug, JsonSchema)]
@@ -252,7 +253,13 @@ pub struct ClusterForSerialization {
 }
 
 impl ClusterForSerialization {
-    pub fn build(self, folder_name: String) -> Result<domain::Cluster, anyhow::Error> {
+    pub fn build(self, cluster_path: &PathBuf) -> Result<domain::Cluster, anyhow::Error> {
+        let folder_name = cluster_path.file_name().ok_or(anyhow::Error::msg(
+            "Path does not have a final component.".to_owned(),
+        ))?;
+        let folder_name = folder_name.to_owned().into_string().map_err(|osstr| {
+            anyhow::Error::msg("Failed to convert OS String into normal string")
+        })?;
         // this gives a vector of results
         let nodes: Vec<_> = self.nodes.iter().map(|n| n.build(&folder_name)).collect();
         // turn it into a result for a vector
@@ -266,6 +273,7 @@ impl ClusterForSerialization {
                     parameters: pfs.parameters,
                 })
                 .collect(),
+            cluster_path
         )
         .into_iter()
         .collect();

@@ -569,15 +569,16 @@ fn merge_clusters(
             Ok(ref text) => serde_yaml::from_str::<deserialization::ClusterForSerialization>(text)
                 .map_err(anyhow::Error::new)
                 .and_then(|cfs| {
-                    let cluster_name = p.file_name().map(|osstr| osstr.to_owned().into_string());
-                    match cluster_name {
-                        Some(Ok(cluster_name)) => {
-                            cfs.build(cluster_name).map_err(anyhow::Error::msg)
-                        }
-                        _ => Err(anyhow::Error::msg(
-                            "Could not derive cluster name from path.",
-                        )),
-                    }
+                    cfs.build(&p).map_err(anyhow::Error::msg)
+                    // let cluster_name = p.file_name().map(|osstr| osstr.to_owned().into_string());
+                    // match cluster_name {
+                    //     Some(Ok(cluster_name, &p)) => {
+                    //         cfs.build(cluster_name).map_err(anyhow::Error::msg)
+                    //     }
+                    //     _ => Err(anyhow::Error::msg(
+                    //         "Could not derive cluster name from path.",
+                    //     )),
+                    // }
                 }),
             Err(e) => Err(anyhow::Error::new(e)),
         });

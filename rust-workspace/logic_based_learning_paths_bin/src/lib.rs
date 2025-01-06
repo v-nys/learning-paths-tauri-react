@@ -19,21 +19,20 @@ pub mod plugins {
     use std::{
         collections::HashMap,
         path::{Path, PathBuf},
-        str::FromStr,
     };
 
     host_fn!(file_exists(user_data: PathBuf; relative_path: String) -> BoolPayload {
-      dbg!(&user_data);
-      let mut joined_path = user_data.get()
+      // '/' should work as a separator under Windows and Linux
+      let base_path = user_data.get()
           // TODO: under what circumstances would this fail?
           .expect("Should be able to get inner value.")
           .lock()
           // TODO: under what circumstances would this fail?
           .expect("Should be able to lock eventually.")
           .clone();
+      let mut joined_path = base_path.clone();
       joined_path.push(relative_path);
-      // TODO: also make sure joined_path is an EXTENSION of the cluster path
-      Ok(BoolPayload { value: joined_path.is_file() })
+      Ok(BoolPayload { value: joined_path.is_file() && joined_path.starts_with(base_path) })
     });
 
     #[derive(Debug)]
@@ -91,6 +90,7 @@ pub mod plugins {
 
     pub fn load_node_processing_plugins(
         unloaded_plugins: Vec<domain::UnloadedPlugin>,
+        cluster_path: &PathBuf,
     ) -> Vec<anyhow::Result<NodeProcessingPlugin>> {
         unloaded_plugins
             .into_iter()
@@ -104,11 +104,7 @@ pub mod plugins {
                         "file_exists",
                         [extism::PTR],
                         [extism::PTR],
-                        // actually not sure if this is correct wrt lifetimes etc.
-                        // but not using it, so won't get dangling ref...
-                        // TODO: get rid of hardcoded value
-                        // should be the cluster's (or node's) path instead
-                        UserData::new(PathBuf::from_str("/home/vincentn/Documents/Lesmateriaal/2024-2025/clusters/PA/cluster-python-concepten").unwrap()),
+                        UserData::new(cluster_path.to_owned()),
                         file_exists,
                     )
                     .build();

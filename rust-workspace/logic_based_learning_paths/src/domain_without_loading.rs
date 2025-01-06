@@ -15,7 +15,7 @@ pub struct ArtifactMapping {
     pub root_relative_target_dir: PathBuf,
 }
 
-#[derive(ToBytes, Serialize)]
+#[derive(ToBytes, Serialize, FromBytes, Deserialize)]
 #[encoding(Json)]
 pub struct BoolPayload {
     pub value: bool,
