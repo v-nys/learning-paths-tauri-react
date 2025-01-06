@@ -73,18 +73,17 @@ jobs:
       - name: install NPM packages
         run: npm install
 
-      # note: does not build plugins!
       - uses: JonasKruckenberg/tauri-build@669b9aca35627e3d00721626aa543ca75cf49a13
         id: tauri_build
 
-      - name: upload installer
+      - name: upload Ubuntu installer
         if: matrix.platform == 'ubuntu-22.04'
         uses: actions/upload-artifact@v4
         with:
           path: rust-workspace/target/release/bundle/deb/*.deb
 
-      - name: upload plugins
-        if: matrix.platform == 'ubuntu-22.04'
+      - name: upload Windows installer
+        if: matrix.platform == 'windows-latest'
         uses: actions/upload-artifact@v4
         with:
-          path: rust-workspace/target/release/*.so
+          path: rust-workspace/target/release/bundle/msi/*.msi

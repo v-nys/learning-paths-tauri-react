@@ -80,7 +80,7 @@ pub mod plugins {
                 self.extism_plugin.call("process_extension_field", payload);
             match res {
                 Ok(inner_result) => inner_result,
-                Err(e) => ExtensionFieldProcessingResult {
+                Err(_e) => ExtensionFieldProcessingResult {
                     result: Err(NodeProcessingError::Remarks(vec![
                         "Plugin does not implement process_extension_field as expected.".to_owned(),
                     ])),

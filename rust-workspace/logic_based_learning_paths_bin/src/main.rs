@@ -1015,7 +1015,7 @@ mod tests {
 }
 
 #[tauri::command]
-fn build_zip(paths: &'_ str, state: tauri::State<'_, AppState>) -> Result<PathBuf, String> {
+fn build_zip(_paths: &'_ str, state: tauri::State<'_, AppState>) -> Result<PathBuf, String> {
     let zip_path = std::path::Path::new("archive.zip");
     let zip_file = std::fs::File::create(zip_path).map_err(|e| e.to_string())?;
     // copy clusters into zipped folder
@@ -1024,7 +1024,7 @@ fn build_zip(paths: &'_ str, state: tauri::State<'_, AppState>) -> Result<PathBu
         .supercluster_with_roots
         .lock()
         .expect("Should always be able to gain access eventually.");
-    let (supercluster, component_clusters) = mutex_guard
+    let (supercluster, _component_clusters) = mutex_guard
         .as_mut()
         .expect("Should only be possible to invoke this command when there is a supercluster.");
 

@@ -16,8 +16,6 @@ schemars = "0.8.21"
 serde = { version = "1.0.204", features = ["derive"] }
 serde_yaml = "0.9.34"
 lazy-regex = "3.1.0"
-libloading = "0.8.3"
-paste = "1.0.15"
 tauri = { version = "1", features = ["shell-open", "window-all"] }
 serde_json = "1.0.120"
 tauri-plugin-fs-watch = { git = "https://github.com/tauri-apps/plugins-workspace", rev = "dce0f02bc571128308c30278cde3233f341e6a50" }
