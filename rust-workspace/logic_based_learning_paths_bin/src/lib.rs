@@ -16,10 +16,14 @@ pub mod plugins {
         NodeProcessingError, NodeProcessingPayload,
     };
     use serde_yaml;
+    use std::collections::HashSet;
     use std::{
         collections::HashMap,
         path::{Path, PathBuf},
     };
+
+    // TODO: add plugin trait with method get_params_schema as before
+    // possibly other methods, too
 
     host_fn!(file_exists(user_data: PathBuf; relative_path: String) -> BoolPayload {
       // '/' should work as a separator under Windows and Linux
@@ -97,7 +101,6 @@ pub mod plugins {
             .map(|unloaded_plugin| {
                 let url = Wasm::file(unloaded_plugin.path);
                 let manifest = Manifest::new([url]);
-                dbg!("Still have a TODO in with_function below.");
                 let plugin = PluginBuilder::new(manifest)
                     .with_wasi(true)
                     .with_function(
@@ -109,6 +112,51 @@ pub mod plugins {
                     )
                     .build();
                 plugin.map(|plugin| NodeProcessingPlugin {
+                    extism_plugin: plugin,
+                    parameter_values: unloaded_plugin.parameters,
+                })
+            })
+            .collect()
+    }
+
+    #[derive(Debug)]
+    pub struct ClusterProcessingPlugin {
+        extism_plugin: Plugin,
+        parameter_values: HashMap<String, serde_yaml::Value>,
+    }
+
+    impl ClusterProcessingPlugin {
+        pub fn process_cluster(
+            &mut self,
+            cluster_path: &Path,
+            cluster: &domain::Cluster,
+        ) -> anyhow::Result<HashSet<domain::ArtifactMapping>> {
+            // TODO: create payload(s), invoke plugin function, deal with result
+            // see node processing counterpart
+            unimplemented!("Need to look at best way to turn a Cluster into a payload first...");
+        }
+    }
+
+    pub fn load_cluster_processing_plugins(
+        unloaded_plugins: Vec<domain::UnloadedPlugin>,
+        cluster_path: &PathBuf,
+    ) -> Vec<anyhow::Result<ClusterProcessingPlugin>> {
+        unloaded_plugins
+            .into_iter()
+            .map(|unloaded_plugin| {
+                let url = Wasm::file(unloaded_plugin.path);
+                let manifest = Manifest::new([url]);
+                let plugin = PluginBuilder::new(manifest)
+                    .with_wasi(true)
+                    .with_function(
+                        "file_exists",
+                        [extism::PTR],
+                        [extism::PTR],
+                        UserData::new(cluster_path.to_owned()),
+                        file_exists,
+                    )
+                    .build();
+                plugin.map(|plugin| ClusterProcessingPlugin {
                     extism_plugin: plugin,
                     parameter_values: unloaded_plugin.parameters,
                 })
