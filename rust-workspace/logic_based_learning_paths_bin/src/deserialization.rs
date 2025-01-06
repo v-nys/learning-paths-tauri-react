@@ -257,7 +257,7 @@ impl ClusterForSerialization {
         let folder_name = cluster_path.file_name().ok_or(anyhow::Error::msg(
             "Path does not have a final component.".to_owned(),
         ))?;
-        let folder_name = folder_name.to_owned().into_string().map_err(|osstr| {
+        let folder_name = folder_name.to_owned().into_string().map_err(|_osstr| {
             anyhow::Error::msg("Failed to convert OS String into normal string")
         })?;
         // this gives a vector of results
