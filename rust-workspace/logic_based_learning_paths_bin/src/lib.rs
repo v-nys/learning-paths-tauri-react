@@ -9,11 +9,11 @@ pub mod prelude {
 }
 
 pub mod plugins {
-    use crate::domain::{self, Node};
+    use crate::domain::{self, ClusterProcessingResult, Node};
     use extism::{host_fn, Manifest, Plugin, PluginBuilder, UserData, Wasm};
     use logic_based_learning_paths::domain_without_loading::{
-        BoolPayload, ExtensionFieldProcessingPayload, ExtensionFieldProcessingResult,
-        NodeProcessingError, NodeProcessingPayload,
+        BoolPayload, ClusterProcessingPayload, ExtensionFieldProcessingPayload,
+        ExtensionFieldProcessingResult, NodeProcessingError, NodeProcessingPayload,
     };
     use serde_yaml;
     use std::collections::HashSet;
@@ -129,11 +129,17 @@ pub mod plugins {
         pub fn process_cluster(
             &mut self,
             cluster_path: &Path,
-            cluster: &domain::Cluster,
         ) -> anyhow::Result<HashSet<domain::ArtifactMapping>> {
             // TODO: create payload(s), invoke plugin function, deal with result
             // see node processing counterpart
-            unimplemented!("Need to look at best way to turn a Cluster into a payload first...");
+            dbg!("Might make sense to pass Cluster struct, but problem is that that has loaded plugins.");
+            let payload = ClusterProcessingPayload {
+                cluster_path: cluster_path.to_path_buf(),
+                parameter_values: self.parameter_values.clone(),
+            };
+            let res: Result<ClusterProcessingResult, _> =
+                self.extism_plugin.call("process_cluster", payload);
+            res.map(|cpr| cpr.hash_set)
         }
     }
 

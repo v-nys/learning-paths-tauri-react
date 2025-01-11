@@ -42,12 +42,28 @@ pub struct ExtensionFieldProcessingPayload {
 
 #[derive(ToBytes, FromBytes, Serialize, Deserialize, Debug)]
 #[encoding(Json)]
+pub struct ClusterProcessingPayload {
+    pub parameter_values: HashMap<String, serde_yaml::Value>,
+    pub cluster_path: PathBuf,
+}
+
+#[derive(ToBytes, FromBytes, Serialize, Deserialize, Debug)]
+#[encoding(Json)]
 // have to use newtype here to add these derives
 // TODO: see if there is any way around this
 // newtype means I need to wrap everything on the plugin side, too...
 pub struct ExtensionFieldProcessingResult {
     pub result: anyhow::Result<HashSet<ArtifactMapping>, NodeProcessingError>,
 }
+
+#[derive(ToBytes, FromBytes, Serialize, Deserialize, Debug)]
+#[encoding(Json)]
+pub struct ClusterProcessingResult {
+    // NOTE: currently assuming there will not be any errors
+    // seems liable to change!
+    pub hash_set: HashSet<ArtifactMapping>,
+}
+
 
 #[derive(Debug, Serialize, Deserialize)]
 pub enum NodeProcessingError {
