@@ -482,6 +482,12 @@ fn process_and_comment_cluster(
         local_file: cluster_path.join("contents.lc.yaml"),
         root_relative_target_dir: PathBuf::from(cluster.namespace_prefix.clone()),
     });
+    cluster.cluster_plugins.iter_mut().for_each(|cluster_processing_plugin| {
+        let res = cluster_processing_plugin.process_cluster(cluster_path); // TODO: use Result
+        if res.is_err() {
+            dbg!(res);
+        }
+    });
     dbg!("Still have a TODO here!");
     // TODO: reintroduce check related to mandatory fields
     // or actually use schema
