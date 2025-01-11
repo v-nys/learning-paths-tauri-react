@@ -1,4 +1,5 @@
 use lazy_regex::regex;
+use logic_based_learning_paths::domain_without_loading::UnloadedPlugin;
 use schemars::JsonSchema;
 use serde::de::{self, MapAccess, Visitor};
 use serde::Deserialize;
@@ -8,7 +9,7 @@ use std::collections::HashMap;
 use std::fmt;
 
 use crate::domain;
-use crate::plugins::load_node_processing_plugins;
+use crate::plugins::{load_cluster_processing_plugins, load_node_processing_plugins};
 use std::path::PathBuf;
 
 /// Deserialization counterpart for the domain concept `Node`.
@@ -250,6 +251,7 @@ pub struct ClusterForSerialization {
     /// IDs of `Node`s with no dependencies whatsoever, i.e. the only `Node`s which can be accessed unconditionally.
     roots: Option<Vec<String>>,
     node_plugins: Option<Vec<PluginForSerialization>>,
+    cluster_plugins: Option<Vec<PluginForSerialization>>,
 }
 
 impl ClusterForSerialization {
@@ -273,10 +275,19 @@ impl ClusterForSerialization {
                     parameters: pfs.parameters,
                 })
                 .collect(),
-            cluster_path
+            cluster_path,
         )
         .into_iter()
         .collect();
+        let unloaded_cluster_plugins: Vec<_> =
+                self.cluster_plugins
+                    .unwrap_or_default()
+                    .into_iter()
+                    .map(|pfs| UnloadedPlugin {
+                        path: pfs.path,
+                        parameters: pfs.parameters,
+                    }).collect();
+        let cluster_plugins_result: Result<Vec<_>, _> = load_cluster_processing_plugins(unloaded_cluster_plugins, cluster_path).into_iter().collect();
         Ok(domain::Cluster {
             namespace_prefix: folder_name.clone(),
             nodes: nodes?,
@@ -304,6 +315,7 @@ impl ClusterForSerialization {
                 })
                 .collect(),
             node_plugins: node_plugins_result?,
+            cluster_plugins: cluster_plugins_result?
         })
     }
 }

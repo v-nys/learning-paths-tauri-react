@@ -1,4 +1,4 @@
-use crate::plugins::NodeProcessingPlugin;
+use crate::plugins::{ClusterProcessingPlugin, NodeProcessingPlugin};
 
 pub use logic_based_learning_paths::domain_without_loading::*;
 
@@ -16,4 +16,5 @@ pub struct Cluster {
     pub edges: Vec<TypedEdge>,
     pub roots: Vec<NodeID>,
     pub node_plugins: Vec<NodeProcessingPlugin>,
+    pub cluster_plugins: Vec<ClusterProcessingPlugin>,
 }
