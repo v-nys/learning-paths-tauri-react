@@ -34,6 +34,12 @@ pub struct NodeProcessingPayload {
 
 #[derive(ToBytes, FromBytes, Serialize, Deserialize, Debug)]
 #[encoding(Json)]
+pub struct DummyPayload {
+}
+
+
+#[derive(ToBytes, FromBytes, Serialize, Deserialize, Debug)]
+#[encoding(Json)]
 pub struct ExtensionFieldProcessingPayload {
     pub node_processing_payload: NodeProcessingPayload,
     pub field_name: String,
@@ -59,7 +65,7 @@ pub struct ExtensionFieldProcessingResult {
 #[derive(ToBytes, FromBytes, Serialize, Deserialize, Debug)]
 #[encoding(Json)]
 pub struct ParamsSchema {
-    pub schema: HashMap<(String, bool), serde_json::Value>
+    pub schema: HashMap<String, (bool, serde_json::Value)>
 }
 
 #[derive(ToBytes, FromBytes, Serialize, Deserialize, Debug)]

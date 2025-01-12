@@ -479,14 +479,14 @@ fn filter_redundant_edges<'a>(
 
 fn plugin_to_paths_to_schemas_entry(
     plugin_path: &String,
-    params_and_schemas: HashMap<(String, bool), serde_json::Value>,
+    params_and_schemas: HashMap<String, (bool, serde_json::Value)>,
     mut schema_for_plugin: RootSchema,
 ) -> (&String, RootSchema) {
     let mut required_properties_for_plugin = schema_for_plugin.schema.object().required.clone();
     let mut properties_for_plugin = schema_for_plugin.schema.object().properties.clone();
     params_and_schemas
         .iter()
-        .for_each(|((param, required), param_schema)| {
+        .for_each(|(param, (required, param_schema))| {
             if *required {
                 required_properties_for_plugin.insert(param.into());
             }
@@ -517,14 +517,15 @@ fn process_and_comment_cluster(
     let mut overall_schema = schema_for!(deserialization::ClusterForSerialization);
     let mut plugin_schema = schemars::schema_for!(deserialization::PluginForSerialization);
     plugin_schema.meta_schema = None;
-    let mut node_schema = schemars::schema_for!(deserialization::Node);
+    let mut node_schema = dbg!(schemars::schema_for!(deserialization::Node));
     node_schema.meta_schema = None;
-    cluster.node_plugins.iter().for_each(|node_plugin| {
-        let extension_field_schema = node_plugin.get_extension_field_schema();
-
+    cluster.node_plugins.iter_mut().for_each(|node_plugin| {
+        let extension_field_schema = dbg!(node_plugin.get_extension_field_schema());
+        let extension_field_schema = extension_field_schema
+            .expect("Expecting plugin to implement get_extension_field_schema.");
         extension_field_schema
             .iter()
-            .for_each(|((field, required), field_schema)| {
+            .for_each(|(field, (required, field_schema))| {
                 if *required {
                     node_schema.schema.object().required.insert(field.into());
                 }
@@ -627,7 +628,22 @@ fn process_and_comment_cluster(
     overall_schema
         .definitions
         .insert("Node".into(), Object(node_schema.schema));
-
+    let stringified_schema = serde_json::to_string_pretty(&overall_schema);
+    if stringified_schema.is_ok() {
+        let write_result = std::fs::write(
+            cluster_path.join("cluster_schema.json"),
+            stringified_schema.unwrap().as_bytes(),
+        );
+        if write_result.is_err() {
+            remarks.push("Failed to write schema.".into());
+        }
+    } else {
+        remarks.push("Failed to stringify schema.".into());
+    }
+    /*match stringified_schema {
+        Ok(actual_schema) => std::fs::write(cluster_path.join("cluster_schema.json"), actual_schema.as_bytes()),
+        Err(_) => remarks.push("Failed to stringify schema.".to_owned())
+    }*/
     // TODO: for *any* kind of plugin, get schema customizations
     // write the YAML file
     // also use to get rid of todo-items below

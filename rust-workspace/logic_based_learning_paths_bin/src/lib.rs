@@ -12,8 +12,7 @@ pub mod plugins {
     use crate::domain::{self, ClusterProcessingResult, Node};
     use extism::{host_fn, Manifest, Plugin, PluginBuilder, UserData, Wasm};
     use logic_based_learning_paths::domain_without_loading::{
-        self, BoolPayload, ClusterProcessingPayload, ExtensionFieldProcessingPayload,
-        ExtensionFieldProcessingResult, NodeProcessingError, NodeProcessingPayload,
+        self, BoolPayload, ClusterProcessingPayload, DummyPayload, ExtensionFieldProcessingPayload, ExtensionFieldProcessingResult, NodeProcessingError, NodeProcessingPayload
     };
     use serde_yaml;
     use std::collections::HashSet;
@@ -29,7 +28,7 @@ pub mod plugins {
         // TODO: consider adding default impl of get_params_schema here?
         fn get_params_schema(
             &mut self,
-        ) -> anyhow::Result<HashMap<(String, bool), serde_json::Value>>;
+        ) -> anyhow::Result<HashMap<String, (bool, serde_json::Value)>>;
     }
 
     host_fn!(file_exists(user_data: PathBuf; relative_path: String) -> BoolPayload {
@@ -60,7 +59,7 @@ pub mod plugins {
 
         fn get_params_schema(
             &mut self,
-        ) -> anyhow::Result<HashMap<(String, bool), serde_json::Value>> {
+        ) -> anyhow::Result<HashMap<String, (bool, serde_json::Value)>> {
             let call_result: Result<domain_without_loading::ParamsSchema, _> =
                 self.extism_plugin.call("get_params_schema", ());
             call_result.map(|s| s.schema)
@@ -84,9 +83,14 @@ pub mod plugins {
             })
         }
 
-        pub fn get_extension_field_schema(&self) -> HashMap<(String, bool), serde_json::Value>{
-            // will probably become a Result<_,_>
-            todo!("Implement extension field schema!")
+        pub fn get_extension_field_schema(
+            &mut self,
+        ) -> anyhow::Result<HashMap<String, (bool, serde_json::Value)>> {
+            // TODO: consider passing plugin parameter values in the call?
+            // could affect the schema
+            let call_result: Result<domain_without_loading::ParamsSchema, _> =
+                dbg!(self.extism_plugin.call("get_extension_field_schema", DummyPayload {}));
+            call_result.map(|s| s.schema)
         }
 
         pub fn process_extension_field(
@@ -160,7 +164,7 @@ pub mod plugins {
         }
         fn get_params_schema(
             &mut self,
-        ) -> anyhow::Result<HashMap<(String, bool), serde_json::Value>> {
+        ) -> anyhow::Result<HashMap<String, (bool, serde_json::Value)>> {
             let call_result: Result<domain_without_loading::ParamsSchema, _> =
                 self.extism_plugin.call("get_params_schema", ());
             call_result.map(|s| s.schema)
