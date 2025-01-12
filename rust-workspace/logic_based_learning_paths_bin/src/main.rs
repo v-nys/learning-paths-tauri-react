@@ -2,13 +2,22 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 use anyhow;
 use git2::{Repository, Status};
+use logic_based_learning_paths_bin::plugins::LBLPPlugin;
 use petgraph::adj::List;
 use petgraph::visit::IntoNeighbors;
+use regex;
 use serde::Serialize;
-use std::collections::HashSet;
+use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::io::Write;
 use zip::write::FileOptions;
 use zip::CompressionMethod;
+
+use schemars::{
+    schema::{
+        InstanceType, RootSchema, Schema::Object, SchemaObject, SingleOrVec, StringValidation,
+    },
+    schema_for,
+};
 
 fn is_under_vc(file_path: &str) -> bool {
     // implementation is sloppy, should do proper error handling
@@ -468,6 +477,29 @@ fn filter_redundant_edges<'a>(
     redundant_edges
 }
 
+fn plugin_to_paths_to_schemas_entry(
+    plugin_path: &String,
+    params_and_schemas: HashMap<(String, bool), serde_json::Value>,
+    mut schema_for_plugin: RootSchema,
+) -> (&String, RootSchema) {
+    let mut required_properties_for_plugin = schema_for_plugin.schema.object().required.clone();
+    let mut properties_for_plugin = schema_for_plugin.schema.object().properties.clone();
+    params_and_schemas
+        .iter()
+        .for_each(|((param, required), param_schema)| {
+            if *required {
+                required_properties_for_plugin.insert(param.into());
+            }
+            let mut param_schema: RootSchema = serde_json::from_value(param_schema.clone())
+                .expect("Assuming (de)serializating by libraries works.");
+            param_schema.meta_schema = None;
+            properties_for_plugin.insert(param.into(), Object(param_schema.schema));
+        });
+    schema_for_plugin.schema.object().required = required_properties_for_plugin;
+    schema_for_plugin.schema.object().properties = properties_for_plugin;
+    (plugin_path, schema_for_plugin)
+}
+
 fn process_and_comment_cluster(
     cluster: &mut domain::Cluster,
     graph: &Graph,
@@ -482,15 +514,135 @@ fn process_and_comment_cluster(
         local_file: cluster_path.join("contents.lc.yaml"),
         root_relative_target_dir: PathBuf::from(cluster.namespace_prefix.clone()),
     });
-    cluster.cluster_plugins.iter_mut().for_each(|cluster_processing_plugin| {
-        let res = cluster_processing_plugin.process_cluster(cluster_path); // TODO: use Result
-        if res.is_err() {
-            dbg!(res);
+    let mut overall_schema = schema_for!(deserialization::ClusterForSerialization);
+    let mut plugin_schema = schemars::schema_for!(deserialization::PluginForSerialization);
+    plugin_schema.meta_schema = None;
+    let mut node_schema = schemars::schema_for!(deserialization::Node);
+    node_schema.meta_schema = None;
+    cluster.node_plugins.iter().for_each(|node_plugin| {
+        let extension_field_schema = node_plugin.get_extension_field_schema();
+
+        extension_field_schema
+            .iter()
+            .for_each(|((field, required), field_schema)| {
+                if *required {
+                    node_schema.schema.object().required.insert(field.into());
+                }
+                let mut field_schema: RootSchema = serde_json::from_value(field_schema.clone())
+                    .expect("Assuming (de)serializating by libraries works.");
+                field_schema.meta_schema = None;
+                node_schema
+                    .schema
+                    .object()
+                    .properties
+                    .insert(field.into(), Object(field_schema.schema));
+                field_schema
+                    .definitions
+                    .iter()
+                    .for_each(|(ref_string, schema)| {
+                        overall_schema
+                            .definitions
+                            .insert(ref_string.into(), schema.clone());
+                    });
+            });
+    });
+
+    let mut plugin_paths_to_schemas: HashMap<&String, RootSchema> = cluster
+        .node_plugins
+        .iter_mut()
+        // filtering is not necessary but simplifies the eventual schema
+        .filter_map(|plugin| {
+            let params_schema = plugin.get_params_schema().expect("Currently assuming all plugin methods are implemented. Should make this more robust.");
+            if params_schema.is_empty() {
+                None
+            }
+            else {
+                Some(plugin_to_paths_to_schemas_entry(
+                plugin.get_path(),
+                params_schema,
+                plugin_schema.clone())
+                )
+            }})
+        .collect();
+    cluster.cluster_plugins.iter_mut().for_each(|plugin| {
+        let params_schema = plugin.get_params_schema().expect(
+            "Currently assuming all plugin methods are implemented. Should make this more robust.",
+        );
+        if !params_schema.is_empty() {
+            let (key, value) = plugin_to_paths_to_schemas_entry(
+                plugin.get_path(),
+                params_schema,
+                plugin_schema.clone(),
+            );
+            plugin_paths_to_schemas.insert(key, value);
         }
     });
+    plugin_paths_to_schemas.values().for_each(|root_schema| {
+        root_schema
+            .definitions
+            .iter()
+            .for_each(|(ref_string, schema)| {
+                overall_schema
+                    .definitions
+                    .insert(ref_string.into(), schema.clone());
+            });
+    });
+    let mut sorted_plugin_paths_to_schemas = plugin_paths_to_schemas.iter().collect::<Vec<_>>();
+    sorted_plugin_paths_to_schemas.sort_by(|a, b| a.0.cmp(b.0));
+    let conditional_schema = sorted_plugin_paths_to_schemas.iter().fold(
+        plugin_schema.schema.clone(),
+        |acc, (plugin_path, plugin_schema_object)| {
+            let mut if_clause = SchemaObject::new_ref("dummy-ref".into());
+            let mut if_clause_required = BTreeSet::new();
+            if_clause.reference = None;
+            if_clause.instance_type = Some(SingleOrVec::from(InstanceType::Object));
+            if_clause_required.insert("path".into());
+            if_clause.object().required = if_clause_required;
+            let mut if_clause_properties = BTreeMap::new();
+            let mut path_schema = SchemaObject::new_ref("dummy-ref".into());
+            path_schema.reference = None;
+            let mut path_string_validation = StringValidation::default();
+            let plugin_filename = Path::new(plugin_path)
+                .file_name()
+                .and_then(|file_name| file_name.to_str())
+                .unwrap_or("problemwithpluginfilename");
+            let escaped_path_string = format!("{}$", regex::escape(plugin_filename));
+            path_string_validation.pattern = Some(escaped_path_string);
+            path_schema.string = Some(Box::new(path_string_validation));
+            if_clause_properties.insert("path".into(), Object(path_schema));
+            if_clause.object().properties = if_clause_properties;
+            let mut conditional = SchemaObject::new_ref("dummy-ref".into());
+            conditional.reference = None;
+            let conditional_subschemas = conditional.subschemas();
+            conditional_subschemas.if_schema = Some(Box::new(Object(if_clause)));
+            conditional_subschemas.then_schema =
+                Some(Box::new(Object(plugin_schema_object.schema.clone())));
+            conditional_subschemas.else_schema = Some(Box::new(Object(acc)));
+            conditional
+        },
+    );
+    overall_schema
+        .definitions
+        .insert("PluginForSerialization".into(), Object(conditional_schema));
+    overall_schema
+        .definitions
+        .insert("Node".into(), Object(node_schema.schema));
+
+    // TODO: for *any* kind of plugin, get schema customizations
+    // write the YAML file
+    // also use to get rid of todo-items below
+    cluster
+        .cluster_plugins
+        .iter_mut()
+        .for_each(|cluster_processing_plugin| {
+            let res = cluster_processing_plugin.process_cluster(cluster_path); // TODO: use Result
+            if res.is_err() {
+                dbg!(res);
+            }
+        });
     dbg!("Still have a TODO here!");
     // TODO: reintroduce check related to mandatory fields
-    // or actually use schema
+    // or actually use schema...
     cluster.nodes.iter().for_each(|n| {
         let node_dir_is_readable =
             directory_is_readable(&cluster_path.join(&n.node_id.local_id).as_path());

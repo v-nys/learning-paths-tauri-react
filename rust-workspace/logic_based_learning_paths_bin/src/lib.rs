@@ -12,7 +12,7 @@ pub mod plugins {
     use crate::domain::{self, ClusterProcessingResult, Node};
     use extism::{host_fn, Manifest, Plugin, PluginBuilder, UserData, Wasm};
     use logic_based_learning_paths::domain_without_loading::{
-        BoolPayload, ClusterProcessingPayload, ExtensionFieldProcessingPayload,
+        self, BoolPayload, ClusterProcessingPayload, ExtensionFieldProcessingPayload,
         ExtensionFieldProcessingResult, NodeProcessingError, NodeProcessingPayload,
     };
     use serde_yaml;
@@ -24,6 +24,13 @@ pub mod plugins {
 
     // TODO: add plugin trait with method get_params_schema as before
     // possibly other methods, too
+    pub trait LBLPPlugin {
+        fn get_path(&self) -> &String;
+        // TODO: consider adding default impl of get_params_schema here?
+        fn get_params_schema(
+            &mut self,
+        ) -> anyhow::Result<HashMap<(String, bool), serde_json::Value>>;
+    }
 
     host_fn!(file_exists(user_data: PathBuf; relative_path: String) -> BoolPayload {
       // '/' should work as a separator under Windows and Linux
@@ -43,6 +50,21 @@ pub mod plugins {
     pub struct NodeProcessingPlugin {
         extism_plugin: Plugin,
         parameter_values: HashMap<String, serde_yaml::Value>,
+        path: String,
+    }
+
+    impl LBLPPlugin for NodeProcessingPlugin {
+        fn get_path(&self) -> &String {
+            &self.path
+        }
+
+        fn get_params_schema(
+            &mut self,
+        ) -> anyhow::Result<HashMap<(String, bool), serde_json::Value>> {
+            let call_result: Result<domain_without_loading::ParamsSchema, _> =
+                self.extism_plugin.call("get_params_schema", ());
+            call_result.map(|s| s.schema)
+        }
     }
 
     impl NodeProcessingPlugin {
@@ -60,6 +82,11 @@ pub mod plugins {
                 println!("{representation}");
                 ()
             })
+        }
+
+        pub fn get_extension_field_schema(&self) -> HashMap<(String, bool), serde_json::Value>{
+            // will probably become a Result<_,_>
+            todo!("Implement extension field schema!")
         }
 
         pub fn process_extension_field(
@@ -99,7 +126,7 @@ pub mod plugins {
         unloaded_plugins
             .into_iter()
             .map(|unloaded_plugin| {
-                let url = Wasm::file(unloaded_plugin.path);
+                let url = Wasm::file(&unloaded_plugin.path);
                 let manifest = Manifest::new([url]);
                 let plugin = PluginBuilder::new(manifest)
                     .with_wasi(true)
@@ -114,6 +141,7 @@ pub mod plugins {
                 plugin.map(|plugin| NodeProcessingPlugin {
                     extism_plugin: plugin,
                     parameter_values: unloaded_plugin.parameters,
+                    path: unloaded_plugin.path,
                 })
             })
             .collect()
@@ -123,6 +151,20 @@ pub mod plugins {
     pub struct ClusterProcessingPlugin {
         extism_plugin: Plugin,
         parameter_values: HashMap<String, serde_yaml::Value>,
+        path: String,
+    }
+
+    impl LBLPPlugin for ClusterProcessingPlugin {
+        fn get_path(&self) -> &String {
+            &self.path
+        }
+        fn get_params_schema(
+            &mut self,
+        ) -> anyhow::Result<HashMap<(String, bool), serde_json::Value>> {
+            let call_result: Result<domain_without_loading::ParamsSchema, _> =
+                self.extism_plugin.call("get_params_schema", ());
+            call_result.map(|s| s.schema)
+        }
     }
 
     impl ClusterProcessingPlugin {
@@ -150,7 +192,7 @@ pub mod plugins {
         unloaded_plugins
             .into_iter()
             .map(|unloaded_plugin| {
-                let url = Wasm::file(unloaded_plugin.path);
+                let url = Wasm::file(&unloaded_plugin.path);
                 let manifest = Manifest::new([url]);
                 let plugin = PluginBuilder::new(manifest)
                     .with_wasi(true)
@@ -165,6 +207,7 @@ pub mod plugins {
                 plugin.map(|plugin| ClusterProcessingPlugin {
                     extism_plugin: plugin,
                     parameter_values: unloaded_plugin.parameters,
+                    path: unloaded_plugin.path,
                 })
             })
             .collect()

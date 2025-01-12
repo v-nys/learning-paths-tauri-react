@@ -58,6 +58,12 @@ pub struct ExtensionFieldProcessingResult {
 
 #[derive(ToBytes, FromBytes, Serialize, Deserialize, Debug)]
 #[encoding(Json)]
+pub struct ParamsSchema {
+    pub schema: HashMap<(String, bool), serde_json::Value>
+}
+
+#[derive(ToBytes, FromBytes, Serialize, Deserialize, Debug)]
+#[encoding(Json)]
 pub struct ClusterProcessingResult {
     // NOTE: currently assuming there will not be any errors
     // seems liable to change!
