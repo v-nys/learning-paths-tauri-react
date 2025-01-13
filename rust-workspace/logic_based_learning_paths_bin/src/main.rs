@@ -517,65 +517,87 @@ fn process_and_comment_cluster(
     let mut overall_schema = schema_for!(deserialization::ClusterForSerialization);
     let mut plugin_schema = schemars::schema_for!(deserialization::PluginForSerialization);
     plugin_schema.meta_schema = None;
-    let mut node_schema = dbg!(schemars::schema_for!(deserialization::Node));
+    let mut node_schema = schemars::schema_for!(deserialization::Node);
     node_schema.meta_schema = None;
+    let mut mandatory_fields = HashSet::new();
     cluster.node_plugins.iter_mut().for_each(|node_plugin| {
-        let extension_field_schema = dbg!(node_plugin.get_extension_field_schema());
-        let extension_field_schema = extension_field_schema
-            .expect("Expecting plugin to implement get_extension_field_schema.");
-        extension_field_schema
-            .iter()
-            .for_each(|(field, (required, field_schema))| {
-                if *required {
-                    node_schema.schema.object().required.insert(field.into());
-                }
-                let mut field_schema: RootSchema = serde_json::from_value(field_schema.clone())
-                    .expect("Assuming (de)serializating by libraries works.");
-                field_schema.meta_schema = None;
-                node_schema
-                    .schema
-                    .object()
-                    .properties
-                    .insert(field.into(), Object(field_schema.schema));
-                field_schema
-                    .definitions
-                    .iter()
-                    .for_each(|(ref_string, schema)| {
-                        overall_schema
-                            .definitions
-                            .insert(ref_string.into(), schema.clone());
-                    });
-            });
+        let extension_field_schema = node_plugin.get_extension_field_schema();
+        if let Ok(extension_field_schema) = extension_field_schema {
+            extension_field_schema
+                .iter()
+                .for_each(|(field, (required, field_schema))| {
+                    if *required {
+                        node_schema.schema.object().required.insert(field.into());
+                        mandatory_fields.insert(field.to_string());
+                    }
+                    let mut field_schema: RootSchema = serde_json::from_value(field_schema.clone())
+                        .expect("Assuming (de)serializating by libraries works.");
+                    field_schema.meta_schema = None;
+                    node_schema
+                        .schema
+                        .object()
+                        .properties
+                        .insert(field.into(), Object(field_schema.schema));
+                    field_schema
+                        .definitions
+                        .iter()
+                        .for_each(|(ref_string, schema)| {
+                            overall_schema
+                                .definitions
+                                .insert(ref_string.into(), schema.clone());
+                        });
+                });
+        } else {
+            remarks.push(format!(
+                "Node plugin at {} cannot provide get_extension_field_schema.",
+                node_plugin.get_path()
+            ));
+        }
     });
-
     let mut plugin_paths_to_schemas: HashMap<&String, RootSchema> = cluster
         .node_plugins
         .iter_mut()
-        // filtering is not necessary but simplifies the eventual schema
         .filter_map(|plugin| {
-            let params_schema = plugin.get_params_schema().expect("Currently assuming all plugin methods are implemented. Should make this more robust.");
-            if params_schema.is_empty() {
-                None
+            let params_schema = plugin.get_params_schema();
+            match params_schema {
+                Ok(params_schema) => {
+                    if params_schema.is_empty() {
+                        None
+                    } else {
+                        Some(plugin_to_paths_to_schemas_entry(
+                            plugin.get_path(),
+                            params_schema,
+                            plugin_schema.clone(),
+                        ))
+                    }
+                }
+                Err(e) => {
+                    remarks.push(format!(
+                        "Cannot obtain parameter schema from plugin at {}: {}",
+                        plugin.get_path(),
+                        e
+                    ));
+                    None
+                }
             }
-            else {
-                Some(plugin_to_paths_to_schemas_entry(
-                plugin.get_path(),
-                params_schema,
-                plugin_schema.clone())
-                )
-            }})
+        })
         .collect();
     cluster.cluster_plugins.iter_mut().for_each(|plugin| {
-        let params_schema = plugin.get_params_schema().expect(
-            "Currently assuming all plugin methods are implemented. Should make this more robust.",
-        );
-        if !params_schema.is_empty() {
-            let (key, value) = plugin_to_paths_to_schemas_entry(
-                plugin.get_path(),
-                params_schema,
-                plugin_schema.clone(),
-            );
-            plugin_paths_to_schemas.insert(key, value);
+        let params_schema = plugin.get_params_schema();
+        if let Ok(params_schema) = params_schema {
+            if !params_schema.is_empty() {
+                let (key, value) = plugin_to_paths_to_schemas_entry(
+                    plugin.get_path(),
+                    params_schema,
+                    plugin_schema.clone(),
+                );
+                plugin_paths_to_schemas.insert(key, value);
+            }
+        } else {
+            remarks.push(format!(
+                "Cluster plugin at {} cannot provide get_params_schema.",
+                plugin.get_path()
+            ));
         }
     });
     plugin_paths_to_schemas.values().for_each(|root_schema| {
@@ -640,25 +662,16 @@ fn process_and_comment_cluster(
     } else {
         remarks.push("Failed to stringify schema.".into());
     }
-    /*match stringified_schema {
-        Ok(actual_schema) => std::fs::write(cluster_path.join("cluster_schema.json"), actual_schema.as_bytes()),
-        Err(_) => remarks.push("Failed to stringify schema.".to_owned())
-    }*/
-    // TODO: for *any* kind of plugin, get schema customizations
-    // write the YAML file
-    // also use to get rid of todo-items below
     cluster
         .cluster_plugins
         .iter_mut()
         .for_each(|cluster_processing_plugin| {
-            let res = cluster_processing_plugin.process_cluster(cluster_path); // TODO: use Result
-            if res.is_err() {
-                dbg!(res);
+            let res = cluster_processing_plugin.process_cluster(cluster_path);
+            if let Err(e) = res {
+                remarks.push(format!("Cluster processing error: {e}"));
             }
         });
     dbg!("Still have a TODO here!");
-    // TODO: reintroduce check related to mandatory fields
-    // or actually use schema...
     cluster.nodes.iter().for_each(|n| {
         let node_dir_is_readable =
             directory_is_readable(&cluster_path.join(&n.node_id.local_id).as_path());
@@ -669,13 +682,12 @@ fn process_and_comment_cluster(
                 n.node_id.local_id
             ));
         } else {
-            dbg!("Still have a TODO here!");
-            /*let missing_fields = mandatory_fields.iter().filter(|mandatory_field| {
+            let missing_fields = mandatory_fields.iter().filter(|mandatory_field| {
                 !n.extension_fields.keys().any(|key| key.eq(*mandatory_field))
             });
             missing_fields.for_each(|field_name| {
                 remarks.push(format!("node {} is missing required field {}", n.node_id , field_name))
-            });*/
+            });
             n.extension_fields.iter().for_each(|(k, v)| {
                 let first_processing_result = cluster
                     .node_plugins
