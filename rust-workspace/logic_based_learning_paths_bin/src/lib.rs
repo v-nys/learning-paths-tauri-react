@@ -12,7 +12,9 @@ pub mod plugins {
     use crate::domain::{self, ClusterProcessingResult, Node};
     use extism::{host_fn, Manifest, Plugin, PluginBuilder, UserData, Wasm};
     use logic_based_learning_paths::domain_without_loading::{
-        self, get_dir_contents, BoolPayload, ClusterProcessingPayload, DirectoryStructurePayload, DummyPayload, ExtensionFieldProcessingPayload, ExtensionFieldProcessingResult, NodeProcessingError, NodeProcessingPayload, SystemTimePayload
+        self, FileEntry, BoolPayload, ClusterProcessingPayload, DirectoryStructurePayload,
+        DummyPayload, ExtensionFieldProcessingPayload, ExtensionFieldProcessingResult,
+        NodeProcessingError, NodeProcessingPayload, SystemTimePayload,
     };
     use serde_yaml;
     use std::collections::HashSet;
@@ -21,6 +23,32 @@ pub mod plugins {
         collections::HashMap,
         path::{Path, PathBuf},
     };
+
+    fn get_dir_contents<P: AsRef<Path>>(path: P) -> Result<Vec<FileEntry>, std::io::Error> {
+        let mut entries = Vec::new();
+        for entry in std::fs::read_dir(path)? {
+            let entry = entry?;
+            let metadata = entry.metadata()?;
+            let file_entry = FileEntry {
+                name: entry.file_name().to_string_lossy().to_string(),
+                is_dir: metadata.is_dir(),
+                size: metadata.len(),
+                permissions: format!("{:?}", metadata.permissions()),
+                modified: metadata
+                    .modified()
+                    .ok()
+                    .and_then(|t| t.elapsed().ok())
+                    .map(|e| format!("{:?}", e)),
+                created: metadata
+                    .created()
+                    .ok()
+                    .and_then(|t| t.elapsed().ok())
+                    .map(|e| format!("{:?}", e)),
+            };
+            entries.push(file_entry);
+        }
+        Ok(entries)
+    }
 
     // TODO: add plugin trait with method get_params_schema as before
     // possibly other methods, too

@@ -37,38 +37,12 @@ pub struct DirectoryStructurePayload {
 #[derive(Serialize, Deserialize, Debug, FromBytes, ToBytes)]
 #[encoding(Json)]
 pub struct FileEntry {
-    name: String,
-    is_dir: bool,
-    size: u64,
-    permissions: String,
-    modified: Option<String>,
-    created: Option<String>,
-}
-
-pub fn get_dir_contents<P: AsRef<Path>>(path: P) -> Result<Vec<FileEntry>, std::io::Error> {
-    let mut entries = Vec::new();
-    for entry in std::fs::read_dir(path)? {
-        let entry = entry?;
-        let metadata = entry.metadata()?;
-        let file_entry = FileEntry {
-            name: entry.file_name().to_string_lossy().to_string(),
-            is_dir: metadata.is_dir(),
-            size: metadata.len(),
-            permissions: format!("{:?}", metadata.permissions()),
-            modified: metadata
-                .modified()
-                .ok()
-                .and_then(|t| t.elapsed().ok())
-                .map(|e| format!("{:?}", e)),
-            created: metadata
-                .created()
-                .ok()
-                .and_then(|t| t.elapsed().ok())
-                .map(|e| format!("{:?}", e)),
-        };
-        entries.push(file_entry);
-    }
-    Ok(entries)
+    pub name: String,
+    pub is_dir: bool,
+    pub size: u64,
+    pub permissions: String,
+    pub modified: Option<String>,
+    pub created: Option<String>,
 }
 
 // TODO: may want to merge with ExtensionFieldProcessingPayload, if it is not needed on its own
