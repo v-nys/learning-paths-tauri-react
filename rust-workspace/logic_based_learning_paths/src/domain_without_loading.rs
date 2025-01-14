@@ -4,7 +4,8 @@ use serde::{Deserialize, Serialize};
 use serde_yaml::Value;
 use std::collections::{HashMap, HashSet};
 use std::fmt;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+use std::time::SystemTime;
 
 // TODO: maybe the following structs aren't so much "domain"
 // they are all intended for communication with plugins...
@@ -21,7 +22,54 @@ pub struct BoolPayload {
     pub value: bool,
 }
 
+#[derive(ToBytes, Serialize, FromBytes, Deserialize)]
+#[encoding(Json)]
+pub struct SystemTimePayload {
+    pub value: SystemTime,
+}
 
+#[derive(ToBytes, Serialize, FromBytes, Deserialize)]
+#[encoding(Json)]
+pub struct DirectoryStructurePayload {
+    pub entries: Vec<FileEntry>
+}
+
+#[derive(Serialize, Deserialize, Debug, FromBytes, ToBytes)]
+#[encoding(Json)]
+pub struct FileEntry {
+    name: String,
+    is_dir: bool,
+    size: u64,
+    permissions: String,
+    modified: Option<String>,
+    created: Option<String>,
+}
+
+pub fn get_dir_contents<P: AsRef<Path>>(path: P) -> Result<Vec<FileEntry>, std::io::Error> {
+    let mut entries = Vec::new();
+    for entry in std::fs::read_dir(path)? {
+        let entry = entry?;
+        let metadata = entry.metadata()?;
+        let file_entry = FileEntry {
+            name: entry.file_name().to_string_lossy().to_string(),
+            is_dir: metadata.is_dir(),
+            size: metadata.len(),
+            permissions: format!("{:?}", metadata.permissions()),
+            modified: metadata
+                .modified()
+                .ok()
+                .and_then(|t| t.elapsed().ok())
+                .map(|e| format!("{:?}", e)),
+            created: metadata
+                .created()
+                .ok()
+                .and_then(|t| t.elapsed().ok())
+                .map(|e| format!("{:?}", e)),
+        };
+        entries.push(file_entry);
+    }
+    Ok(entries)
+}
 
 // TODO: may want to merge with ExtensionFieldProcessingPayload, if it is not needed on its own
 #[derive(ToBytes, FromBytes, Serialize, Deserialize, Debug)]
@@ -34,9 +82,7 @@ pub struct NodeProcessingPayload {
 
 #[derive(ToBytes, FromBytes, Serialize, Deserialize, Debug)]
 #[encoding(Json)]
-pub struct DummyPayload {
-}
-
+pub struct DummyPayload {}
 
 #[derive(ToBytes, FromBytes, Serialize, Deserialize, Debug)]
 #[encoding(Json)]
@@ -65,7 +111,7 @@ pub struct ExtensionFieldProcessingResult {
 #[derive(ToBytes, FromBytes, Serialize, Deserialize, Debug)]
 #[encoding(Json)]
 pub struct ParamsSchema {
-    pub schema: HashMap<String, (bool, serde_json::Value)>
+    pub schema: HashMap<String, (bool, serde_json::Value)>,
 }
 
 #[derive(ToBytes, FromBytes, Serialize, Deserialize, Debug)]
@@ -75,7 +121,6 @@ pub struct ClusterProcessingResult {
     // seems liable to change!
     pub hash_set: HashSet<ArtifactMapping>,
 }
-
 
 #[derive(Debug, Serialize, Deserialize)]
 pub enum NodeProcessingError {

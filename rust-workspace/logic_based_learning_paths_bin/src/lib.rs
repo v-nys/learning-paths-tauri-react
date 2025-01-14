@@ -12,10 +12,11 @@ pub mod plugins {
     use crate::domain::{self, ClusterProcessingResult, Node};
     use extism::{host_fn, Manifest, Plugin, PluginBuilder, UserData, Wasm};
     use logic_based_learning_paths::domain_without_loading::{
-        self, BoolPayload, ClusterProcessingPayload, DummyPayload, ExtensionFieldProcessingPayload, ExtensionFieldProcessingResult, NodeProcessingError, NodeProcessingPayload
+        self, get_dir_contents, BoolPayload, ClusterProcessingPayload, DirectoryStructurePayload, DummyPayload, ExtensionFieldProcessingPayload, ExtensionFieldProcessingResult, NodeProcessingError, NodeProcessingPayload, SystemTimePayload
     };
     use serde_yaml;
     use std::collections::HashSet;
+    use std::time::SystemTime;
     use std::{
         collections::HashMap,
         path::{Path, PathBuf},
@@ -43,6 +44,58 @@ pub mod plugins {
       let mut joined_path = base_path.clone();
       joined_path.push(relative_path);
       Ok(BoolPayload { value: joined_path.is_file() && joined_path.starts_with(base_path) })
+    });
+
+    host_fn!(get_system_time() -> SystemTimePayload {
+        let now = SystemTime::now();
+        Ok(SystemTimePayload {
+            value: now
+        })
+    });
+
+    host_fn!(get_last_modification_time(user_data: PathBuf; relative_path: String) -> SystemTimePayload {
+      // '/' should work as a separator under Windows and Linux
+      let base_path = user_data.get()
+          // TODO: under what circumstances would this fail?
+          .expect("Should be able to get inner value.")
+          .lock()
+          // TODO: under what circumstances would this fail?
+          .expect("Should be able to lock eventually.")
+          .clone();
+      let mut joined_path = base_path.clone();
+      joined_path.push(relative_path);
+      let metadata = std::fs::metadata(joined_path)?;
+      let modification_time = metadata.modified()?;
+      Ok(SystemTimePayload {
+          value: modification_time
+        })
+    });
+
+    host_fn!(write_text_file(user_data: PathBuf; relative_path: String, contents: String) -> () {
+      let base_path = user_data.get()
+          // TODO: under what circumstances would this fail?
+          .expect("Should be able to get inner value.")
+          .lock()
+          // TODO: under what circumstances would this fail?
+          .expect("Should be able to lock eventually.")
+          .clone();
+      let mut joined_path = base_path.clone();
+      joined_path.push(relative_path);
+      Ok(std::fs::write(joined_path, contents)?)
+    });
+
+    host_fn!(get_cluster_structure(user_data: PathBuf;) -> DirectoryStructurePayload {
+      let base_path = user_data.get()
+          // TODO: under what circumstances would this fail?
+          .expect("Should be able to get inner value.")
+          .lock()
+          // TODO: under what circumstances would this fail?
+          .expect("Should be able to lock eventually.")
+          .clone();
+        let serializable_representation = get_dir_contents(base_path)?;
+        Ok(DirectoryStructurePayload {
+            entries: serializable_representation
+        })
     });
 
     #[derive(Debug)]
@@ -88,8 +141,9 @@ pub mod plugins {
         ) -> anyhow::Result<HashMap<String, (bool, serde_json::Value)>> {
             // TODO: consider passing plugin parameter values in the call?
             // could affect the schema
-            let call_result: Result<domain_without_loading::ParamsSchema, _> =
-                dbg!(self.extism_plugin.call("get_extension_field_schema", DummyPayload {}));
+            let call_result: Result<domain_without_loading::ParamsSchema, _> = dbg!(self
+                .extism_plugin
+                .call("get_extension_field_schema", DummyPayload {}));
             call_result.map(|s| s.schema)
         }
 
