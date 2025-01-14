@@ -12,9 +12,10 @@ pub mod plugins {
     use crate::domain::{self, ClusterProcessingResult, Node};
     use extism::{host_fn, Manifest, Plugin, PluginBuilder, UserData, Wasm};
     use logic_based_learning_paths::domain_without_loading::{
-        self, FileEntry, BoolPayload, ClusterProcessingPayload, DirectoryStructurePayload,
-        DummyPayload, ExtensionFieldProcessingPayload, ExtensionFieldProcessingResult,
-        NodeProcessingError, NodeProcessingPayload, SystemTimePayload,
+        BoolPayload, ClusterProcessingPayload, DirectoryStructurePayload, DummyPayload,
+        ExtensionFieldProcessingPayload, ExtensionFieldProcessingResult, FileEntry,
+        FileWriteOperationPayload, NodeProcessingError, NodeProcessingPayload, ParamsSchema,
+        SystemTimePayload,
     };
     use serde_yaml;
     use std::collections::HashSet;
@@ -99,7 +100,8 @@ pub mod plugins {
         })
     });
 
-    host_fn!(write_text_file(user_data: PathBuf; relative_path: String, contents: String) -> () {
+    host_fn!(write_text_file(user_data: PathBuf; payload: FileWriteOperationPayload) -> () {
+      let FileWriteOperationPayload { relative_path, contents } = payload;
       let base_path = user_data.get()
           // TODO: under what circumstances would this fail?
           .expect("Should be able to get inner value.")
@@ -141,7 +143,7 @@ pub mod plugins {
         fn get_params_schema(
             &mut self,
         ) -> anyhow::Result<HashMap<String, (bool, serde_json::Value)>> {
-            let call_result: Result<domain_without_loading::ParamsSchema, _> =
+            let call_result: Result<ParamsSchema, _> =
                 self.extism_plugin.call("get_params_schema", ());
             call_result.map(|s| s.schema)
         }
@@ -169,7 +171,7 @@ pub mod plugins {
         ) -> anyhow::Result<HashMap<String, (bool, serde_json::Value)>> {
             // TODO: consider passing plugin parameter values in the call?
             // could affect the schema
-            let call_result: Result<domain_without_loading::ParamsSchema, _> = dbg!(self
+            let call_result: Result<ParamsSchema, _> = dbg!(self
                 .extism_plugin
                 .call("get_extension_field_schema", DummyPayload {}));
             call_result.map(|s| s.schema)
@@ -247,7 +249,7 @@ pub mod plugins {
         fn get_params_schema(
             &mut self,
         ) -> anyhow::Result<HashMap<String, (bool, serde_json::Value)>> {
-            let call_result: Result<domain_without_loading::ParamsSchema, _> =
+            let call_result: Result<ParamsSchema, _> =
                 self.extism_plugin.call("get_params_schema", ());
             call_result.map(|s| s.schema)
         }
@@ -280,11 +282,40 @@ pub mod plugins {
             .map(|unloaded_plugin| {
                 let url = Wasm::file(&unloaded_plugin.path);
                 let manifest = Manifest::new([url]);
+                // TODO: examine whether these can be trimmed
                 let plugin = PluginBuilder::new(manifest)
                     .with_wasi(true)
                     .with_function(
                         "file_exists",
                         [extism::PTR],
+                        [extism::PTR],
+                        UserData::new(cluster_path.to_owned()),
+                        file_exists,
+                    )
+                    .with_function(
+                        "write_text_file",
+                        [extism::PTR],
+                        [],
+                        UserData::new(cluster_path.to_owned()),
+                        file_exists,
+                    )
+                    .with_function(
+                        "get_system_time",
+                        [],
+                        [extism::PTR],
+                        UserData::new(cluster_path.to_owned()),
+                        file_exists,
+                    )
+                    .with_function(
+                        "get_last_modification_time",
+                        [extism::PTR],
+                        [extism::PTR],
+                        UserData::new(cluster_path.to_owned()),
+                        file_exists,
+                    )
+                    .with_function(
+                        "get_cluster_structure",
+                        [],
                         [extism::PTR],
                         UserData::new(cluster_path.to_owned()),
                         file_exists,

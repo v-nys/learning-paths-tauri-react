@@ -34,6 +34,13 @@ pub struct DirectoryStructurePayload {
     pub entries: Vec<FileEntry>
 }
 
+#[derive(ToBytes, Serialize, FromBytes, Deserialize)]
+#[encoding(Json)]
+pub struct FileWriteOperationPayload {
+    pub relative_path: String,
+    pub contents: String
+}
+
 #[derive(Serialize, Deserialize, Debug, FromBytes, ToBytes)]
 #[encoding(Json)]
 pub struct FileEntry {
