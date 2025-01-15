@@ -28,23 +28,47 @@ pub struct SystemTimePayload {
     pub value: SystemTime,
 }
 
-#[derive(ToBytes, Serialize, FromBytes, Deserialize)]
+#[derive(ToBytes, Serialize, FromBytes, Deserialize, Debug)]
 #[encoding(Json)]
 pub struct DirectoryStructurePayload {
-    pub entries: Vec<FileEntry>
+    pub entries: Vec<FileEntry>,
 }
 
 #[derive(ToBytes, Serialize, FromBytes, Deserialize)]
 #[encoding(Json)]
 pub struct FileWriteOperationPayload {
     pub relative_path: String,
-    pub contents: String
+    pub contents: String,
+}
+
+#[derive(ToBytes, Serialize, FromBytes, Deserialize)]
+#[encoding(Json)]
+pub struct FileReadOperationInPayload {
+    pub relative_path: String,
+}
+
+#[derive(ToBytes, Serialize, FromBytes, Deserialize)]
+#[encoding(Json)]
+pub struct FileReadOperationOutPayload {
+    pub contents: String,
+}
+
+#[derive(ToBytes, Serialize, FromBytes, Deserialize)]
+#[encoding(Json)]
+pub struct FileReadBase64OperationInPayload {
+    pub relative_path: String,
+}
+
+#[derive(ToBytes, Serialize, FromBytes, Deserialize)]
+#[encoding(Json)]
+pub struct FileReadBase64OperationOutPayload {
+    pub contents: String,
 }
 
 #[derive(Serialize, Deserialize, Debug, FromBytes, ToBytes)]
 #[encoding(Json)]
 pub struct FileEntry {
-    pub name: String,
+    pub relative_path: String,
     pub is_dir: bool,
     pub size: u64,
     pub permissions: String,

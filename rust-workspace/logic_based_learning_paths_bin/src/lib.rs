@@ -10,28 +10,36 @@ pub mod prelude {
 
 pub mod plugins {
     use crate::domain::{self, ClusterProcessingResult, Node};
+    use base64::encode;
     use extism::{host_fn, Manifest, Plugin, PluginBuilder, UserData, Wasm};
     use logic_based_learning_paths::domain_without_loading::{
         BoolPayload, ClusterProcessingPayload, DirectoryStructurePayload, DummyPayload,
         ExtensionFieldProcessingPayload, ExtensionFieldProcessingResult, FileEntry,
-        FileWriteOperationPayload, NodeProcessingError, NodeProcessingPayload, ParamsSchema,
-        SystemTimePayload,
+        FileReadBase64OperationInPayload, FileReadBase64OperationOutPayload,
+        FileReadOperationInPayload, FileReadOperationOutPayload, FileWriteOperationPayload,
+        NodeProcessingError, NodeProcessingPayload, ParamsSchema, SystemTimePayload,
     };
     use serde_yaml;
     use std::collections::HashSet;
+    use std::io::Read;
     use std::time::SystemTime;
     use std::{
         collections::HashMap,
         path::{Path, PathBuf},
     };
+    use walkdir::WalkDir;
 
     fn get_dir_contents<P: AsRef<Path>>(path: P) -> Result<Vec<FileEntry>, std::io::Error> {
         let mut entries = Vec::new();
-        for entry in std::fs::read_dir(path)? {
+        for entry in WalkDir::new(&path) {
             let entry = entry?;
             let metadata = entry.metadata()?;
+            let relative_path = entry
+                .path()
+                .strip_prefix(&path)
+                .expect("The entry's path has to extend the base path due to use of walkdir.");
             let file_entry = FileEntry {
-                name: entry.file_name().to_string_lossy().to_string(),
+                relative_path: relative_path.to_string_lossy().to_string(),
                 is_dir: metadata.is_dir(),
                 size: metadata.len(),
                 permissions: format!("{:?}", metadata.permissions()),
@@ -75,7 +83,7 @@ pub mod plugins {
       Ok(BoolPayload { value: joined_path.is_file() && joined_path.starts_with(base_path) })
     });
 
-    host_fn!(get_system_time() -> SystemTimePayload {
+    host_fn!(get_system_time(_payload: DummyPayload) -> SystemTimePayload {
         let now = SystemTime::now();
         Ok(SystemTimePayload {
             value: now
@@ -115,7 +123,40 @@ pub mod plugins {
       Ok(())
     });
 
-    host_fn!(get_cluster_structure(user_data: PathBuf;) -> DirectoryStructurePayload {
+    host_fn!(read_text_file(user_data: PathBuf; payload: FileReadOperationInPayload) -> FileReadOperationOutPayload {
+      let FileReadOperationInPayload { relative_path } = payload;
+      let base_path = user_data.get()
+          // TODO: under what circumstances would this fail?
+          .expect("Should be able to get inner value.")
+          .lock()
+          // TODO: under what circumstances would this fail?
+          .expect("Should be able to lock eventually.")
+          .clone();
+      let mut joined_path = base_path.clone();
+      joined_path.push(relative_path);
+      let read_result = std::fs::read_to_string(joined_path)?;
+      Ok(FileReadOperationOutPayload { contents: read_result })
+    });
+
+    host_fn!(read_binary_file_base64(user_data: PathBuf; payload: FileReadBase64OperationInPayload) -> FileReadBase64OperationOutPayload {
+      let FileReadBase64OperationInPayload { relative_path } = payload;
+      let base_path = user_data.get()
+          // TODO: under what circumstances would this fail?
+          .expect("Should be able to get inner value.")
+          .lock()
+          // TODO: under what circumstances would this fail?
+          .expect("Should be able to lock eventually.")
+          .clone();
+      let mut joined_path = base_path.clone();
+      joined_path.push(relative_path);
+      let mut file = std::fs::File::open(joined_path.clone())?;
+      let mut buf = Vec::new();
+      file.read_to_end(&mut buf)?;
+      let base64 = encode(&buf);
+      Ok(FileReadBase64OperationOutPayload { contents: base64 })
+    });
+
+    host_fn!(get_cluster_structure(user_data: PathBuf; _payload: DummyPayload) -> DirectoryStructurePayload {
       let base_path = user_data.get()
           // TODO: under what circumstances would this fail?
           .expect("Should be able to get inner value.")
@@ -263,7 +304,7 @@ pub mod plugins {
         ) -> anyhow::Result<HashSet<domain::ArtifactMapping>> {
             // TODO: create payload(s), invoke plugin function, deal with result
             // see node processing counterpart
-            dbg!("Might make sense to pass Cluster struct, but problem is that that has loaded plugins.");
+            // dbg!("Might make sense to pass Cluster struct, but problem is that that has loaded plugins.");
             let payload = ClusterProcessingPayload {
                 cluster_path: cluster_path.to_path_buf(),
                 parameter_values: self.parameter_values.clone(),
@@ -298,28 +339,42 @@ pub mod plugins {
                         [extism::PTR],
                         [extism::PTR],
                         UserData::new(cluster_path.to_owned()),
-                        file_exists,
+                        write_text_file,
+                    )
+                    .with_function(
+                        "read_binary_file_base64",
+                        [extism::PTR],
+                        [extism::PTR],
+                        UserData::new(cluster_path.to_owned()),
+                        read_binary_file_base64,
+                    )
+                    .with_function(
+                        "read_text_file",
+                        [extism::PTR],
+                        [extism::PTR],
+                        UserData::new(cluster_path.to_owned()),
+                        read_text_file,
                     )
                     .with_function(
                         "get_system_time",
-                        [],
                         [extism::PTR],
-                        UserData::new(cluster_path.to_owned()),
-                        file_exists,
+                        [extism::PTR],
+                        UserData::new(()),
+                        get_system_time,
                     )
                     .with_function(
                         "get_last_modification_time",
                         [extism::PTR],
                         [extism::PTR],
                         UserData::new(cluster_path.to_owned()),
-                        file_exists,
+                        get_last_modification_time,
                     )
                     .with_function(
                         "get_cluster_structure",
-                        [],
+                        [extism::PTR],
                         [extism::PTR],
                         UserData::new(cluster_path.to_owned()),
-                        file_exists,
+                        get_cluster_structure,
                     )
                     .build();
                 plugin.map(|plugin| ClusterProcessingPlugin {
