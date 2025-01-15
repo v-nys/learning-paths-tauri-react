@@ -111,7 +111,8 @@ pub mod plugins {
           .clone();
       let mut joined_path = base_path.clone();
       joined_path.push(relative_path);
-      Ok(std::fs::write(joined_path, contents)?)
+      let _write_result = std::fs::write(joined_path, contents)?;
+      Ok(())
     });
 
     host_fn!(get_cluster_structure(user_data: PathBuf;) -> DirectoryStructurePayload {
@@ -295,7 +296,7 @@ pub mod plugins {
                     .with_function(
                         "write_text_file",
                         [extism::PTR],
-                        [],
+                        [extism::PTR],
                         UserData::new(cluster_path.to_owned()),
                         file_exists,
                     )
