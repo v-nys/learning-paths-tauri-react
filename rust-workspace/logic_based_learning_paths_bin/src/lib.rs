@@ -10,7 +10,7 @@ pub mod prelude {
 
 pub mod plugins {
     use crate::domain::{self, ClusterProcessingResult, Node};
-    use base64::encode;
+    use base64::{engine::general_purpose::STANDARD as BASE64_ENGINE, Engine};
     use extism::{host_fn, Manifest, Plugin, PluginBuilder, UserData, Wasm};
     use logic_based_learning_paths::domain_without_loading::{
         BoolPayload, ClusterProcessingPayload, DirectoryStructurePayload, DummyPayload,
@@ -80,7 +80,12 @@ pub mod plugins {
           .clone();
       let mut joined_path = base_path.clone();
       joined_path.push(relative_path);
-      Ok(BoolPayload { value: joined_path.is_file() && joined_path.starts_with(base_path) })
+      if joined_path.starts_with(&base_path) {
+          Ok(BoolPayload { value: joined_path.is_file() && joined_path.starts_with(base_path) })
+      }
+      else {
+          Err(anyhow::anyhow!(format!("Host function is restricted to extensions of {base_path:?}")))
+      }
     });
 
     host_fn!(get_system_time(_payload: DummyPayload) -> SystemTimePayload {
@@ -101,11 +106,16 @@ pub mod plugins {
           .clone();
       let mut joined_path = base_path.clone();
       joined_path.push(relative_path);
-      let metadata = std::fs::metadata(joined_path)?;
+      let metadata = std::fs::metadata(&joined_path)?;
       let modification_time = metadata.modified()?;
+      if joined_path.starts_with(&base_path) {
       Ok(SystemTimePayload {
           value: modification_time
         })
+      }
+      else {
+          Err(anyhow::anyhow!(format!("Host function is restricted to extensions of {base_path:?}")))
+      }
     });
 
     host_fn!(write_text_file(user_data: PathBuf; payload: FileWriteOperationPayload) -> () {
@@ -119,25 +129,36 @@ pub mod plugins {
           .clone();
       let mut joined_path = base_path.clone();
       joined_path.push(relative_path);
-      let _write_result = std::fs::write(joined_path, contents)?;
-      Ok(())
+      if joined_path.starts_with(&base_path) {
+          let _write_result = std::fs::write(joined_path, contents)?;
+          Ok(())
+      }
+      else {
+          Err(anyhow::anyhow!(format!("Host function is restricted to extensions of {base_path:?}")))
+      }
     });
 
     host_fn!(read_text_file(user_data: PathBuf; payload: FileReadOperationInPayload) -> FileReadOperationOutPayload {
-      let FileReadOperationInPayload { relative_path } = payload;
-      let base_path = user_data.get()
-          // TODO: under what circumstances would this fail?
-          .expect("Should be able to get inner value.")
-          .lock()
-          // TODO: under what circumstances would this fail?
-          .expect("Should be able to lock eventually.")
-          .clone();
-      let mut joined_path = base_path.clone();
-      joined_path.push(relative_path);
-      let read_result = std::fs::read_to_string(joined_path)?;
-      Ok(FileReadOperationOutPayload { contents: read_result })
+       let FileReadOperationInPayload { relative_path } = payload;
+       let base_path = user_data.get()
+           // TODO: under what circumstances would this fail?
+           .expect("Should be able to get inner value.")
+           .lock()
+           // TODO: under what circumstances would this fail?
+           .expect("Should be able to lock eventually.")
+           .clone();
+       let mut joined_path = base_path.clone();
+       joined_path.push(relative_path);
+       let read_result = std::fs::read_to_string(&joined_path)?;
+       if joined_path.starts_with(&base_path) {
+           Ok(FileReadOperationOutPayload { contents: read_result })
+       }
+        else {
+           Err(anyhow::anyhow!(format!("Host function is restricted to extensions of {base_path:?}")))
+       }
     });
 
+    // TODO: FOR ALL HOST FUNCTIONS: check that joined_path extends user_data path
     host_fn!(read_binary_file_base64(user_data: PathBuf; payload: FileReadBase64OperationInPayload) -> FileReadBase64OperationOutPayload {
       let FileReadBase64OperationInPayload { relative_path } = payload;
       let base_path = user_data.get()
@@ -149,11 +170,17 @@ pub mod plugins {
           .clone();
       let mut joined_path = base_path.clone();
       joined_path.push(relative_path);
-      let mut file = std::fs::File::open(joined_path.clone())?;
+       if joined_path.starts_with(&base_path) {
+       let mut file = std::fs::File::open(joined_path.clone())?;
       let mut buf = Vec::new();
       file.read_to_end(&mut buf)?;
-      let base64 = encode(&buf);
+      let base64 = BASE64_ENGINE.encode(&buf);
       Ok(FileReadBase64OperationOutPayload { contents: base64 })
+
+       }
+        else {
+           Err(anyhow::anyhow!(format!("Host function is restricted to extensions of {base_path:?}")))
+       }
     });
 
     host_fn!(get_cluster_structure(user_data: PathBuf; _payload: DummyPayload) -> DirectoryStructurePayload {
