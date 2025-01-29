@@ -4,6 +4,6 @@ members = [
     "logic_based_learning_paths_bin",
 ]
 [package]
-name = "workspace"
+name = "logic_based_learning_paths_workspace"
 version = "0.1.0"
 edition = "2021"

@@ -53,6 +53,7 @@
                 envsubst -i $pre_content_file > $content_file
               done
               npm install
+              nu && exit
             '';
         };
       });
