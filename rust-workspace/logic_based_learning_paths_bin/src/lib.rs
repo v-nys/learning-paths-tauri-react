@@ -198,6 +198,27 @@ pub mod plugins {
     });
 
     #[derive(Debug)]
+    pub struct PreArchivePlugin {
+        extism_plugin: Plugin,
+        parameter_values: HashMap<String, serde_yaml::Value>,
+        path: String,
+    }
+
+    impl LBLPPlugin for PreArchivePlugin {
+        fn get_path(&self) -> &String {
+            &self.path
+        }
+
+        fn get_params_schema(
+            &mut self,
+        ) -> anyhow::Result<HashMap<String, (bool, serde_json::Value)>> {
+            let call_result: Result<ParamsSchema, _> =
+                self.extism_plugin.call("get_params_schema", ());
+            call_result.map(|s| s.schema)
+        }
+    }
+
+    #[derive(Debug)]
     pub struct NodeProcessingPlugin {
         extism_plugin: Plugin,
         parameter_values: HashMap<String, serde_yaml::Value>,
@@ -405,6 +426,77 @@ pub mod plugins {
                     )
                     .build();
                 plugin.map(|plugin| ClusterProcessingPlugin {
+                    extism_plugin: plugin,
+                    parameter_values: unloaded_plugin.parameters,
+                    path: unloaded_plugin.path,
+                })
+            })
+            .collect()
+    }
+
+    pub fn load_pre_archive_plugins(
+        unloaded_plugins: Vec<domain::UnloadedPlugin>,
+        cluster_path: &PathBuf,
+    ) -> Vec<anyhow::Result<PreArchivePlugin>> {
+        unloaded_plugins
+            .into_iter()
+            .map(|unloaded_plugin| {
+                let url = Wasm::file(&unloaded_plugin.path);
+                let manifest = Manifest::new([url]);
+                // TODO: examine whether these can be trimmed
+                let plugin = PluginBuilder::new(manifest)
+                    .with_wasi(true)
+                    .with_function(
+                        "file_exists",
+                        [extism::PTR],
+                        [extism::PTR],
+                        UserData::new(cluster_path.to_owned()),
+                        file_exists,
+                    )
+                    .with_function(
+                        "write_text_file",
+                        [extism::PTR],
+                        [extism::PTR],
+                        UserData::new(cluster_path.to_owned()),
+                        write_text_file,
+                    )
+                    .with_function(
+                        "read_binary_file_base64",
+                        [extism::PTR],
+                        [extism::PTR],
+                        UserData::new(cluster_path.to_owned()),
+                        read_binary_file_base64,
+                    )
+                    .with_function(
+                        "read_text_file",
+                        [extism::PTR],
+                        [extism::PTR],
+                        UserData::new(cluster_path.to_owned()),
+                        read_text_file,
+                    )
+                    .with_function(
+                        "get_system_time",
+                        [extism::PTR],
+                        [extism::PTR],
+                        UserData::new(()),
+                        get_system_time,
+                    )
+                    .with_function(
+                        "get_last_modification_time",
+                        [extism::PTR],
+                        [extism::PTR],
+                        UserData::new(cluster_path.to_owned()),
+                        get_last_modification_time,
+                    )
+                    .with_function(
+                        "get_cluster_structure",
+                        [extism::PTR],
+                        [extism::PTR],
+                        UserData::new(cluster_path.to_owned()),
+                        get_cluster_structure,
+                    )
+                    .build();
+                plugin.map(|plugin| PreArchivePlugin {
                     extism_plugin: plugin,
                     parameter_values: unloaded_plugin.parameters,
                     path: unloaded_plugin.path,

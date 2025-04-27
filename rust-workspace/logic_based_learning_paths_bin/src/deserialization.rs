@@ -9,7 +9,9 @@ use std::collections::HashMap;
 use std::fmt;
 
 use crate::domain;
-use crate::plugins::{load_cluster_processing_plugins, load_node_processing_plugins};
+use crate::plugins::{
+    load_cluster_processing_plugins, load_node_processing_plugins, load_pre_archive_plugins,
+};
 use std::path::PathBuf;
 
 /// Deserialization counterpart for the domain concept `Node`.
@@ -252,6 +254,7 @@ pub struct ClusterForSerialization {
     roots: Option<Vec<String>>,
     node_plugins: Option<Vec<PluginForSerialization>>,
     cluster_plugins: Option<Vec<PluginForSerialization>>,
+    pre_archive_plugins: Option<Vec<PluginForSerialization>>,
 }
 
 impl ClusterForSerialization {
@@ -279,15 +282,35 @@ impl ClusterForSerialization {
         )
         .into_iter()
         .collect();
-        let unloaded_cluster_plugins: Vec<_> =
-                self.cluster_plugins
-                    .unwrap_or_default()
-                    .into_iter()
-                    .map(|pfs| UnloadedPlugin {
-                        path: pfs.path,
-                        parameters: pfs.parameters,
-                    }).collect();
-        let cluster_plugins_result: Result<Vec<_>, _> = load_cluster_processing_plugins(unloaded_cluster_plugins, cluster_path).into_iter().collect();
+        let unloaded_cluster_plugins: Vec<_> = self
+            .cluster_plugins
+            .unwrap_or_default()
+            .into_iter()
+            .map(|pfs| UnloadedPlugin {
+                path: pfs.path,
+                parameters: pfs.parameters,
+            })
+            .collect();
+        let cluster_plugins_result: Result<Vec<_>, _> =
+            load_cluster_processing_plugins(unloaded_cluster_plugins, cluster_path)
+                .into_iter()
+                .collect();
+
+        let is_main_cluster = self.pre_archive_plugins.is_some();
+        let unloaded_pre_archive_plugins: Vec<_> = self
+            .pre_archive_plugins
+            .unwrap_or_default()
+            .into_iter()
+            .map(|pfs| UnloadedPlugin {
+                path: pfs.path,
+                parameters: pfs.parameters,
+            })
+            .collect();
+        let pre_archive_plugins_result: Result<Vec<_>, _> =
+            load_pre_archive_plugins(unloaded_pre_archive_plugins, cluster_path)
+                .into_iter()
+                .collect();
+
         Ok(domain::Cluster {
             namespace_prefix: folder_name.clone(),
             nodes: nodes?,
@@ -315,7 +338,12 @@ impl ClusterForSerialization {
                 })
                 .collect(),
             node_plugins: node_plugins_result?,
-            cluster_plugins: cluster_plugins_result?
+            cluster_plugins: cluster_plugins_result?,
+            pre_archive_plugins: if is_main_cluster {
+                Some(pre_archive_plugins_result?)
+            } else {
+                None
+            },
         })
     }
 }

@@ -175,7 +175,87 @@ fn read_contents_with_test_dependencies<'a>(
                     (component, svg)
                 })
                 .collect();
-            let supercluster_svg = svgify(&supercluster.graph);
+            let main_cluster_triple = components_and_svgs
+                .iter()
+                .find(|(component, _)| component.0.pre_archive_plugins.is_some());
+            let supercluster_svg =
+                if let Some((ClusterDAGRootsTriple(main_cluster, main_cluster_graph, _), _)) =
+                    main_cluster_triple
+                {
+                    println!("there is a main project");
+                    // modify so that nodes not leading to the main cluster are filtered out
+                    // need TC of the supercluster for that
+                    // so this is a Vec containing the original node indices in a particular order
+                    let supercluster_toposort_order = toposort(&supercluster.graph, None)
+        .expect(
+            "This function should only be called for graphs which have already been cycle-checked.",
+        );
+                    // this creates a new graph with new indices
+                    // the new indices can be mapped back to the originals via revmap
+                    // and to go back to the original, need to use that as index in
+                    // supercluster_toposort_order
+                    let (supercluster_toposorted_graph, supercluster_revmap) =
+                        // petgraph requires toposorted input to compute TC
+                        dag_to_toposorted_adjacency_list(
+                            &supercluster.graph,
+                            &supercluster_toposort_order,
+                        );
+
+                    // TC is a List (as defined by petgraph)
+                    // i.e. if a node precedes another node, it reaches it?
+                    let (_, supercluster_tc) = dag_transitive_reduction_closure::<(), NodeIndex>(
+                        &supercluster_toposorted_graph,
+                    );
+
+                    // these are indices from the toposorted version
+                    // so they still need to be mapped back via revmap and indexing
+                    let discarded_nodes: HashSet<NodeIndex> = supercluster_toposorted_graph
+                        .node_references()
+                        .filter(|mapped_node_index| {
+                            let matching_index_from_toposort =
+                                supercluster_revmap[mapped_node_index.index()];
+                            let matching_index_from_supercluster = supercluster_toposort_order[matching_index_from_toposort.index()];
+                            let original_node_weight =
+                                supercluster.graph.index(matching_index_from_supercluster);
+                            if original_node_weight.0.namespace == main_cluster.namespace_prefix {
+                                false
+                            } else {
+                                // these are IDs from the original graph
+                                let dependent_nodes: HashSet<&NodeID> = supercluster_tc
+                                    .neighbors(*mapped_node_index)
+                                    .map(|ix: NodeIndex| {
+                                        let toposorted_index = supercluster_revmap[ix.index()];
+                                        let original_index =
+                                            supercluster_toposort_order[toposorted_index.index()];
+                                        let original = supercluster.graph.index(original_index);
+                                        &original.0
+                                    })
+                                    .collect();
+                                if dependent_nodes.iter().any(|node_id| {
+                                    node_id.namespace == main_cluster.namespace_prefix
+                                }) {
+                                    false
+                                } else {
+                                    true
+                                }
+                            }
+                        })
+                        .collect();
+                    // turn indices from toposorted version into original indices
+                    let discarded_nodes = dbg!(discarded_nodes.into_iter().map(|toposorted_index| {
+                        supercluster_toposort_order[toposorted_index.index()]
+                    }));
+                    let mut cleaned = supercluster.graph.clone();
+                    discarded_nodes.for_each(|discarded| {
+                        println!("removing a node");
+                        dbg!(cleaned.index(discarded));
+                        cleaned.remove_node(discarded);
+                    });
+                    svgify(&cleaned)
+                } else {
+                    println!("there is no main project");
+                    svgify(&supercluster.graph)
+                };
             let paths_components_and_svgs: Vec<_> = paths.zip(components_and_svgs).collect();
             let paths_components_comments_and_svgs: Vec<_> = paths_components_and_svgs
                 .into_iter()

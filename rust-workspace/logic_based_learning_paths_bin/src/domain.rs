@@ -1,4 +1,4 @@
-use crate::plugins::{ClusterProcessingPlugin, NodeProcessingPlugin};
+use crate::plugins::{ClusterProcessingPlugin, NodeProcessingPlugin, PreArchivePlugin};
 
 pub use logic_based_learning_paths::domain_without_loading::*;
 
@@ -17,4 +17,5 @@ pub struct Cluster {
     pub roots: Vec<NodeID>,
     pub node_plugins: Vec<NodeProcessingPlugin>,
     pub cluster_plugins: Vec<ClusterProcessingPlugin>,
+    pub pre_archive_plugins: Option<Vec<PreArchivePlugin>>
 }
