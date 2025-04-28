@@ -60,7 +60,7 @@ pub fn purge_nodes_not_leading_to_project(
 #[cfg(test)]
 mod tests {
 
-    use crate::domain_without_loading::{Graph, NodeID, EdgeType};
+    use crate::domain_without_loading::{EdgeType, Graph, NodeID};
 
     use super::purge_nodes_not_leading_to_project;
 
@@ -92,7 +92,29 @@ mod tests {
 
     #[test]
     fn disconnected_node_is_purged_1() {
-        unimplemented!("TODO");
+        let mut graph = Graph::new();
+        graph.add_node((
+            NodeID {
+                namespace: "otherproject".into(),
+                local_id: "node1".into(),
+            },
+            "Node1".into(),
+        ));
+        graph.add_node((
+            NodeID {
+                namespace: "mainproject".into(),
+                local_id: "node2".into(),
+            },
+            "Node2".into(),
+        ));
+        let purge_result = purge_nodes_not_leading_to_project(&graph, "mainproject");
+        assert!(purge_result.is_ok());
+        let purged_graph = purge_result.unwrap();
+        assert!(purged_graph.node_count() == 1);
+        let first_remaining_node = purged_graph.node_weights().next();
+        assert!(first_remaining_node.is_some());
+        let (_, title) = first_remaining_node.unwrap();
+        assert!(title == "Node2", "Was expecting Node2 to remain, got {}", title);
     }
 
     #[test]
