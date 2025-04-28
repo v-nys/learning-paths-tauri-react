@@ -218,24 +218,32 @@ fn read_contents_with_test_dependencies<'a>(
                             let original_node_weight =
                                 supercluster.graph.index(matching_index_from_supercluster);
                             if original_node_weight.0.namespace == main_cluster.namespace_prefix {
+                                // this *exactly* retains the nodes in the main project, tested
+                                // println!("Keeping {:#?} because it is in the project namespace.", original_node_weight);
                                 false
                             } else {
                                 // these are IDs from the original graph
-                                let dependent_nodes: HashSet<&NodeID> = supercluster_tc
+                                let dependent_nodes: HashSet<(NodeID,NodeIndex)> = supercluster_tc
                                     .neighbors(*mapped_node_index)
                                     .map(|ix: NodeIndex| {
                                         let toposorted_index = supercluster_revmap[ix.index()];
                                         let original_index =
                                             supercluster_toposort_order[toposorted_index.index()];
                                         let original = supercluster.graph.index(original_index);
-                                        &original.0
+                                        (original.0.clone(), original_index)
                                     })
                                     .collect();
-                                if dependent_nodes.iter().any(|node_id| {
-                                    node_id.namespace == main_cluster.namespace_prefix
+                                if dependent_nodes.iter().any(|(node_id, node_index)| {
+                                    let outcome = node_id.namespace == main_cluster.namespace_prefix;
+                                    if outcome {
+                                        // NodeID is the one that has the namespace and everything
+                                        println!("Node {:#?} is not in main project but has a dependent {:#?} in the project namespace.", &original_node_weight.0 , supercluster.graph.index(*node_index));
+                                    }
+                                    outcome
                                 }) {
                                     false
                                 } else {
+                                    // these nodes are already printed below
                                     true
                                 }
                             }
@@ -247,13 +255,13 @@ fn read_contents_with_test_dependencies<'a>(
                     }));
                     let mut cleaned = supercluster.graph.clone();
                     discarded_nodes.for_each(|discarded| {
-                        println!("removing a node");
-                        dbg!(cleaned.index(discarded));
+                        // println!("removing a node");
+                        // dbg!(cleaned.index(discarded));
                         cleaned.remove_node(discarded);
                     });
                     svgify(&cleaned)
                 } else {
-                    println!("there is no main project");
+                    // println!("there is no main project");
                     svgify(&supercluster.graph)
                 };
             let paths_components_and_svgs: Vec<_> = paths.zip(components_and_svgs).collect();
