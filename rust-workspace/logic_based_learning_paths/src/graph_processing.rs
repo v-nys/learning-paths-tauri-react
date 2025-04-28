@@ -28,9 +28,7 @@ pub fn purge_nodes_not_leading_to_project(
     let discarded_nodes: HashSet<NodeIndex> = supercluster_toposorted_graph
         .node_references()
         .filter(|mapped_node_index| {
-            let matching_index_from_toposort = supercluster_revmap[mapped_node_index.index()];
-            let matching_index_from_supercluster =
-                supercluster_toposort_order[matching_index_from_toposort.index()];
+            let matching_index_from_supercluster = supercluster_revmap[mapped_node_index.index()];
             let original_node_weight = supercluster.index(matching_index_from_supercluster);
             if original_node_weight.0.namespace == main_project_namespace {
                 false
@@ -114,11 +112,97 @@ mod tests {
         let first_remaining_node = purged_graph.node_weights().next();
         assert!(first_remaining_node.is_some());
         let (_, title) = first_remaining_node.unwrap();
-        assert!(title == "Node2", "Was expecting Node2 to remain, got {}", title);
+        assert!(
+            title == "Node2",
+            "Was expecting Node2 to remain, got {}",
+            title
+        );
     }
 
     #[test]
     fn disconnected_subgraph_is_purged_1() {
-        unimplemented!("TODO");
+        let mut graph = Graph::new();
+        let indices: Vec<_> = (1..=6)
+            .map(|number| {
+                graph.add_node((
+                    NodeID {
+                        namespace: (if number <= 3 {
+                            "otherproject"
+                        } else {
+                            "mainproject"
+                        })
+                        .into(),
+                        local_id: format!("node{}", number),
+                    },
+                    format!("Node{}", number),
+                ))
+            })
+            .collect();
+        graph.add_edge(indices[0], indices[1], EdgeType::All);
+        graph.add_edge(indices[0], indices[2], EdgeType::All);
+
+        graph.add_edge(indices[3], indices[4], EdgeType::All);
+        graph.add_edge(indices[3], indices[5], EdgeType::All);
+
+        let purge_result = purge_nodes_not_leading_to_project(&graph, "mainproject");
+        assert!(purge_result.is_ok());
+        let purged_graph = purge_result.unwrap();
+        purged_graph.node_weights().for_each(|(node_id, title)| {
+            assert!(
+                node_id.namespace == "mainproject",
+                "no otherproject nodes should lead to mainproject but {} was not filtered out",
+                title
+            );
+        });
+        assert!(
+            purged_graph.node_count() == 3,
+            "expecting graph count of 3, got {}",
+            purged_graph.node_count()
+        );
+    }
+
+    #[test]
+    fn dead_ends_are_purged() {
+        let mut graph = Graph::new();
+        let indices: Vec<_> = (1..=9)
+            .map(|number| {
+                graph.add_node((
+                    NodeID {
+                        namespace: (if number <= 4 {
+                            "otherproject"
+                        } else {
+                            "mainproject"
+                        })
+                        .into(),
+                        local_id: format!("node{}", number),
+                    },
+                    format!("Node{}", number),
+                ))
+            })
+            .collect();
+        // all within otherproject
+        graph.add_edge(indices[0], indices[1], EdgeType::All);
+        graph.add_edge(indices[0], indices[2], EdgeType::All);
+        graph.add_edge(indices[2], indices[3], EdgeType::All);
+        // crossing boundary
+        graph.add_edge(indices[3], indices[4], EdgeType::All);
+        let purge_result = purge_nodes_not_leading_to_project(&graph, "mainproject");
+        assert!(purge_result.is_ok());
+        let purged_graph = purge_result.unwrap();
+        purged_graph.node_weights().for_each(|(_, title)| {
+            assert!(
+                title != "Node2",
+                "Node2 should have been filtered out because it has no forward path to mainproject"
+            );
+        });
+        assert!(
+            purged_graph.node_count() == 8,
+            "expecting graph count of 8, but retained {}",
+            (purged_graph
+                .node_weights()
+                .map(|(_, title)| { title.clone() }))
+            .collect::<Vec<String>>()
+            .join(", ")
+        );
     }
 }
