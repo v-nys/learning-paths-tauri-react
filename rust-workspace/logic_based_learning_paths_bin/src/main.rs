@@ -2,6 +2,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 use anyhow;
 use git2::{Repository, Status};
+use logic_based_learning_paths::graph_processing::purge_nodes_not_leading_to_project;
 use logic_based_learning_paths_bin::plugins::LBLPPlugin;
 use petgraph::adj::List;
 use petgraph::visit::IntoNeighbors;
@@ -179,14 +180,17 @@ fn read_contents_with_test_dependencies<'a>(
                 .iter()
                 .find(|(component, _)| component.0.pre_archive_plugins.is_some());
             let supercluster_svg =
-                if let Some((ClusterDAGRootsTriple(main_cluster, main_cluster_graph, _), _)) =
+                if let Some((ClusterDAGRootsTriple(main_cluster, _main_cluster_graph, _), _)) =
                     main_cluster_triple
                 {
-
                     println!("there is a main project");
-                    todo!("complete implementation in lib.rs and test");
-                    let cleaned: Graph = purge_nodes_not_leading_to_project(&supercluster.graph, main_cluster.namespace_prefix);
-                    
+                    // todo!("complete implementation in lib.rs and test");
+                    let cleaned: Graph = purge_nodes_not_leading_to_project(
+                        &supercluster.graph,
+                        &main_cluster.namespace_prefix,
+                    )
+                    .expect("Not cycle checked yet?");
+
                     svgify(&cleaned)
                 } else {
                     // println!("there is no main project");
