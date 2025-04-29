@@ -3,14 +3,13 @@ use petgraph::{
     algo::{
         toposort,
         tred::{dag_to_toposorted_adjacency_list, dag_transitive_reduction_closure},
-    },
-    graph::NodeIndex,
-    visit::{IntoNeighbors, IntoNodeReferences},
+    }, graph::NodeIndex, prelude::StableGraph, visit::{IntoNeighbors, IntoNodeReferences}
 };
 use std::collections::HashSet;
 use std::ops::Index;
 
 // TODO: document
+// TODO: move to bin crate, this is not useful for plugin development
 pub fn purge_nodes_not_leading_to_project(
     supercluster: &Graph,
     main_project_namespace: &str,
@@ -21,23 +20,29 @@ pub fn purge_nodes_not_leading_to_project(
     // so if the examples work, the mappings can always be reversed
     let supercluster_toposort_order =
         toposort(supercluster, None).map_err(|_| "Supercluster contains a cycle.".to_string())?;
-    let (supercluster_toposorted_graph, supercluster_revmap) =
+    // dag_to_toposorted_adjacency_list docs are unclear:
+    // "revmap is handy to get back to map indices in g to [sic] indices in res"
+    // but they provide an example: `res.neighbors(revmap[top.index()])`
+    // where `top` is a NodeIndex from the original graph and .index() produces a usize
+    // so then revmap translates from original to TC?
+    let (supercluster_toposorted_graph, _supercluster_revmap) =
         dag_to_toposorted_adjacency_list(supercluster, &supercluster_toposort_order);
     let (_, supercluster_tc) =
         dag_transitive_reduction_closure::<(), NodeIndex>(&supercluster_toposorted_graph);
     let discarded_nodes: HashSet<NodeIndex> = supercluster_toposorted_graph
         .node_references()
         .filter(|mapped_node_index| {
-            let matching_index_from_supercluster = supercluster_revmap[mapped_node_index.index()];
+            // revmap: original → TC
+            // supercluster_toposort_order: reciprocal, so TC → original
+            let matching_index_from_supercluster = supercluster_toposort_order[mapped_node_index.index()];
             let original_node_weight = supercluster.index(matching_index_from_supercluster);
             if original_node_weight.0.namespace == main_project_namespace {
                 false
             } else {
                 supercluster_tc
                     .neighbors(*mapped_node_index)
-                    .map(|ix: NodeIndex| {
-                        let toposorted_index = supercluster_revmap[ix.index()];
-                        let original_index = supercluster_toposort_order[toposorted_index.index()];
+                    .map(|tc_ix: NodeIndex| {
+                        let original_index = supercluster_toposort_order[tc_ix.index()];
                         let original = supercluster.index(original_index);
                         (original.0.clone(), original_index)
                     })
@@ -48,11 +53,13 @@ pub fn purge_nodes_not_leading_to_project(
     let discarded_nodes = discarded_nodes
         .into_iter()
         .map(|toposorted_index| supercluster_toposort_order[toposorted_index.index()]);
-    let mut cleaned = supercluster.clone();
+    // removing nodes from a normal graph can change indices
+    // so multiple removals could be an issue
+    let mut cleaned: StableGraph<_, _> = supercluster.clone().into();
     discarded_nodes.for_each(|discarded| {
         cleaned.remove_node(discarded);
     });
-    Ok(cleaned)
+    Ok(cleaned.into())
 }
 
 #[cfg(test)]
@@ -63,7 +70,7 @@ mod tests {
     use super::purge_nodes_not_leading_to_project;
 
     #[test]
-    fn cyclical_graph_produces_error_1() {
+    fn cyclical_graph_produces_error() {
         let mut graph = Graph::new();
         let index1 = graph.add_node((
             NodeID {
@@ -89,7 +96,7 @@ mod tests {
     }
 
     #[test]
-    fn disconnected_node_is_purged_1() {
+    fn disconnected_node_is_purged() {
         let mut graph = Graph::new();
         graph.add_node((
             NodeID {
@@ -120,7 +127,7 @@ mod tests {
     }
 
     #[test]
-    fn disconnected_subgraph_is_purged_1() {
+    fn disconnected_subgraph_is_purged() {
         let mut graph = Graph::new();
         let indices: Vec<_> = (1..=6)
             .map(|number| {
@@ -180,11 +187,9 @@ mod tests {
                 ))
             })
             .collect();
-        // all within otherproject
         graph.add_edge(indices[0], indices[1], EdgeType::All);
         graph.add_edge(indices[0], indices[2], EdgeType::All);
         graph.add_edge(indices[2], indices[3], EdgeType::All);
-        // crossing boundary
         graph.add_edge(indices[3], indices[4], EdgeType::All);
         let purge_result = purge_nodes_not_leading_to_project(&graph, "mainproject");
         assert!(purge_result.is_ok());
