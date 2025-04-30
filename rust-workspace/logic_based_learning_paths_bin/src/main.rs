@@ -2,7 +2,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 use anyhow;
 use git2::{Repository, Status};
-use logic_based_learning_paths::graph_processing::purge_nodes_not_leading_to_project;
+use logic_based_learning_paths_bin::graph_processing::purge_nodes_not_leading_to_project;
 use logic_based_learning_paths_bin::plugins::LBLPPlugin;
 use petgraph::adj::List;
 use petgraph::visit::IntoNeighbors;

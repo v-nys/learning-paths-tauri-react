@@ -1,30 +1,48 @@
-use crate::domain_without_loading::Graph;
+use logic_based_learning_paths::domain_without_loading::Graph;
 use petgraph::{
     algo::{
         toposort,
         tred::{dag_to_toposorted_adjacency_list, dag_transitive_reduction_closure},
-    }, graph::NodeIndex, prelude::StableGraph, visit::{IntoNeighbors, IntoNodeReferences}
+        Cycle,
+    },
+    graph::NodeIndex,
+    prelude::StableGraph,
+    visit::{IntoNeighbors, IntoNodeReferences},
 };
 use std::collections::HashSet;
 use std::ops::Index;
 
-// TODO: document
-// TODO: move to bin crate, this is not useful for plugin development
+/// Removes nodes from a `Graph` that do not lead (directly or indirectly) to any node
+/// belonging to the specified `main_project_namespace`.
+///
+/// This function requires the graph to be acyclical.
+///
+/// # Arguments
+///
+/// * `supercluster` - A reference to the input DAG.
+/// * `main_project_namespace` - Nodes in this namespace are considered targets for retention, and nodes not leading to any of these are removed.
+///
+/// # Returns
+///
+/// Returns a `Result` containing a cleaned `Graph` with irrelevant nodes removed,
+/// or a `Cycle<NodeIndex>` error if the input graph is not a valid DAG.
+///
+/// # Errors
+///
+/// Returns an error if a cycle is detected in the graph during the topological sort.
+///
+/// # Example
+///
+/// ```rust
+/// let cleaned_graph = purge_nodes_not_leading_to_project(&graph, "main-namespace")?;
+/// ```
 pub fn purge_nodes_not_leading_to_project(
     supercluster: &Graph,
     main_project_namespace: &str,
-) -> Result<Graph, String> {
-    // using index operators quite heavily in this code
-    // if the code is properly tested, there shouldn't be any panics
-    // because the mappings are produced here
-    // so if the examples work, the mappings can always be reversed
-    let supercluster_toposort_order =
-        toposort(supercluster, None).map_err(|_| "Supercluster contains a cycle.".to_string())?;
-    // dag_to_toposorted_adjacency_list docs are unclear:
-    // "revmap is handy to get back to map indices in g to [sic] indices in res"
-    // but they provide an example: `res.neighbors(revmap[top.index()])`
-    // where `top` is a NodeIndex from the original graph and .index() produces a usize
-    // so then revmap translates from original to TC?
+) -> Result<Graph, Cycle<NodeIndex>> {
+    let supercluster_toposort_order = toposort(supercluster, None)?;
+    // revmap: original → TC
+    // supercluster_toposort_order: reciprocal, so TC → original
     let (supercluster_toposorted_graph, _supercluster_revmap) =
         dag_to_toposorted_adjacency_list(supercluster, &supercluster_toposort_order);
     let (_, supercluster_tc) =
@@ -32,9 +50,8 @@ pub fn purge_nodes_not_leading_to_project(
     let discarded_nodes: HashSet<NodeIndex> = supercluster_toposorted_graph
         .node_references()
         .filter(|mapped_node_index| {
-            // revmap: original → TC
-            // supercluster_toposort_order: reciprocal, so TC → original
-            let matching_index_from_supercluster = supercluster_toposort_order[mapped_node_index.index()];
+            let matching_index_from_supercluster =
+                supercluster_toposort_order[mapped_node_index.index()];
             let original_node_weight = supercluster.index(matching_index_from_supercluster);
             if original_node_weight.0.namespace == main_project_namespace {
                 false
@@ -53,8 +70,6 @@ pub fn purge_nodes_not_leading_to_project(
     let discarded_nodes = discarded_nodes
         .into_iter()
         .map(|toposorted_index| supercluster_toposort_order[toposorted_index.index()]);
-    // removing nodes from a normal graph can change indices
-    // so multiple removals could be an issue
     let mut cleaned: StableGraph<_, _> = supercluster.clone().into();
     discarded_nodes.for_each(|discarded| {
         cleaned.remove_node(discarded);

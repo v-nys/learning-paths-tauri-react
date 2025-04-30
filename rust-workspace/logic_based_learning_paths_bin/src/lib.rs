@@ -1,5 +1,6 @@
 pub mod deserialization;
 pub mod domain;
+pub mod graph_processing;
 
 pub mod prelude {
     pub use anyhow;
