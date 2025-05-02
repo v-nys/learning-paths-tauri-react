@@ -30,6 +30,7 @@ extism-convert = "1.9.1"
 regex = "1.10.5"
 walkdir = "2.5.0"
 base64 = "0.22.1"
+env-file-reader = "0.3.0"
 
 [build-dependencies]
 tauri-build = { version = "1", features = [] }

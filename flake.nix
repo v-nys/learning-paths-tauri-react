@@ -46,12 +46,6 @@
               # how the clusters refer to this dir
               # TODO: unify (as LBLP_SOURCE_DIR maybe)
               export APPLICATION_SOURCE_DIR=$(pwd)
-
-              base_path="./rust-workspace"
-              for pre_content_file in $(find $base_path -type f -name "pre-contents.lc.yaml"); do
-                content_file=$(echo $pre_content_file | sed 's/pre-//')
-                envsubst -i $pre_content_file > $content_file
-              done
               npm install
             '';
         };

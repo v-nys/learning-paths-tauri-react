@@ -1,6 +1,6 @@
 // Prevents additional console window on Windows in release, DO NOT REMOVE!!
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
-use anyhow;
+use anyhow::Context;
 use git2::{Repository, Status};
 use logic_based_learning_paths_bin::graph_processing::purge_nodes_not_leading_to_project;
 use logic_based_learning_paths_bin::plugins::LBLPPlugin;
@@ -112,7 +112,7 @@ struct ClusterDAGRootsTriple(domain::Cluster, Graph, Vec<NodeID>);
 struct CommentsSvgTuple(Vec<String>, SVGSource);
 
 /// The result of reading a Path, along with that Path.
-struct ReadResultForPath(Result<String, std::io::Error>, PathBuf);
+struct ReadResultForPath(anyhow::Result<String>, PathBuf);
 
 /// A supercluster (result of merging normal Clusters) and dependency-free nodes.
 #[derive(Debug, Clone)]
@@ -317,11 +317,54 @@ fn read_all_clusters_with_test_dependencies<'a, T: FileReader>(
     reader: &mut T,
 ) -> Result<SuperclusterComposition, SuperclusterErrorBreakdown> {
     let paths = paths.split(";").map(|p| PathBuf::from(p));
+    let var_regex = regex::Regex::new(r"^[[:alnum:]_]+$").expect("Regex tested beforehand.");
+    let interpolation_regex =
+        regex::Regex::new(r"\$\{(?P<var_name>[[:alnum:]_]+)\}").expect("Regex tested beforehand.");
     let read_results = paths
         .clone()
         .map(|p| {
             let yaml_location = p.join("contents.lc.yaml");
-            ReadResultForPath(reader.read_to_string(yaml_location.as_path()), p)
+            let env_location = p.join(".env");
+            let env_variables: anyhow::Result<_> = env_file_reader::read_file(env_location.clone())
+                .with_context(|| {
+                    format!("Failed to read env variables at {:?}", env_location.clone())
+                });
+            let interpolated_yaml: anyhow::Result<String> =
+                env_variables.and_then(|env_variables| {
+                    if let Some((k, _)) = env_variables.iter().find(|(k, _)| !var_regex.is_match(k))
+                    {
+                        Err(anyhow::anyhow!(format!(
+                            "Invalid environment variable name: {}. Only alphanumeric characters and underscores are allowed.",
+                            k
+                        )))
+                    } else {
+                        let uninterpolated_yaml: anyhow::Result<_, _> = reader
+                            .read_to_string(yaml_location.as_path())
+                            .with_context(|| {
+                                format!("Failed to read YAML file at {:?}.", yaml_location)
+                            });
+                        uninterpolated_yaml.and_then(|uninterpolated_yaml| {
+                            let mut interpolated_yaml = uninterpolated_yaml.clone();
+                            while let Some(captures) =
+                                interpolation_regex.captures(&interpolated_yaml)
+                            {
+                                let var_name = &captures["var_name"];
+                                if let Some(matching_value) = env_variables.get(var_name) {
+                                    interpolated_yaml =
+                                        interpolated_yaml.replace(&captures[0], matching_value);
+                                } else {
+                                    return Err(anyhow::anyhow!(
+                                        "Missing binding for env variable {} in file {:?}. Variable must be defined there for interpolation to take place.",
+                                        &var_name,
+                                        &env_location
+                                    ));
+                                }
+                            }
+                            Ok(interpolated_yaml)
+                        })
+                    }
+                });
+            ReadResultForPath(interpolated_yaml, p)
         })
         .collect();
     merge_clusters(read_results)
@@ -530,10 +573,6 @@ fn process_and_comment_cluster(
 ) -> Vec<String> {
     let mut remarks: Vec<String> = vec![];
     let cluster_path = Path::new(cluster_path);
-    artifacts.insert(ArtifactMapping {
-        local_file: cluster_path.join("contents.lc.yaml"),
-        root_relative_target_dir: PathBuf::from(cluster.namespace_prefix.clone()),
-    });
     let mut overall_schema = schema_for!(deserialization::ClusterForSerialization);
     let mut plugin_schema = schemars::schema_for!(deserialization::PluginForSerialization);
     plugin_schema.meta_schema = None;
@@ -768,10 +807,14 @@ fn merge_clusters(
 ) -> Result<SuperclusterComposition, SuperclusterErrorBreakdown> {
     let clusters = read_results
         .into_iter()
+        // TODO: code is ugly, use map instead
         .map(|ReadResultForPath(r, p)| match r {
-            // FIXME: this is an issue
-            // want clusters to know their own location
+            // FIXME: this is an issue?
+            // would like clusters to know their own location
             // but it won't be deserialized
+            //
+            // coming back to this later: why do I want clusters to know their location?
+            // to help with cluster plugins?
             Ok(ref text) => serde_yaml::from_str::<deserialization::ClusterForSerialization>(text)
                 .map_err(anyhow::Error::new)
                 .and_then(|cfs| {
@@ -786,7 +829,7 @@ fn merge_clusters(
                     //     )),
                     // }
                 }),
-            Err(e) => Err(anyhow::Error::new(e)),
+            Err(e) => Err(e),
         });
 
     let cluster_graph_tuples: Vec<_> = clusters
@@ -1629,9 +1672,7 @@ fn store_collection(collection: &str, paths: &str) -> Result<HashMap<String, Str
 
 #[tauri::command]
 fn can_trigger_change(path: &str) -> bool {
-    // this is pretty ad hoc
-    // might want to come up with a more general solution to exceptions
-    path.ends_with("contents.lc.yaml") || is_under_vc(path)
+    is_under_vc(path)
 }
 
 fn main() {
