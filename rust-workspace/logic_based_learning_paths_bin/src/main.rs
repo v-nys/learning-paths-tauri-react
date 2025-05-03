@@ -1,7 +1,9 @@
 // Prevents additional console window on Windows in release, DO NOT REMOVE!!
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
-use anyhow::Context;
 use git2::{Repository, Status};
+use logic_based_learning_paths_bin::file_handling::{
+    self, FileReader, ReadResultForPath, RealFileReader,
+};
 use logic_based_learning_paths_bin::graph_processing::purge_nodes_not_leading_to_project;
 use logic_based_learning_paths_bin::plugins::LBLPPlugin;
 use petgraph::adj::List;
@@ -111,9 +113,6 @@ struct ClusterDAGRootsTriple(domain::Cluster, Graph, Vec<NodeID>);
 /// A combination of the comments that apply to a cluster and its SVG representation.
 struct CommentsSvgTuple(Vec<String>, SVGSource);
 
-/// The result of reading a Path, along with that Path.
-struct ReadResultForPath(anyhow::Result<String>, PathBuf);
-
 /// A supercluster (result of merging normal Clusters) and dependency-free nodes.
 #[derive(Debug, Clone)]
 struct RootedSupercluster {
@@ -159,9 +158,14 @@ fn read_contents_with_test_dependencies<'a>(
     mut app_state: MutexGuard<Option<(RootedSupercluster, Vec<domain::Cluster>)>>,
 ) -> Vec<(&'a str, Result<(Vec<Comment>, SVGSource), String>)> {
     // in result, first str is "path" (but can also be "supercluster")
-    let mut reader = RealFileReader {};
+    let mut yaml_reader = RealFileReader {};
+    let mut env_reader = RealFileReader {};
     let supercluster_result: Result<SuperclusterComposition, SuperclusterErrorBreakdown> =
-        read_all_clusters_with_test_dependencies::<RealFileReader>(paths, &mut reader);
+        read_all_clusters_with_test_dependencies::<RealFileReader, RealFileReader>(
+            paths,
+            &mut yaml_reader,
+            &mut env_reader,
+        );
     let paths = paths.split(";");
     let mut artifacts = HashSet::new();
     match supercluster_result {
@@ -287,18 +291,6 @@ fn path_is_dir(directory_path: &Path) -> bool {
     directory_path.is_dir()
 }
 
-trait FileReader {
-    fn read_to_string(&mut self, path: &Path) -> std::io::Result<String>;
-}
-
-struct RealFileReader;
-
-impl FileReader for RealFileReader {
-    fn read_to_string(&mut self, path: &Path) -> std::io::Result<String> {
-        std::fs::read_to_string(path)
-    }
-}
-
 #[derive(Debug)]
 struct SuperclusterComposition {
     composition: Vec<ClusterDAGRootsTriple>,
@@ -312,60 +304,15 @@ struct SuperclusterErrorBreakdown {
 }
 
 /// Reads input files, returning individual clusters and supercluster.
-fn read_all_clusters_with_test_dependencies<'a, T: FileReader>(
+fn read_all_clusters_with_test_dependencies<'a, T: FileReader, U: FileReader>(
     paths: &'a str,
-    reader: &mut T,
+    yaml_reader: &mut T,
+    env_reader: &mut U,
 ) -> Result<SuperclusterComposition, SuperclusterErrorBreakdown> {
     let paths = paths.split(";").map(|p| PathBuf::from(p));
-    let var_regex = regex::Regex::new(r"^[[:alnum:]_]+$").expect("Regex tested beforehand.");
-    let interpolation_regex =
-        regex::Regex::new(r"\$\{(?P<var_name>[[:alnum:]_]+)\}").expect("Regex tested beforehand.");
     let read_results = paths
         .clone()
-        .map(|p| {
-            let yaml_location = p.join("contents.lc.yaml");
-            let env_location = p.join(".env");
-            let env_variables: anyhow::Result<_> = env_file_reader::read_file(env_location.clone())
-                .with_context(|| {
-                    format!("Failed to read env variables at {:?}", env_location.clone())
-                });
-            let interpolated_yaml: anyhow::Result<String> =
-                env_variables.and_then(|env_variables| {
-                    if let Some((k, _)) = env_variables.iter().find(|(k, _)| !var_regex.is_match(k))
-                    {
-                        Err(anyhow::anyhow!(format!(
-                            "Invalid environment variable name: {}. Only alphanumeric characters and underscores are allowed.",
-                            k
-                        )))
-                    } else {
-                        let uninterpolated_yaml: anyhow::Result<_, _> = reader
-                            .read_to_string(yaml_location.as_path())
-                            .with_context(|| {
-                                format!("Failed to read YAML file at {:?}.", yaml_location)
-                            });
-                        uninterpolated_yaml.and_then(|uninterpolated_yaml| {
-                            let mut interpolated_yaml = uninterpolated_yaml.clone();
-                            while let Some(captures) =
-                                interpolation_regex.captures(&interpolated_yaml)
-                            {
-                                let var_name = &captures["var_name"];
-                                if let Some(matching_value) = env_variables.get(var_name) {
-                                    interpolated_yaml =
-                                        interpolated_yaml.replace(&captures[0], matching_value);
-                                } else {
-                                    return Err(anyhow::anyhow!(
-                                        "Missing binding for env variable {} in file {:?}. Variable must be defined there for interpolation to take place.",
-                                        &var_name,
-                                        &env_location
-                                    ));
-                                }
-                            }
-                            Ok(interpolated_yaml)
-                        })
-                    }
-                });
-            ReadResultForPath(interpolated_yaml, p)
-        })
+        .map(|p| file_handling::read_interpolated_yaml(p, yaml_reader, env_reader))
         .collect();
     merge_clusters(read_results)
 }
@@ -1241,12 +1188,16 @@ mod tests {
 
     #[test]
     fn detect_redundant_soft_dependency() {
-        let mut reader = MockFileReader::new(vec![&Path::new(
+        let mut yaml_reader = MockFileReader::new(vec![&Path::new(
             "tests/clusterwithredundantsoftdependency/contents.lc.yaml",
+        )]);
+        let mut env_reader = MockFileReader::new(vec![&Path::new(
+            "tests/clusterwithredundantsoftdependency/.env",
         )]);
         let supercluster_analysis = read_all_clusters_with_test_dependencies(
             "clusterwithredundantsoftdependency",
-            &mut reader,
+            &mut yaml_reader,
+            &mut env_reader
         );
         assert!(supercluster_analysis.is_ok());
         let supercluster_analysis = supercluster_analysis.unwrap();
@@ -1259,7 +1210,8 @@ mod tests {
                 vec!["Redundant \"at least one\"-type edge clusterwithredundantsoftdependency__concept_A -> clusterwithredundantsoftdependency__concept_B".to_owned()],
                 comments
             );
-            assert_eq!(reader.calls_made, 1);
+            assert_eq!(yaml_reader.calls_made, 1);
+            assert_eq!(env_reader.calls_made, 1);
         });
     }
 }
