@@ -1,8 +1,9 @@
 // Prevents additional console window on Windows in release, DO NOT REMOVE!!
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+use logic_based_learning_paths_bin::readers::{FileReader, RealFileReader};
 use git2::{Repository, Status};
 use logic_based_learning_paths_bin::file_handling::{
-    self, FileReader, ReadResultForPath, RealFileReader,
+    self, ReadResultForPath
 };
 use logic_based_learning_paths_bin::graph_processing::purge_nodes_not_leading_to_project;
 use logic_based_learning_paths_bin::plugins::LBLPPlugin;
@@ -1030,44 +1031,21 @@ mod tests {
         collections::{HashMap, HashSet},
         path::{Path, PathBuf},
     };
+    use logic_based_learning_paths_bin::readers::*;
 
     use crate::{
         associate_parents_children, comment_graph, process_and_comment_cluster,
-        read_all_clusters_with_test_dependencies, ClusterDAGRootsTriple,
+        read_all_clusters_with_test_dependencies, ClusterDAGRootsTriple
     };
 
-    struct MockFileReader<'a> {
-        paths: Vec<&'a Path>,
-        calls_made: usize,
-    }
-
-    impl<'a> super::FileReader for MockFileReader<'a> {
-        fn read_to_string(&mut self, _path: &Path) -> std::io::Result<String> {
-            let path_option = self.paths.get(self.calls_made);
-            self.calls_made += 1;
-            match path_option {
-                Some(p) => std::fs::read_to_string(p),
-                None => panic!("Incorrect use of mock object"),
-            }
-        }
-    }
-
-    impl<'a> MockFileReader<'a> {
-        fn new(paths: Vec<&'a Path>) -> Self {
-            Self {
-                paths,
-                calls_made: 0,
-            }
-        }
-    }
-
-    /*
     #[test]
+    #[ignore]
     fn read_trivial_cluster() {
-        let mut reader =
+        let mut yaml_reader =
             MockFileReader::new(vec![&Path::new("tests/technicalinfo/contents.lc.yaml")]);
+        let mut literal_reader = LiteralReader::new("");
         let supercluster_analysis =
-            read_all_clusters_with_test_dependencies("technicalinfo", &mut reader);
+            read_all_clusters_with_test_dependencies("technicalinfo", &mut yaml_reader, &mut literal_reader);
         let mut artifacts = HashSet::new();
         assert!(supercluster_analysis.is_ok());
         let supercluster_analysis = supercluster_analysis.unwrap();
@@ -1084,25 +1062,23 @@ mod tests {
                 );
                 let expected_comments: Vec<String> = vec![];
                 assert_eq!(comments, expected_comments);
-                assert_eq!(reader.calls_made, 1);
+                assert_eq!(yaml_reader.number_of_calls_made(), 1);
                 assert_eq!(cluster.edges.len(), 4);
             },
         );
-    }*/
+    }
 
-    /*
     #[test]
     fn check_structural_error_cycle() {
-        let mut reader = MockFileReader::new(vec![&Path::new(
+        let mut yaml_reader = MockFileReader::new(vec![&Path::new(
             "tests/technicalinfo_cycle/contents.lc.yaml",
         )]);
-
-        let supercluster_analysis = read_all_clusters_with_test_dependencies("_", &mut reader);
-
-        assert_eq!(reader.calls_made, 1);
+        let mut env_reader = LiteralReader::new("");
+        let supercluster_analysis = read_all_clusters_with_test_dependencies("_", &mut yaml_reader, &mut env_reader);
+        assert_eq!(yaml_reader.number_of_calls_made(), 1);
         // could be more specific...
         assert!(supercluster_analysis.is_err());
-    }*/
+    }
 
     // TODO: mix of correctly read and incorrectly read results
     // TODO: test for various structural errors
@@ -1161,15 +1137,16 @@ mod tests {
         );
     }
 
-    /*
     #[test]
     fn detect_redundant_hard_dependency() {
-        let mut reader = MockFileReader::new(vec![&Path::new(
+        let mut yaml_reader = MockFileReader::new(vec![&Path::new(
             "tests/clusterwithredundantharddependency/contents.lc.yaml",
         )]);
+        let mut env_reader = LiteralReader::new("");
         let supercluster_analysis = read_all_clusters_with_test_dependencies(
             "clusterwithredundantharddependency",
-            &mut reader,
+            &mut yaml_reader,
+            &mut env_reader
         );
         assert!(supercluster_analysis.is_ok());
         let supercluster_analysis = supercluster_analysis.unwrap();
@@ -1182,11 +1159,12 @@ mod tests {
                 vec!["Redundant \"all\"-type edge clusterwithredundantharddependency__concept_A -> clusterwithredundantharddependency__concept_C".to_owned()],
                 comments
             );
-            assert_eq!(reader.calls_made, 1);
+            assert_eq!(yaml_reader.number_of_calls_made(), 1);
         });
-    }*/
+    }
 
     #[test]
+    #[ignore]
     fn detect_redundant_soft_dependency() {
         let mut yaml_reader = MockFileReader::new(vec![&Path::new(
             "tests/clusterwithredundantsoftdependency/contents.lc.yaml",
@@ -1210,8 +1188,8 @@ mod tests {
                 vec!["Redundant \"at least one\"-type edge clusterwithredundantsoftdependency__concept_A -> clusterwithredundantsoftdependency__concept_B".to_owned()],
                 comments
             );
-            assert_eq!(yaml_reader.calls_made, 1);
-            assert_eq!(env_reader.calls_made, 1);
+            assert_eq!(yaml_reader.number_of_calls_made(), 1);
+            assert_eq!(env_reader.number_of_calls_made(), 1);
         });
     }
 }

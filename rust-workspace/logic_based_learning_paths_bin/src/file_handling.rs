@@ -1,23 +1,13 @@
 use anyhow::Context;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
+
+use crate::readers::FileReader;
 
 // TODO: rename to cluster_file_reading?
 
 /// The result of reading a Path, along with that Path.
 #[derive(Debug)]
 pub struct ReadResultForPath(pub anyhow::Result<String>, pub PathBuf);
-
-pub trait FileReader {
-    fn read_to_string(&mut self, path: &Path) -> std::io::Result<String>;
-}
-
-pub struct RealFileReader;
-
-impl FileReader for RealFileReader {
-    fn read_to_string(&mut self, path: &Path) -> std::io::Result<String> {
-        std::fs::read_to_string(path)
-    }
-}
 
 pub fn read_interpolated_yaml<T: FileReader, U: FileReader>(
     p: PathBuf,
@@ -79,28 +69,11 @@ pub fn read_interpolated_yaml<T: FileReader, U: FileReader>(
 
 #[cfg(test)]
 mod tests {
-    use super::{read_interpolated_yaml, FileReader, ReadResultForPath};
 
-    use std::{
-        path::{Path, PathBuf},
-        str::FromStr,
-    };
+    use crate::readers::LiteralReader;
+    use super::{read_interpolated_yaml, ReadResultForPath};
 
-    struct LiteralReader {
-        literal: String,
-    }
-
-    impl LiteralReader {
-        fn new(literal: String) -> Self {
-            Self { literal }
-        }
-    }
-
-    impl FileReader for LiteralReader {
-        fn read_to_string(&mut self, _: &Path) -> std::io::Result<String> {
-            Ok(self.literal.clone())
-        }
-    }
+    use std::{path::PathBuf, str::FromStr};
 
     #[test]
     fn happy_path() {
