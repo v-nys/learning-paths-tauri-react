@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 // TODO: rename to cluster_file_reading?
 
 /// The result of reading a Path, along with that Path.
-pub struct ReadResultForPath(anyhow::Result<String>, PathBuf);
+pub struct ReadResultForPath(pub anyhow::Result<String>, pub PathBuf);
 
 pub trait FileReader {
     fn read_to_string(&mut self, path: &Path) -> std::io::Result<String>;
@@ -26,6 +26,8 @@ pub fn read_interpolated_yaml<T: FileReader, U: FileReader> (
     let var_regex = regex::Regex::new(r"^[[:alnum:]_]+$").expect("Regex tested beforehand.");
     let interpolation_regex =
         regex::Regex::new(r"\$\{(?P<var_name>[[:alnum:]_]+)\}").expect("Regex tested beforehand.");
+    // wait, this is weird
+    // why am I supplying both the readers and p?
     let yaml_location = p.join("contents.lc.yaml");
     let env_location = p.join(".env");
     let env_variables: anyhow::Result<_> = env_reader
@@ -68,4 +70,32 @@ pub fn read_interpolated_yaml<T: FileReader, U: FileReader> (
                     }
                 });
     ReadResultForPath(interpolated_yaml, p)
+}
+
+#[cfg(test)]
+mod tests {
+    use std::path::Path;
+    use super::FileReader;
+
+    struct LiteralReader {
+        literal: String
+    }
+
+    impl LiteralReader {
+        fn new(literal: String) -> Self {
+            Self {
+                literal
+            }
+        }
+    }
+
+    impl FileReader for LiteralReader {
+
+        fn read_to_string(&mut self, _: &Path) -> std::io::Result<String> {
+            Ok(self.literal.clone())
+            
+        }
+    }
+
+
 }
