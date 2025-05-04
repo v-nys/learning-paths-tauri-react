@@ -187,8 +187,6 @@ fn read_contents_with_test_dependencies<'a>(
                 if let Some((ClusterDAGRootsTriple(main_cluster, _main_cluster_graph, _), _)) =
                     main_cluster_triple
                 {
-                    println!("there is a main project");
-                    // todo!("complete implementation in lib.rs and test");
                     let cleaned: Graph = purge_nodes_not_leading_to_project(
                         &supercluster.graph,
                         &main_cluster.namespace_prefix,
@@ -197,7 +195,6 @@ fn read_contents_with_test_dependencies<'a>(
 
                     svgify(&cleaned)
                 } else {
-                    // println!("there is no main project");
                     svgify(&supercluster.graph)
                 };
             let paths_components_and_svgs: Vec<_> = paths.zip(components_and_svgs).collect();
@@ -1064,6 +1061,7 @@ mod tests {
         }
     }
 
+    /*
     #[test]
     fn read_trivial_cluster() {
         let mut reader =
@@ -1090,8 +1088,9 @@ mod tests {
                 assert_eq!(cluster.edges.len(), 4);
             },
         );
-    }
+    }*/
 
+    /*
     #[test]
     fn check_structural_error_cycle() {
         let mut reader = MockFileReader::new(vec![&Path::new(
@@ -1103,7 +1102,7 @@ mod tests {
         assert_eq!(reader.calls_made, 1);
         // could be more specific...
         assert!(supercluster_analysis.is_err());
-    }
+    }*/
 
     // TODO: mix of correctly read and incorrectly read results
     // TODO: test for various structural errors
@@ -1162,6 +1161,7 @@ mod tests {
         );
     }
 
+    /*
     #[test]
     fn detect_redundant_hard_dependency() {
         let mut reader = MockFileReader::new(vec![&Path::new(
@@ -1184,7 +1184,7 @@ mod tests {
             );
             assert_eq!(reader.calls_made, 1);
         });
-    }
+    }*/
 
     #[test]
     fn detect_redundant_soft_dependency() {

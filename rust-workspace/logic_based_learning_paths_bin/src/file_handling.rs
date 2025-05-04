@@ -4,6 +4,7 @@ use std::path::{Path, PathBuf};
 // TODO: rename to cluster_file_reading?
 
 /// The result of reading a Path, along with that Path.
+#[derive(Debug)]
 pub struct ReadResultForPath(pub anyhow::Result<String>, pub PathBuf);
 
 pub trait FileReader {
@@ -18,16 +19,20 @@ impl FileReader for RealFileReader {
     }
 }
 
-pub fn read_interpolated_yaml<T: FileReader, U: FileReader> (
+pub fn read_interpolated_yaml<T: FileReader, U: FileReader>(
     p: PathBuf,
     yaml_reader: &mut T,
     env_reader: &mut U,
 ) -> ReadResultForPath {
+    // this feels off
+    // I am computing the full path to the metadata file and the env file here
+    // but I am also assuming a reader is supplied
+    // will need some restructuring to make more sense
+    // but cannot be done in isolation
+    // need to look at the entire call chain
     let var_regex = regex::Regex::new(r"^[[:alnum:]_]+$").expect("Regex tested beforehand.");
     let interpolation_regex =
         regex::Regex::new(r"\$\{(?P<var_name>[[:alnum:]_]+)\}").expect("Regex tested beforehand.");
-    // wait, this is weird
-    // why am I supplying both the readers and p?
     let yaml_location = p.join("contents.lc.yaml");
     let env_location = p.join(".env");
     let env_variables: anyhow::Result<_> = env_reader
@@ -74,28 +79,48 @@ pub fn read_interpolated_yaml<T: FileReader, U: FileReader> (
 
 #[cfg(test)]
 mod tests {
-    use std::path::Path;
-    use super::FileReader;
+    use super::{read_interpolated_yaml, FileReader, ReadResultForPath};
+
+    use std::{
+        path::{Path, PathBuf},
+        str::FromStr,
+    };
 
     struct LiteralReader {
-        literal: String
+        literal: String,
     }
 
     impl LiteralReader {
         fn new(literal: String) -> Self {
-            Self {
-                literal
-            }
+            Self { literal }
         }
     }
 
     impl FileReader for LiteralReader {
-
         fn read_to_string(&mut self, _: &Path) -> std::io::Result<String> {
             Ok(self.literal.clone())
-            
         }
     }
 
-
+    #[test]
+    fn happy_path() {
+        let raw_yaml = "foo: 1
+bar:
+  - ${QUUX}
+  - ${BAZ}";
+        let expected_yaml = "foo: 1
+bar:
+  - 7
+  - 9";
+        let env = "QUUX=7
+BAZ=9";
+        let p =
+            PathBuf::from_str("/home/mycluster").expect("Path is not actually used, won't fail.");
+        let mut yaml_reader = LiteralReader::new(raw_yaml.to_string());
+        let mut env_reader = LiteralReader::new(env.to_string());
+        let ReadResultForPath(result, _) =
+            read_interpolated_yaml(p, &mut yaml_reader, &mut env_reader);
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), expected_yaml.to_owned());
+    }
 }
