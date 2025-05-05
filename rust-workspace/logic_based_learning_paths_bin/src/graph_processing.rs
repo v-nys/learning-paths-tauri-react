@@ -30,12 +30,6 @@ use std::ops::Index;
 /// # Errors
 ///
 /// Returns an error if a cycle is detected in the graph during the topological sort.
-///
-/// # Example
-///
-/// ```rust
-/// let cleaned_graph = purge_nodes_not_leading_to_project(&graph, "main-namespace")?;
-/// ```
 pub fn purge_nodes_not_leading_to_project(
     supercluster: &Graph,
     main_project_namespace: &str,

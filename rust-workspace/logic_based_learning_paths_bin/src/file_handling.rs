@@ -70,30 +70,69 @@ pub fn read_interpolated_yaml<T: FileReader, U: FileReader>(
 #[cfg(test)]
 mod tests {
 
-    use crate::readers::LiteralReader;
     use super::{read_interpolated_yaml, ReadResultForPath};
+    use crate::readers::RealFileReader;
 
     use std::{path::PathBuf, str::FromStr};
 
     #[test]
     fn happy_path() {
-        let raw_yaml = "foo: 1
-bar:
-  - ${QUUX}
-  - ${BAZ}";
         let expected_yaml = "foo: 1
 bar:
   - 7
   - 9";
-        let env = "QUUX=7
-BAZ=9";
-        let p =
-            PathBuf::from_str("/home/mycluster").expect("Path is not actually used, won't fail.");
-        let mut yaml_reader = LiteralReader::new(raw_yaml.to_string());
-        let mut env_reader = LiteralReader::new(env.to_string());
+        let p = PathBuf::from_str("tests/clusterwithenvfile")
+            .expect("Folder and files are there as part of test.");
+        let mut yaml_reader = RealFileReader {};
+        let mut env_reader = RealFileReader {};
         let ReadResultForPath(result, _) =
             read_interpolated_yaml(p, &mut yaml_reader, &mut env_reader);
         assert!(result.is_ok());
-        assert_eq!(result.unwrap(), expected_yaml.to_owned());
+        assert_eq!(result.unwrap().trim(), expected_yaml.to_owned().trim());
     }
+
+    #[test]
+    fn missing_contents_file() {
+        let p = PathBuf::from_str("tests/clusterwithmissingcontentsfile")
+            .expect("Folder and files are there as part of test.");
+        let mut yaml_reader = RealFileReader {};
+        let mut env_reader = RealFileReader {};
+        let ReadResultForPath(result, _) =
+            read_interpolated_yaml(p, &mut yaml_reader, &mut env_reader);
+        assert!(result.is_err_and(|e| e.to_string().contains("Failed to read YAML file at")));
+    }
+
+    #[test]
+    fn missing_env_file() {
+        let p = PathBuf::from_str("tests/clusterwithmissingenvfile")
+            .expect("Folder and files are there as part of test.");
+        let mut yaml_reader = RealFileReader {};
+        let mut env_reader = RealFileReader {};
+        let ReadResultForPath(result, _) =
+            read_interpolated_yaml(p, &mut yaml_reader, &mut env_reader);
+        assert!(result.is_err_and(|e| e.to_string().contains("Failed to read env variables at")));
+    }
+
+    #[test]
+    fn missing_env_var() {
+        let p = PathBuf::from_str("tests/clusterwithmissingenvvar")
+            .expect("Folder and files are there as part of test.");
+        let mut yaml_reader = RealFileReader {};
+        let mut env_reader = RealFileReader {};
+        let ReadResultForPath(result, _) =
+            read_interpolated_yaml(p, &mut yaml_reader, &mut env_reader);
+        assert!(result.is_err_and(|e| e.to_string().contains("Missing binding")));
+    }
+
+    #[test]
+    fn prohibited_symbol_env_var() {
+        let p = PathBuf::from_str("tests/clusterwithprohibitedenvvarsymbol")
+            .expect("Folder and files are there as part of test.");
+        let mut yaml_reader = RealFileReader {};
+        let mut env_reader = RealFileReader {};
+        let ReadResultForPath(result, _) =
+            read_interpolated_yaml(p, &mut yaml_reader, &mut env_reader);
+        assert!(result.is_err_and(|e| e.to_string().contains("Invalid environment variable name")));
+    }
+
 }
