@@ -1,7 +1,7 @@
 // Prevents additional console window on Windows in release, DO NOT REMOVE!!
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 use anyhow;
-use git2::{Repository, Status};
+use ignore;
 use logic_based_learning_paths_bin::graph_processing::purge_nodes_not_leading_to_project;
 use logic_based_learning_paths_bin::plugins::LBLPPlugin;
 use petgraph::adj::List;
@@ -19,26 +19,6 @@ use schemars::{
     },
     schema_for,
 };
-
-fn is_under_vc(file_path: &str) -> bool {
-    // implementation is sloppy, should do proper error handling
-    if let Ok(repo) = Repository::discover(file_path) {
-        println!("discovered the repo that {} belongs to", file_path);
-        let file_path = Path::new(file_path);
-        let repo_path = repo.path().parent().unwrap();
-        let relative_path = file_path.strip_prefix(repo_path).unwrap();
-        println!("repo path: {:#?}", repo_path);
-        let status_file = repo.status_file(relative_path);
-        println!("file status: {:#?}", status_file);
-        if let Ok(status_file) = status_file {
-            !status_file.contains(Status::WT_NEW) && !status_file.contains(Status::IGNORED)
-        } else {
-            false
-        }
-    } else {
-        false
-    }
-}
 
 use petgraph::{
     algo::{
@@ -1045,7 +1025,7 @@ mod tests {
     };
 
     use crate::{
-        associate_parents_children, comment_graph, process_and_comment_cluster,
+        associate_parents_children, can_trigger_change, comment_graph, process_and_comment_cluster,
         read_all_clusters_with_test_dependencies, ClusterDAGRootsTriple,
     };
 
@@ -1072,6 +1052,32 @@ mod tests {
                 calls_made: 0,
             }
         }
+    }
+
+    #[test]
+    fn ignored_file_cannot_trigger_change() {
+        let cluster_path = PathBuf::from("tests/clusterwithlblpignore");
+        let lblpignore_path = cluster_path.join(".lblpignore");
+        let contents_file_path = cluster_path.join("contents.yaml");
+        let write_result = std::fs::write(lblpignore_path, "contents.yaml");
+        assert!(write_result.is_ok_and(|_| !can_trigger_change(
+            &contents_file_path
+                .to_str()
+                .expect("Should be able to convert to string.")
+        )));
+    }
+
+    #[test]
+    fn regular_file_can_trigger_change() {
+        let cluster_path = PathBuf::from("tests/clusterwithlblpignore");
+        let lblpignore_path = cluster_path.join(".lblpignore");
+        let removal_result = std::fs::remove_file(lblpignore_path);
+        let contents_file_path = cluster_path.join("contents.yaml");
+        assert!(removal_result.is_ok_and(|_| can_trigger_change(
+            &contents_file_path
+                .to_str()
+                .expect("Should be able to convert to string.")
+        )));
     }
 
     #[test]
@@ -1628,10 +1634,30 @@ fn store_collection(collection: &str, paths: &str) -> Result<HashMap<String, Str
 }
 
 #[tauri::command]
+// TODO: create some folders and populate them with contents.lc.yaml and .lblpignore files for testing
+// also check what happens if either or both is missing
 fn can_trigger_change(path: &str) -> bool {
-    // this is pretty ad hoc
-    // might want to come up with a more general solution to exceptions
-    path.ends_with("contents.lc.yaml") || is_under_vc(path)
+    let triggering_path_buf = PathBuf::from(path);
+    let triggering_path = triggering_path_buf.as_path();
+    let mut cluster_root = PathBuf::from(path)
+        .parent()
+        .map(|p| p.to_path_buf())
+        .expect("Only an file in a folder should be able to trigger a potential change.");
+    while !cluster_root.join("contents.lc.yaml").exists() {
+        cluster_root = cluster_root
+            .parent()
+            .map(|p| p.to_path_buf())
+            .expect("Only an file in a folder should be able to trigger a potential change.");
+    }
+    // keep invoking parent() until we get a contents.lc.yaml
+    let walk = ignore::WalkBuilder::new(cluster_root)
+        .add_custom_ignore_filename(".lblpignore")
+        .ignore(false)
+        .git_ignore(false)
+        .hidden(true)
+        .build();
+    walk.into_iter()
+        .any(|res| res.is_ok_and(|dir_entry| dir_entry.path() == triggering_path))
 }
 
 fn main() {

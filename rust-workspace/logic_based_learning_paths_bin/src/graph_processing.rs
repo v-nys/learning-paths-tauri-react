@@ -80,7 +80,7 @@ pub fn purge_nodes_not_leading_to_project(
 #[cfg(test)]
 mod tests {
 
-    use crate::domain_without_loading::{EdgeType, Graph, NodeID};
+    use logic_based_learning_paths::domain_without_loading::{EdgeType, Graph, NodeID};
 
     use super::purge_nodes_not_leading_to_project;
 
