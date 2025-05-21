@@ -27,15 +27,6 @@
         "$ref": "#/definitions/Edge"
       }
     },
-    "cluster_plugins": {
-      "type": [
-        "array",
-        "null"
-      ],
-      "items": {
-        "$ref": "#/definitions/PluginForSerialization"
-      }
-    },
     "node_plugins": {
       "type": [
         "array",
@@ -52,7 +43,16 @@
         "$ref": "#/definitions/Node"
       }
     },
-    "pre_archive_plugins": {
+    "pre_cluster_plugins": {
+      "type": [
+        "array",
+        "null"
+      ],
+      "items": {
+        "$ref": "#/definitions/PluginForSerialization"
+      }
+    },
+    "pre_zip_plugins": {
       "type": [
         "array",
         "null"
@@ -74,6 +74,26 @@
   },
   "additionalProperties": false,
   "definitions": {
+    "Assignment": {
+      "type": "object",
+      "required": [
+        "id"
+      ],
+      "properties": {
+        "attachments": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "string"
+          }
+        },
+        "id": {
+          "type": "string"
+        }
+      }
+    },
     "Edge": {
       "type": "object",
       "required": [
@@ -99,6 +119,13 @@
         "title"
       ],
       "properties": {
+        "assignments": {
+          "title": "Array_of_Assignment",
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/Assignment"
+          }
+        },
         "id": {
           "description": "An ID should be locally unique inside a `Cluster` and is used to refer to a node inside its `Cluster`.\n\nThe ID also be used to refer to the node from outside its `Cluster`, if it is preceded by the `Cluster`'s namespace prefix.",
           "type": "string"
@@ -111,17 +138,50 @@
       "additionalProperties": false
     },
     "PluginForSerialization": {
-      "title": "PluginForSerialization",
-      "type": "object",
-      "required": [
-        "path"
-      ],
-      "properties": {
-        "path": {
-          "type": "string"
+      "if": {
+        "type": "object",
+        "required": [
+          "path"
+        ],
+        "properties": {
+          "path": {
+            "pattern": "^/home/vincentn/Projects/learning\\-paths\\-tauri\\-react/rust\\-workspace/target/release/libassignments_plugin\\.so$"
+          }
         }
       },
-      "additionalProperties": false
+      "then": {
+        "title": "PluginForSerialization",
+        "type": "object",
+        "required": [
+          "path"
+        ],
+        "properties": {
+          "path": {
+            "type": "string"
+          },
+          "require_model_solutions": {
+            "title": "Nullable_Boolean",
+            "type": [
+              "boolean",
+              "null"
+            ]
+          }
+        },
+        "additionalProperties": false
+      },
+      "else": {
+        "title": "PluginForSerialization",
+        "type": "object",
+        "required": [
+          "path"
+        ],
+        "properties": {
+          "path": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      }
     }
   }
 }

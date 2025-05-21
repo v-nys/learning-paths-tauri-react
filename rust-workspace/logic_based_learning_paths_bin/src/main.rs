@@ -1056,12 +1056,17 @@ mod tests {
 
     #[test]
     fn ignored_file_cannot_trigger_change() {
-        let cluster_path = PathBuf::from("tests/clusterwithlblpignore");
+        // use a different cluster from other tests that manipulate files
+        // tests are run in parallel!
+        let cluster_path =
+            std::fs::canonicalize(PathBuf::from("tests/cluster1withlblpignore").as_path());
+        assert!(cluster_path.is_ok());
+        let cluster_path = cluster_path.unwrap();
         let lblpignore_path = cluster_path.join(".lblpignore");
-        let contents_file_path = cluster_path.join("contents.yaml");
-        let write_result = std::fs::write(lblpignore_path, "contents.yaml");
+        let contents_file_path = cluster_path.join("contents.lc.yaml");
+        let write_result = std::fs::write(lblpignore_path, "contents.lc.yaml");
         assert!(write_result.is_ok_and(|_| !can_trigger_change(
-            &contents_file_path
+            contents_file_path
                 .to_str()
                 .expect("Should be able to convert to string.")
         )));
@@ -1069,15 +1074,23 @@ mod tests {
 
     #[test]
     fn regular_file_can_trigger_change() {
-        let cluster_path = PathBuf::from("tests/clusterwithlblpignore");
+        // use a different cluster from other tests that manipulate files
+        // tests are run in parallel!
+        let cluster_path =
+            std::fs::canonicalize(PathBuf::from("tests/cluster2withlblpignore").as_path());
+        assert!(cluster_path.is_ok());
+        let cluster_path = cluster_path.unwrap();
         let lblpignore_path = cluster_path.join(".lblpignore");
         let removal_result = std::fs::remove_file(lblpignore_path);
-        let contents_file_path = cluster_path.join("contents.yaml");
-        assert!(removal_result.is_ok_and(|_| can_trigger_change(
-            &contents_file_path
-                .to_str()
-                .expect("Should be able to convert to string.")
-        )));
+        let contents_file_path = cluster_path.join("contents.lc.yaml");
+        assert!(
+            removal_result.is_ok()
+                || removal_result.is_err_and(|e| e.kind() == std::io::ErrorKind::NotFound)
+        );
+        let path_as_str = contents_file_path
+            .to_str()
+            .expect("Should be able to convert to string.");
+        assert!(can_trigger_change(path_as_str));
     }
 
     #[test]
@@ -1636,9 +1649,14 @@ fn store_collection(collection: &str, paths: &str) -> Result<HashMap<String, Str
 #[tauri::command]
 // TODO: create some folders and populate them with contents.lc.yaml and .lblpignore files for testing
 // also check what happens if either or both is missing
+// also allow ".yml"
 fn can_trigger_change(path: &str) -> bool {
     let triggering_path_buf = PathBuf::from(path);
     let triggering_path = triggering_path_buf.as_path();
+    assert!(
+        triggering_path.is_absolute(),
+        "This command is only intended for use with absolute paths."
+    );
     let mut cluster_root = PathBuf::from(path)
         .parent()
         .map(|p| p.to_path_buf())
