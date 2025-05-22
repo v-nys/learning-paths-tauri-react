@@ -1647,9 +1647,6 @@ fn store_collection(collection: &str, paths: &str) -> Result<HashMap<String, Str
 }
 
 #[tauri::command]
-// TODO: create some folders and populate them with contents.lc.yaml and .lblpignore files for testing
-// also check what happens if either or both is missing
-// also allow ".yml"
 fn can_trigger_change(path: &str) -> bool {
     let triggering_path_buf = PathBuf::from(path);
     let triggering_path = triggering_path_buf.as_path();

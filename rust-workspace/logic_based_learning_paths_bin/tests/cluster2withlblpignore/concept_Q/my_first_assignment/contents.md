@@ -1,1 +1,0 @@
-Dit is de omschrijving van my_first_assignment
