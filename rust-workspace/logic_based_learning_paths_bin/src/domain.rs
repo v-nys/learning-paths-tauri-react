@@ -17,5 +17,13 @@ pub struct Cluster {
     pub roots: Vec<NodeID>,
     pub node_plugins: Vec<NodeProcessingPlugin>,
     pub cluster_plugins: Vec<ClusterProcessingPlugin>,
-    pub pre_archive_plugins: Option<Vec<PreArchivePlugin>>
+    pub pre_archive_plugins: Option<Vec<PreArchivePlugin>>,
+}
+
+#[derive(Debug)]
+pub struct UnpopulatedCluster {
+    pub namespace_prefix: String,
+    pub node_plugins: Vec<NodeProcessingPlugin>,
+    pub cluster_plugins: Vec<ClusterProcessingPlugin>,
+    pub pre_archive_plugins: Option<Vec<PreArchivePlugin>>,
 }

@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 use serde_yaml::Value;
 use std::collections::{HashMap, HashSet};
 use std::fmt;
-use std::path::{PathBuf};
+use std::path::PathBuf;
 use std::time::SystemTime;
 
 // TODO: maybe the following structs aren't so much "domain"

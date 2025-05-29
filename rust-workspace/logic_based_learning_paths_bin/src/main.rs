@@ -37,7 +37,7 @@ use std::{collections::HashMap, fmt, fs::File, ops::Index, path::Path};
 mod rendering;
 
 use crate::rendering::svgify;
-use logic_based_learning_paths_bin::domain;
+use logic_based_learning_paths_bin::domain::{self, UnpopulatedCluster};
 use logic_based_learning_paths_bin::domain::{
     EdgeData, EdgeType, ExtensionFieldProcessingResult, Graph, NodeID, NodeProcessingError,
     StructuralError, TypedEdge,
@@ -103,6 +103,7 @@ struct RootedSupercluster {
 
 #[derive(Default)]
 struct AppState {
+    // this stuff is stored so it can be accessed if user clicks on "create zip" button
     supercluster_with_roots: Mutex<Option<(RootedSupercluster, Vec<domain::Cluster>)>>,
 }
 
@@ -132,14 +133,104 @@ fn read_contents<'a>(
     read_contents_with_test_dependencies(paths, file_is_readable, path_is_dir, app_state)
 }
 
+struct Pipeline<T> {
+    state: T,
+}
+
+#[derive(Default)]
+struct NoDataLoaded {}
+
+impl<T> Pipeline<T> {
+    pub fn new() -> Pipeline<NoDataLoaded> {
+        Pipeline {
+            state: NoDataLoaded::default(),
+        }
+    }
+}
+
+struct UnpopulatedClusterWithSourceText {
+    unpopulated_cluster: UnpopulatedCluster,
+    source_text: String,
+}
+
+struct UnpopulatedClusterWithSourceData {
+    path: PathBuf,
+    unpopulated_cluster: UnpopulatedClusterWithSourceText,
+}
+
+enum UnpopulatedClustersResult {
+    ZeroIssues(Vec<(PathBuf, UnpopulatedCluster, String)>),
+    Issues(Vec<(PathBuf, anyhow::Result<(UnpopulatedCluster, String)>)>),
+}
+
+impl Pipeline<NoDataLoaded> {
+    pub fn load_unpopulated_clusters<'a, T: FileReader>(
+        self,
+        paths: &'a str,
+        reader: &mut T,
+    ) -> Pipeline<UnpopulatedClustersResult> {
+        let paths = paths.split(";").map(|p| PathBuf::from(p));
+        let read_results = paths.clone().map(|p| {
+            let yaml_location = p.join("contents.lc.yaml");
+            ReadResultForPath(reader.read_to_string(yaml_location.as_path()), p)
+        });
+        let read_results = read_results
+            .map(|ReadResultForPath(r, p)| {
+                (
+                    p,
+                    match r {
+                        Ok(ref text) => serde_yaml::from_str::<
+                            deserialization::UnpopulatedClusterForSerialization,
+                        >(text)
+                        .map(|ucfs| (ucfs, text.to_owned()))
+                        .map_err(anyhow::Error::new),
+                        Err(e) => Err(anyhow::Error::new(e)),
+                    },
+                )
+            })
+            .map(|(p, res)| {
+                (
+                    p.clone(),
+                    res.and_then(|(ucfs, text)| ucfs.build(&p).map(|uc| (uc, text))),
+                )
+            })
+            .collect::<Vec<_>>();
+        if read_results.iter().all(|(_, res)| res.is_ok()) {
+            let total_result = read_results
+                .into_iter()
+                .map(|(path, res)| {
+                    let tup = res.expect("Just checked this via .all.");
+                    (path, tup.0, tup.1)
+                })
+                .collect();
+            Pipeline {
+                state: UnpopulatedClustersResult::ZeroIssues(total_result),
+            }
+        } else {
+            Pipeline {
+                state: UnpopulatedClustersResult::Issues(read_results),
+            }
+        }
+    }
+}
+
 fn read_contents_with_test_dependencies<'a>(
     paths: &'a str,
     file_is_readable: fn(&Path) -> bool,
     directory_is_readable: fn(&Path) -> bool,
     mut app_state: MutexGuard<Option<(RootedSupercluster, Vec<domain::Cluster>)>>,
 ) -> Vec<(&'a str, Result<(Vec<Comment>, SVGSource), String>)> {
-    // in result, first str is "path" (but can also be "supercluster")
+    // NOTE: app_state's current value does not matter
+    // we just have the MutexGuard so we can write!
+    //
     let mut reader = RealFileReader {};
+
+    // TODO: why do I even need to specify type here, given the blanket implementation?
+    // seems weird, because I could fill in any type and it would be ignored
+    let pipeline = Pipeline::<NoDataLoaded>::new();
+    let pipeline = pipeline.load_unpopulated_clusters(paths, &mut reader);
+
+    // in result, first str is "path" (but can also be "supercluster")
     let supercluster_result: Result<SuperclusterComposition, SuperclusterErrorBreakdown> =
         read_all_clusters_with_test_dependencies::<RealFileReader>(paths, &mut reader);
     let paths = paths.split(";");
