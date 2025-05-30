@@ -23,7 +23,10 @@ pub struct Cluster {
 #[derive(Debug)]
 pub struct UnpopulatedCluster {
     pub namespace_prefix: String,
-    pub node_plugins: Vec<NodeProcessingPlugin>,
-    pub cluster_plugins: Vec<ClusterProcessingPlugin>,
+    pub pre_node_node_plugins: Vec<NodeProcessingPlugin>,
+    pub post_node_node_plugins: Vec<NodeProcessingPlugin>,
+    pub post_node_cluster_plugins: Vec<ClusterProcessingPlugin>,
+    pub post_merge_node_plugins: Vec<NodeProcessingPlugin>,
+    pub post_merge_cluster_plugins: Vec<ClusterProcessingPlugin>,
     pub pre_archive_plugins: Option<Vec<PreArchivePlugin>>,
 }

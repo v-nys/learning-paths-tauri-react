@@ -290,13 +290,29 @@ pub struct UnpopulatedClusterForSerialization {
     pre_archive_plugins: Option<Vec<PluginForSerialization>>,
 }
 
-
 impl UnpopulatedClusterForSerialization {
-    pub fn build(self, cluster_path: &PathBuf) -> Result<domain::UnpopulatedCluster, anyhow::Error> {
-        unimplemented!("base this on old build function")
+    pub fn build(
+        self,
+        cluster_path: &PathBuf,
+    ) -> Result<domain::UnpopulatedCluster, anyhow::Error> {
+        let folder_name = cluster_path.file_name().ok_or(anyhow::Error::msg(
+            "Path does not have a final component.".to_owned(),
+        ))?;
+        let folder_name = folder_name.to_owned().into_string().map_err(|_osstr| {
+            anyhow::Error::msg("Failed to convert OS String into normal string")
+        })?;
+
+        Ok(domain::UnpopulatedCluster {
+            namespace_prefix: folder_name.clone(),
+            pre_node_node_plugins: vec![],
+            post_node_node_plugins: vec![],
+            post_node_cluster_plugins: vec![],
+            post_merge_node_plugins: vec![],
+            post_merge_cluster_plugins: vec![],
+            pre_archive_plugins: None,
+        })
     }
 }
-
 
 impl ClusterForSerialization {
     pub fn build(self, cluster_path: &PathBuf) -> Result<domain::Cluster, anyhow::Error> {
