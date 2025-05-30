@@ -900,6 +900,7 @@ mod tests {
     };
 
     use crate::{
+        UnpopulatedClustersResult,
         associate_parents_children, can_trigger_change, comment_graph, process_and_comment_cluster,
         read_all_clusters_with_test_dependencies, ClusterDAGRootsTriple, Pipeline, RealFileReader,
     };
@@ -930,10 +931,10 @@ mod tests {
     }
 
     #[test]
-    fn simple_unpopulated_clusters_happy_path() {
+    fn simple_unpopulated_clusters() {
         let mut reader = RealFileReader {};
         let base_path = std::fs::canonicalize(
-            PathBuf::from("tests/pipeline-tests/loading-of-unpopulated-clusters").as_path(),
+            PathBuf::from("tests/pipeline-tests/loading-of-unpopulated-clusters/simple").as_path(),
         );
         let base_path = base_path.expect("If this panics, the test fails, which is fine.");
         let cluster_1_path = base_path
@@ -949,8 +950,65 @@ mod tests {
         let combined_paths = vec![cluster_1_path, cluster_2_path].join(";");
         // not sure if there is all that much to test for this scenario
         // there are no plugins involved
-        let _ = Pipeline::new().load_unpopulated_clusters(&combined_paths, &mut reader);
+        let pipeline = Pipeline::new().load_unpopulated_clusters(&combined_paths, &mut reader);
+        match pipeline.state {
+            UnpopulatedClustersResult::ZeroIssues(_) => {},
+            UnpopulatedClustersResult::Issues(_) => panic!("Unpopulated clusters have issues when they shouldn't.")
+        }
     }
+
+
+    #[test]
+    fn unpopulated_clusters_with_noop_plugins() {
+        let mut reader = RealFileReader {};
+        let base_path = std::fs::canonicalize(
+            PathBuf::from("tests/pipeline-tests/loading-of-unpopulated-clusters/with-noop-plugins").as_path(),
+        );
+        let base_path = base_path.expect("If this panics, the test fails, which is fine.");
+        let cluster_1_path = base_path
+            .join("simpleproject")
+            .to_str()
+            .expect("If this panics, the test fails, which is fine.")
+            .to_owned();
+        let cluster_2_path = base_path
+            .join("technicalinfo")
+            .to_str()
+            .expect("If this panics, the test fails, which is fine.")
+            .to_owned();
+        let combined_paths = vec![cluster_1_path, cluster_2_path].join(";");
+        let pipeline = Pipeline::new().load_unpopulated_clusters(&combined_paths, &mut reader);
+        match pipeline.state {
+            UnpopulatedClustersResult::ZeroIssues(_) => {},
+            UnpopulatedClustersResult::Issues(_) => panic!("Unpopulated clusters have issues when they shouldn't.")
+        }
+    }
+
+    #[test]
+    fn unpopulated_clusters_with_missing_plugins() {
+        let mut reader = RealFileReader {};
+        let base_path = std::fs::canonicalize(
+            PathBuf::from("tests/pipeline-tests/loading-of-unpopulated-clusters/with-missing-plugins").as_path(),
+        );
+        let base_path = base_path.expect("If this panics, the test fails, which is fine.");
+        let cluster_1_path = base_path
+            .join("simpleproject")
+            .to_str()
+            .expect("If this panics, the test fails, which is fine.")
+            .to_owned();
+        let cluster_2_path = base_path
+            .join("technicalinfo")
+            .to_str()
+            .expect("If this panics, the test fails, which is fine.")
+            .to_owned();
+        let combined_paths = vec![cluster_1_path, cluster_2_path].join(";");
+        let pipeline = Pipeline::new().load_unpopulated_clusters(&combined_paths, &mut reader);
+        match pipeline.state {
+            UnpopulatedClustersResult::ZeroIssues(_) => panic!("Missing plugins should cause an issue."),
+            UnpopulatedClustersResult::Issues(_) => { unimplemented!("Not enough to say there are issues, could also be due because clusters themselves are not present.") }
+        }
+    }
+
+
 
     #[test]
     fn ignored_file_cannot_trigger_change() {
