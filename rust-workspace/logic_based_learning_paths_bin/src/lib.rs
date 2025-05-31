@@ -305,7 +305,8 @@ pub mod plugins {
         unloaded_plugins
             .into_iter()
             .map(|unloaded_plugin| {
-                let url = Wasm::file(&unloaded_plugin.path);
+                let joined_path = cluster_path.join(&unloaded_plugin.path);
+                let url = Wasm::file(&joined_path);
                 let manifest = Manifest::new([url]);
                 let plugin = PluginBuilder::new(manifest)
                     .with_wasi(true)
@@ -371,7 +372,8 @@ pub mod plugins {
         unloaded_plugins
             .into_iter()
             .map(|unloaded_plugin| {
-                let url = Wasm::file(&unloaded_plugin.path);
+                let joined_path = cluster_path.join(&unloaded_plugin.path);
+                let url = Wasm::file(&joined_path);
                 let manifest = Manifest::new([url]);
                 // TODO: examine whether these can be trimmed
                 let plugin = PluginBuilder::new(manifest)
@@ -442,7 +444,8 @@ pub mod plugins {
         unloaded_plugins
             .into_iter()
             .map(|unloaded_plugin| {
-                let url = Wasm::file(&unloaded_plugin.path);
+                let joined_path = cluster_path.join(&unloaded_plugin.path);
+                let url = Wasm::file(&joined_path);
                 let manifest = Manifest::new([url]);
                 // TODO: examine whether these can be trimmed
                 let plugin = PluginBuilder::new(manifest)

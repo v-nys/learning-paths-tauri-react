@@ -978,7 +978,7 @@ mod tests {
         let combined_paths = vec![cluster_1_path, cluster_2_path].join(";");
         let pipeline = Pipeline::new().load_unpopulated_clusters(&combined_paths, &mut reader);
         match pipeline.state {
-            UnpopulatedClustersResult::ZeroIssues(_) => {},
+            UnpopulatedClustersResult::ZeroIssues(_) => { unimplemented!("Should also check that these no-op plugins are actually loaded.") },
             UnpopulatedClustersResult::Issues(_) => panic!("Unpopulated clusters have issues when they shouldn't.")
         }
     }
