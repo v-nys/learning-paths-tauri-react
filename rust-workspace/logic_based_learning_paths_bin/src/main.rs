@@ -34,6 +34,7 @@ use std::sync::{Mutex, MutexGuard};
 use std::{collections::HashMap, fmt, fs::File, ops::Index, path::Path};
 
 mod rendering;
+mod readers;
 
 use logic_based_learning_paths_bin::domain::{self, UnpopulatedCluster};
 use logic_based_learning_paths_bin::domain::{
@@ -165,7 +166,7 @@ enum UnpopulatedClustersResult {
 }
 
 impl Pipeline<NoDataLoaded> {
-    pub fn load_unpopulated_clusters<'a, T: FileReader>(
+    pub fn load_unpopulated_clusters<'a, T: readers::FileReader>(
         self,
         paths: &'a str,
         reader: &mut T,
@@ -238,7 +239,7 @@ fn read_contents_with_test_dependencies<'a>(
     // NOTE: app_state's current value does not matter
     // we just have the MutexGuard so we can write!
     //
-    let mut reader = RealFileReader {};
+    let mut reader = readers::RealFileReader {};
 
     let pipeline = Pipeline::new();
     let pipeline = pipeline.load_unpopulated_clusters(paths, &mut reader);
@@ -256,18 +257,6 @@ fn path_is_dir(directory_path: &Path) -> bool {
     directory_path.is_dir()
 }
 
-trait FileReader {
-    fn read_to_string(&mut self, path: &Path) -> std::io::Result<String>;
-}
-
-struct RealFileReader;
-
-impl FileReader for RealFileReader {
-    fn read_to_string(&mut self, path: &Path) -> std::io::Result<String> {
-        std::fs::read_to_string(path)
-    }
-}
-
 #[derive(Debug)]
 struct SuperclusterComposition {
     composition: Vec<ClusterDAGRootsTriple>,
@@ -281,7 +270,7 @@ struct SuperclusterErrorBreakdown {
 }
 
 /// Reads input files, returning individual clusters and supercluster.
-fn read_all_clusters_with_test_dependencies<'a, T: FileReader>(
+fn read_all_clusters_with_test_dependencies<'a, T: readers::FileReader>(
     paths: &'a str,
     reader: &mut T,
 ) -> Result<SuperclusterComposition, SuperclusterErrorBreakdown> {
@@ -916,34 +905,11 @@ mod tests {
 
     use crate::{
         associate_parents_children, can_trigger_change, comment_graph, process_and_comment_cluster,
-        read_all_clusters_with_test_dependencies, ClusterDAGRootsTriple, Pipeline, RealFileReader,
+        read_all_clusters_with_test_dependencies, ClusterDAGRootsTriple, Pipeline,
         UnpopulatedClustersResult,
     };
+    use super::readers::{RealFileReader, MockFileReader, FileReader};
 
-    struct MockFileReader<'a> {
-        paths: Vec<&'a Path>,
-        calls_made: usize,
-    }
-
-    impl<'a> super::FileReader for MockFileReader<'a> {
-        fn read_to_string(&mut self, _path: &Path) -> std::io::Result<String> {
-            let path_option = self.paths.get(self.calls_made);
-            self.calls_made += 1;
-            match path_option {
-                Some(p) => std::fs::read_to_string(p),
-                None => panic!("Incorrect use of mock object"),
-            }
-        }
-    }
-
-    impl<'a> MockFileReader<'a> {
-        fn new(paths: Vec<&'a Path>) -> Self {
-            Self {
-                paths,
-                calls_made: 0,
-            }
-        }
-    }
 
     #[test]
     fn simple_unpopulated_clusters() {
