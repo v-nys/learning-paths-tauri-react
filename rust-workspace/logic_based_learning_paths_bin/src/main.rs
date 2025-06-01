@@ -1002,15 +1002,16 @@ mod tests {
                 let technicalinfo_cluster = &ucwms[1].unpopulated_cluster;
                 assert!(simpleproject_cluster.pre_node_node_plugins.len() == 1);
                 assert!(simpleproject_cluster.post_node_node_plugins.len() == 1);
-                assert!(simpleproject_cluster.post_node_cluster_plugins.len() == 1);
+                assert!(simpleproject_cluster.post_node_cluster_plugins.len() == 0);
                 assert!(simpleproject_cluster.post_merge_node_plugins.len() == 1);
-                assert!(simpleproject_cluster.post_merge_cluster_plugins.len() == 1);
+                assert!(simpleproject_cluster.post_merge_cluster_plugins.len() == 0);
                 assert!(simpleproject_cluster
                     .pre_archive_plugins
                     .as_ref()
                     .is_some_and(|ps| ps.len() == 1));
-                assert!(technicalinfo_cluster.pre_node_node_plugins.len() == 1);
-                assert!(technicalinfo_cluster.post_node_node_plugins.len() == 0);
+                assert!(technicalinfo_cluster.pre_node_node_plugins.len() == 0);
+                assert!(technicalinfo_cluster.post_node_cluster_plugins.len() == 1);
+                assert!(technicalinfo_cluster.post_merge_cluster_plugins.len() == 1);
                 assert!(technicalinfo_cluster.pre_archive_plugins.is_none());
             }
             UnpopulatedClustersResult::Issues(_) => {

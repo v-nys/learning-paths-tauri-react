@@ -15,11 +15,9 @@ pre_node_node_plugins:
   - path: "./lblp_dummy_node_plugin.wasm"
 post_node_node_plugins:
   - path: "./lblp_dummy_node_plugin.wasm"
-post_node_cluster_plugins:
-  - path: "./lblp_dummy_cluster_plugin.wasm"
+post_node_cluster_plugins: []
 post_merge_node_plugins:
   - path: "./lblp_dummy_node_plugin.wasm"
-post_merge_cluster_plugins:
-  - path: "./lblp_dummy_cluster_plugin.wasm"
+post_merge_cluster_plugins: []
 pre_archive_plugins:
   - path: "./lblp_dummy_archive_plugin.wasm"
