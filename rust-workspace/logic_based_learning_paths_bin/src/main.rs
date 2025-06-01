@@ -2,7 +2,6 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 use anyhow;
 use ignore;
-use logic_based_learning_paths_bin::graph_processing::purge_nodes_not_leading_to_project;
 use logic_based_learning_paths_bin::plugins::LBLPPlugin;
 use petgraph::adj::List;
 use petgraph::visit::IntoNeighbors;
@@ -36,7 +35,6 @@ use std::{collections::HashMap, fmt, fs::File, ops::Index, path::Path};
 
 mod rendering;
 
-use crate::rendering::svgify;
 use logic_based_learning_paths_bin::domain::{self, UnpopulatedCluster};
 use logic_based_learning_paths_bin::domain::{
     EdgeData, EdgeType, ExtensionFieldProcessingResult, Graph, NodeID, NodeProcessingError,
@@ -148,19 +146,22 @@ impl Pipeline<NoDataLoaded> {
     }
 }
 
-struct UnpopulatedClusterWithSourceText {
+#[derive(Debug)]
+struct UnpopulatedClusterWithMetadata {
+    cluster_path: PathBuf,
     unpopulated_cluster: UnpopulatedCluster,
-    source_text: String,
+    contents_file_contents: String,
 }
 
-struct UnpopulatedClusterWithSourceData {
-    path: PathBuf,
-    unpopulated_cluster: UnpopulatedClusterWithSourceText,
+#[derive(Debug)]
+struct UnpopulatedClusterResultWithMetadata {
+    cluster_path: PathBuf,
+    unpopulated_cluster_with_contents_file_contents: anyhow::Result<(UnpopulatedCluster, String)>,
 }
 
 enum UnpopulatedClustersResult {
-    ZeroIssues(Vec<(PathBuf, UnpopulatedCluster, String)>),
-    Issues(Vec<(PathBuf, anyhow::Result<(UnpopulatedCluster, String)>)>),
+    ZeroIssues(Vec<UnpopulatedClusterWithMetadata>),
+    Issues(Vec<UnpopulatedClusterResultWithMetadata>),
 }
 
 impl Pipeline<NoDataLoaded> {
@@ -188,20 +189,34 @@ impl Pipeline<NoDataLoaded> {
                     },
                 )
             })
-            .map(|(p, res)| {
-                (
-                    p.clone(),
-                    res.and_then(|(ucfs, text)| ucfs.build(&p).map(|uc| (uc, text))),
-                )
+            .map(|(p, res)| UnpopulatedClusterResultWithMetadata {
+                cluster_path: p.clone(),
+                unpopulated_cluster_with_contents_file_contents: res
+                    .and_then(|(ucfs, text)| ucfs.build(&p).map(|uc| (uc, text))),
             })
             .collect::<Vec<_>>();
-        if read_results.iter().all(|(_, res)| res.is_ok()) {
+        if read_results.iter().all(
+            |UnpopulatedClusterResultWithMetadata {
+                 unpopulated_cluster_with_contents_file_contents,
+                 ..
+             }| unpopulated_cluster_with_contents_file_contents.is_ok(),
+        ) {
             let total_result = read_results
                 .into_iter()
-                .map(|(path, res)| {
-                    let tup = res.expect("Just checked this via .all.");
-                    (path, tup.0, tup.1)
-                })
+                .map(
+                    |UnpopulatedClusterResultWithMetadata {
+                         cluster_path,
+                         unpopulated_cluster_with_contents_file_contents,
+                     }| {
+                        let tup = unpopulated_cluster_with_contents_file_contents
+                            .expect("Just checked this via .all.");
+                        UnpopulatedClusterWithMetadata {
+                            cluster_path,
+                            unpopulated_cluster: tup.0,
+                            contents_file_contents: tup.1,
+                        }
+                    },
+                )
                 .collect();
             Pipeline {
                 state: UnpopulatedClustersResult::ZeroIssues(total_result),
@@ -900,9 +915,9 @@ mod tests {
     };
 
     use crate::{
-        UnpopulatedClustersResult,
         associate_parents_children, can_trigger_change, comment_graph, process_and_comment_cluster,
         read_all_clusters_with_test_dependencies, ClusterDAGRootsTriple, Pipeline, RealFileReader,
+        UnpopulatedClustersResult,
     };
 
     struct MockFileReader<'a> {
@@ -952,17 +967,20 @@ mod tests {
         // there are no plugins involved
         let pipeline = Pipeline::new().load_unpopulated_clusters(&combined_paths, &mut reader);
         match pipeline.state {
-            UnpopulatedClustersResult::ZeroIssues(_) => {},
-            UnpopulatedClustersResult::Issues(issues) => { dbg!(issues); panic!("Unpopulated clusters have issues when they shouldn't.") }
+            UnpopulatedClustersResult::ZeroIssues(_) => {}
+            UnpopulatedClustersResult::Issues(issues) => {
+                dbg!(issues);
+                panic!("Unpopulated clusters have issues when they shouldn't.")
+            }
         }
     }
-
 
     #[test]
     fn unpopulated_clusters_with_noop_plugins() {
         let mut reader = RealFileReader {};
         let base_path = std::fs::canonicalize(
-            PathBuf::from("tests/pipeline-tests/loading-of-unpopulated-clusters/with-noop-plugins").as_path(),
+            PathBuf::from("tests/pipeline-tests/loading-of-unpopulated-clusters/with-noop-plugins")
+                .as_path(),
         );
         let base_path = base_path.expect("If this panics, the test fails, which is fine.");
         let cluster_1_path = base_path
@@ -978,8 +996,26 @@ mod tests {
         let combined_paths = vec![cluster_1_path, cluster_2_path].join(";");
         let pipeline = Pipeline::new().load_unpopulated_clusters(&combined_paths, &mut reader);
         match pipeline.state {
-            UnpopulatedClustersResult::ZeroIssues(_) => { unimplemented!("Should also check that these no-op plugins are actually loaded.") },
-            UnpopulatedClustersResult::Issues(_) => panic!("Unpopulated clusters have issues when they shouldn't.")
+            UnpopulatedClustersResult::ZeroIssues(ucwms) => {
+                assert!(ucwms.len() == 2);
+                let simpleproject_cluster = &ucwms[0].unpopulated_cluster;
+                let technicalinfo_cluster = &ucwms[1].unpopulated_cluster;
+                assert!(simpleproject_cluster.pre_node_node_plugins.len() == 1);
+                assert!(simpleproject_cluster.post_node_node_plugins.len() == 1);
+                assert!(simpleproject_cluster.post_node_cluster_plugins.len() == 1);
+                assert!(simpleproject_cluster.post_merge_node_plugins.len() == 1);
+                assert!(simpleproject_cluster.post_merge_cluster_plugins.len() == 1);
+                assert!(simpleproject_cluster
+                    .pre_archive_plugins
+                    .as_ref()
+                    .is_some_and(|ps| ps.len() == 1));
+                assert!(technicalinfo_cluster.pre_node_node_plugins.len() == 1);
+                assert!(technicalinfo_cluster.post_node_node_plugins.len() == 0);
+                assert!(technicalinfo_cluster.pre_archive_plugins.is_none());
+            }
+            UnpopulatedClustersResult::Issues(_) => {
+                panic!("Unpopulated clusters have issues when they shouldn't.")
+            }
         }
     }
 
@@ -987,7 +1023,10 @@ mod tests {
     fn unpopulated_clusters_with_missing_plugins() {
         let mut reader = RealFileReader {};
         let base_path = std::fs::canonicalize(
-            PathBuf::from("tests/pipeline-tests/loading-of-unpopulated-clusters/with-missing-plugins").as_path(),
+            PathBuf::from(
+                "tests/pipeline-tests/loading-of-unpopulated-clusters/with-missing-plugins",
+            )
+            .as_path(),
         );
         let base_path = base_path.expect("If this panics, the test fails, which is fine.");
         let cluster_1_path = base_path
@@ -1003,12 +1042,14 @@ mod tests {
         let combined_paths = vec![cluster_1_path, cluster_2_path].join(";");
         let pipeline = Pipeline::new().load_unpopulated_clusters(&combined_paths, &mut reader);
         match pipeline.state {
-            UnpopulatedClustersResult::ZeroIssues(_) => panic!("Missing plugins should cause an issue."),
-            UnpopulatedClustersResult::Issues(_) => { unimplemented!("Not enough to say there are issues, could also be due because clusters themselves are not present.") }
+            UnpopulatedClustersResult::ZeroIssues(_) => {
+                panic!("Missing plugins should cause an issue.")
+            }
+            UnpopulatedClustersResult::Issues(_) => {
+                unimplemented!("Not enough to say there are issues, could also be due because clusters themselves are not present.")
+            }
         }
     }
-
-
 
     #[test]
     fn ignored_file_cannot_trigger_change() {
