@@ -14,11 +14,7 @@ pub mod plugins {
     use base64::{engine::general_purpose::STANDARD as BASE64_ENGINE, Engine};
     use extism::{host_fn, Manifest, Plugin, PluginBuilder, UserData, Wasm};
     use logic_based_learning_paths::domain_without_loading::{
-        BoolPayload, ClusterProcessingPayload, DirectoryStructurePayload, DummyPayload,
-        ExtensionFieldProcessingPayload, ExtensionFieldProcessingResult, FileEntry,
-        FileReadBase64OperationInPayload, FileReadBase64OperationOutPayload,
-        FileReadOperationInPayload, FileReadOperationOutPayload, FileWriteOperationPayload,
-        NodeProcessingError, NodeProcessingPayload, ParamsSchema, SystemTimePayload,
+        ArchivePayload, BoolPayload, ClusterProcessingPayload, DirectoryStructurePayload, DummyPayload, ExtensionFieldProcessingPayload, ExtensionFieldProcessingResult, FileEntry, FileReadBase64OperationInPayload, FileReadBase64OperationOutPayload, FileReadOperationInPayload, FileReadOperationOutPayload, FileWriteOperationPayload, NodeProcessingError, NodeProcessingPayload, ParamsSchema, SystemTimePayload
     };
     use serde_yaml;
     use std::collections::HashSet;
@@ -216,6 +212,18 @@ pub mod plugins {
             let call_result: Result<ParamsSchema, _> =
                 self.extism_plugin.call("get_params_schema", ());
             call_result.map(|s| s.schema)
+        }
+    }
+
+    impl PreArchivePlugin {
+        pub fn run(&mut self, cluster_paths: Vec<&Path>) -> anyhow::Result<()> {
+            let payload = ArchivePayload {
+                cluster_paths: cluster_paths.iter().map(|p| p.to_path_buf()).collect(),
+                parameter_values: self.parameter_values.clone(),
+            };
+            let res: Result<(), _> =
+                self.extism_plugin.call("process_paths", payload);
+            res
         }
     }
 

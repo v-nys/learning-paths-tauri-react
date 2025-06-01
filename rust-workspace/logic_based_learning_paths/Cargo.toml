@@ -1,6 +1,6 @@
 [package]
 name = "logic_based_learning_paths"
-version = "0.0.1"
+version = "0.0.2"
 description = "A system for organizing project-based learning paths"
 authors = ["Vincent Nys"]
 license = "MIT"

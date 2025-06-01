@@ -106,6 +106,13 @@ pub struct ClusterProcessingPayload {
 
 #[derive(ToBytes, FromBytes, Serialize, Deserialize, Debug)]
 #[encoding(Json)]
+pub struct ArchivePayload {
+    pub parameter_values: HashMap<String, serde_yaml::Value>,
+    pub cluster_paths: Vec<PathBuf>,
+}
+
+#[derive(ToBytes, FromBytes, Serialize, Deserialize, Debug)]
+#[encoding(Json)]
 // have to use newtype here to add these derives
 // TODO: see if there is any way around this
 // newtype means I need to wrap everything on the plugin side, too...
