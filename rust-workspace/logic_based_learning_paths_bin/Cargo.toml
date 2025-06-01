@@ -1,6 +1,6 @@
 [package]
 name = "logic_based_learning_paths_bin"
-version = "0.0.1"
+version = "0.0.2"
 description = "A system for organizing project-based learning paths"
 authors = ["Vincent Nys"]
 license = "MIT"
@@ -20,7 +20,7 @@ tauri = { version = "1", features = ["shell-open", "window-all"] }
 serde_json = "1.0.120"
 tauri-plugin-fs-watch = { git = "https://github.com/tauri-apps/plugins-workspace", rev = "dce0f02bc571128308c30278cde3233f341e6a50" }
 petgraph = { version = "0.6", features = [ "serde-1" ] }
-logic_based_learning_paths = { version = "0.0.1", path = "../logic_based_learning_paths/" }
+logic_based_learning_paths = { version = "0.0.2", path = "../logic_based_learning_paths/" }
 graphviz-rust = "0.6"
 anyhow = "1.0.86"
 zip = "0.6.6"
