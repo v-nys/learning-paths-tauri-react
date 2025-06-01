@@ -1014,7 +1014,8 @@ mod tests {
                 assert!(technicalinfo_cluster.post_merge_cluster_plugins.len() == 1);
                 assert!(technicalinfo_cluster.pre_archive_plugins.is_none());
             }
-            UnpopulatedClustersResult::Issues(_) => {
+            UnpopulatedClustersResult::Issues(issues) => {
+                dbg!(issues);
                 panic!("Unpopulated clusters have issues when they shouldn't.")
             }
         }

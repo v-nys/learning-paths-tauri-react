@@ -301,15 +301,97 @@ impl UnpopulatedClusterForSerialization {
         let folder_name = folder_name.to_owned().into_string().map_err(|_osstr| {
             anyhow::Error::msg("Failed to convert OS String into normal string")
         })?;
-
+        // TODO: this is bascially the same thing three times...
+        let pre_node_node_plugins_result: anyhow::Result<Vec<_>> = load_node_processing_plugins(
+            self.pre_node_node_plugins
+                .unwrap_or_default()
+                .into_iter()
+                .map(|pfs| domain::UnloadedPlugin {
+                    path: pfs.path,
+                    parameters: pfs.parameters,
+                })
+                .collect(),
+            cluster_path,
+        )
+        .into_iter()
+        .collect();
+        let post_node_node_plugins_result: anyhow::Result<Vec<_>> = load_node_processing_plugins(
+            self.post_node_node_plugins
+                .unwrap_or_default()
+                .into_iter()
+                .map(|pfs| domain::UnloadedPlugin {
+                    path: pfs.path,
+                    parameters: pfs.parameters,
+                })
+                .collect(),
+            cluster_path,
+        )
+        .into_iter()
+        .collect();
+        let post_merge_node_plugins_result: anyhow::Result<Vec<_>> = load_node_processing_plugins(
+            self.post_merge_node_plugins
+                .unwrap_or_default()
+                .into_iter()
+                .map(|pfs| domain::UnloadedPlugin {
+                    path: pfs.path,
+                    parameters: pfs.parameters,
+                })
+                .collect(),
+            cluster_path,
+        )
+        .into_iter()
+        .collect();
+        // TODO: this is basically the same thing twice
+        let unloaded_post_node_cluster_plugins: Vec<_> = self
+            .post_node_cluster_plugins
+            .unwrap_or_default()
+            .into_iter()
+            .map(|pfs| UnloadedPlugin {
+                path: pfs.path,
+                parameters: pfs.parameters,
+            })
+            .collect();
+        let post_node_cluster_plugins_result: Result<Vec<_>, _> =
+            load_cluster_processing_plugins(unloaded_post_node_cluster_plugins, cluster_path)
+                .into_iter()
+                .collect();
+        let unloaded_post_merge_cluster_plugins: Vec<_> = self
+            .post_merge_cluster_plugins
+            .unwrap_or_default()
+            .into_iter()
+            .map(|pfs| UnloadedPlugin {
+                path: pfs.path,
+                parameters: pfs.parameters,
+            })
+            .collect();
+        let post_merge_cluster_plugins_result: Result<Vec<_>, _> =
+            load_cluster_processing_plugins(unloaded_post_merge_cluster_plugins, cluster_path)
+                .into_iter()
+                .collect();
+        let is_main_cluster = self.pre_archive_plugins.is_some();
+        let unloaded_pre_archive_plugins: Vec<_> = self
+            .pre_archive_plugins
+            .unwrap_or_default()
+            .into_iter()
+            .map(|pfs| UnloadedPlugin {
+                path: pfs.path,
+                parameters: pfs.parameters,
+            })
+            .collect();
+        let pre_archive_plugins_result: Result<Vec<_>, _> =
+            load_pre_archive_plugins(unloaded_pre_archive_plugins, cluster_path)
+                .into_iter()
+                .collect();
+        let pre_archive_plugins = pre_archive_plugins_result?;
+        // let pre_archive_plugins = pre_archive_plugins_result?;
         Ok(domain::UnpopulatedCluster {
             namespace_prefix: folder_name.clone(),
-            pre_node_node_plugins: vec![],
-            post_node_node_plugins: vec![],
-            post_node_cluster_plugins: vec![],
-            post_merge_node_plugins: vec![],
-            post_merge_cluster_plugins: vec![],
-            pre_archive_plugins: None,
+            pre_node_node_plugins: pre_node_node_plugins_result?,
+            post_node_node_plugins: post_node_node_plugins_result?,
+            post_node_cluster_plugins: post_node_cluster_plugins_result?,
+            post_merge_node_plugins: post_merge_node_plugins_result?,
+            post_merge_cluster_plugins: post_merge_cluster_plugins_result?,
+            pre_archive_plugins: if pre_archive_plugins.len() > 0 { Some(pre_archive_plugins) } else { None },
         })
     }
 }
