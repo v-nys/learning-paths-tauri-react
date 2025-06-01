@@ -1,0 +1,21 @@
+nodes:
+  - id: intro
+    title: "Intro"
+  - id: implementation
+    title: "Implementation"
+all_type_edges:
+  - start_id: technicalinfo__concept_Q
+    end_id: implementation
+any_type_edges:
+  - start_id: intro
+    end_id: implementation
+roots: intro
+# have one instance of every plugin type to make sure we don't skip loading any plugins
+pre_node_node_plugins:
+  - path: "./lblp_dummy_node_plugin.wasm"
+post_node_node_plugins:
+  - path: "./lblp_dummy_node_plugin.wasm"
+post_merge_node_plugins:
+  - path: "./lblp_dummy_node_plugin.wasm"
+pre_archive_plugins:
+  - path: "./lblp_dummy_archive_plugin.wasm"

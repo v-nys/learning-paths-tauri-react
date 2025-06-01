@@ -1045,10 +1045,12 @@ mod tests {
         let pipeline = Pipeline::new().load_unpopulated_clusters(&combined_paths, &mut reader);
         match pipeline.state {
             UnpopulatedClustersResult::ZeroIssues(_) => {
-                panic!("Missing plugins should cause an issue.")
+                panic!("Missing plugins should cause an issue but are not doing so.")
             }
-            UnpopulatedClustersResult::Issues(_) => {
-                unimplemented!("Not enough to say there are issues, could also be due because clusters themselves are not present.")
+            UnpopulatedClustersResult::Issues(issues) => {
+                assert!(issues.len() == 2);
+                assert!(format!("{:#?}", issues[0]).contains("Unable to load Wasm file"));
+                assert!(format!("{:#?}", issues[1]).contains("Unable to load Wasm file"));
             }
         }
     }
