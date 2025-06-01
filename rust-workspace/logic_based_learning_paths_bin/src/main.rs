@@ -953,7 +953,7 @@ mod tests {
         let pipeline = Pipeline::new().load_unpopulated_clusters(&combined_paths, &mut reader);
         match pipeline.state {
             UnpopulatedClustersResult::ZeroIssues(_) => {},
-            UnpopulatedClustersResult::Issues(_) => panic!("Unpopulated clusters have issues when they shouldn't.")
+            UnpopulatedClustersResult::Issues(issues) => { dbg!(issues); panic!("Unpopulated clusters have issues when they shouldn't.") }
         }
     }
 
