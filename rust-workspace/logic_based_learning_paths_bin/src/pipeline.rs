@@ -11,7 +11,8 @@ use logic_based_learning_paths_bin::deserialization;
 struct ReadResultForPath(Result<String, std::io::Error>, PathBuf);
 
 pub struct Pipeline<T> {
-    state: T,
+    // TODO: shouldn't be completely public
+    pub state: T,
 }
 
 #[derive(Default)]
@@ -27,15 +28,17 @@ impl Pipeline<NoDataLoaded> {
 
 #[derive(Debug)]
 pub struct UnpopulatedClusterWithMetadata {
-    cluster_path: PathBuf,
-    unpopulated_cluster: UnpopulatedCluster,
-    contents_file_contents: String,
+    // TODO: shouldn't be completely public
+    pub cluster_path: PathBuf,
+    pub unpopulated_cluster: UnpopulatedCluster,
+    pub contents_file_contents: String,
 }
 
 #[derive(Debug)]
 pub struct UnpopulatedClusterResultWithMetadata {
-    cluster_path: PathBuf,
-    unpopulated_cluster_with_contents_file_contents: anyhow::Result<(UnpopulatedCluster, String)>,
+    // TODO: shouldn't be completely public
+    pub cluster_path: PathBuf,
+    pub unpopulated_cluster_with_contents_file_contents: anyhow::Result<(UnpopulatedCluster, String)>,
 }
 
 pub enum UnpopulatedClustersResult {
