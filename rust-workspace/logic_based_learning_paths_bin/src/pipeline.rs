@@ -1,22 +1,21 @@
-use anyhow;
 use crate::readers;
+use anyhow;
 
 use std::path::PathBuf;
 
-use logic_based_learning_paths_bin::domain::UnpopulatedCluster;
 use logic_based_learning_paths_bin::deserialization;
+use logic_based_learning_paths_bin::domain::UnpopulatedCluster;
 
 #[derive(Debug)]
 /// The result of reading a Path, along with that Path.
 struct ReadResultForPath(Result<String, std::io::Error>, PathBuf);
 
-pub struct Pipeline<T> {
-    // TODO: shouldn't be completely public
-    pub state: T,
+pub(crate) struct Pipeline<T> {
+    state: T,
 }
 
 #[derive(Default)]
-pub struct NoDataLoaded {}
+pub(crate) struct NoDataLoaded {}
 
 impl Pipeline<NoDataLoaded> {
     pub fn new() -> Pipeline<NoDataLoaded> {
@@ -27,32 +26,60 @@ impl Pipeline<NoDataLoaded> {
 }
 
 #[derive(Debug)]
-pub struct UnpopulatedClusterWithMetadata {
-    // TODO: shouldn't be completely public
-    pub cluster_path: PathBuf,
-    pub unpopulated_cluster: UnpopulatedCluster,
-    pub contents_file_contents: String,
+pub(crate) struct UnpopulatedClusterWithMetadata {
+    cluster_path: PathBuf,
+    unpopulated_cluster: UnpopulatedCluster,
+    contents_file_contents: String,
+}
+
+impl UnpopulatedClusterWithMetadata {
+    pub(crate) fn new(
+        cluster_path: PathBuf,
+        unpopulated_cluster: UnpopulatedCluster,
+        contents_file_contents: String,
+    ) -> Self {
+        Self {
+            cluster_path,
+            unpopulated_cluster,
+            contents_file_contents,
+        }
+    }
+
+    pub(crate) fn get_cluster_path(&self) -> &PathBuf {
+        &self.cluster_path
+    }
+    pub(crate) fn get_unpopulated_cluster(&self) -> &UnpopulatedCluster {
+        &self.unpopulated_cluster
+    }
+    pub(crate) fn get_contents_file_contents(&self) -> &String {
+        &self.contents_file_contents
+    }
 }
 
 #[derive(Debug)]
 pub struct UnpopulatedClusterResultWithMetadata {
-    // TODO: shouldn't be completely public
     pub cluster_path: PathBuf,
-    pub unpopulated_cluster_with_contents_file_contents: anyhow::Result<(UnpopulatedCluster, String)>,
+    pub unpopulated_cluster_with_contents_file_contents:
+        anyhow::Result<(UnpopulatedCluster, String)>,
 }
 
-pub enum UnpopulatedClustersResult {
-    ZeroIssues(Vec<UnpopulatedClusterWithMetadata>),
-    Issues(Vec<UnpopulatedClusterResultWithMetadata>),
+#[derive(Debug)]
+pub(crate) struct LoadedAllUnpopulatedClusters {
+    unpopulated_clusters_with_metadata: Vec<UnpopulatedClusterWithMetadata>,
+}
+
+#[derive(Debug)]
+pub(crate) struct LoadedSubsetOfUnpopulatedClusters {
+    unpopulated_cluster_results_with_metadata: Vec<UnpopulatedClusterResultWithMetadata>,
 }
 
 impl Pipeline<NoDataLoaded> {
-
-    pub fn load_unpopulated_clusters<'a, T: readers::FileReader>(
+    pub(crate) fn load_unpopulated_clusters<'a, T: readers::FileReader>(
         self,
         paths: &'a str,
         reader: &mut T,
-    ) -> Pipeline<UnpopulatedClustersResult> {
+    ) -> Result<Pipeline<LoadedAllUnpopulatedClusters>, Pipeline<LoadedSubsetOfUnpopulatedClusters>>
+    {
         let paths = paths.split(";").map(|p| PathBuf::from(p));
         let read_results = paths.clone().map(|p| {
             let yaml_location = p.join("contents.lc.yaml");
@@ -101,24 +128,27 @@ impl Pipeline<NoDataLoaded> {
                     },
                 )
                 .collect();
-            Pipeline {
-                state: UnpopulatedClustersResult::ZeroIssues(total_result),
-            }
+            Ok(Pipeline {
+                state: LoadedAllUnpopulatedClusters {
+                    unpopulated_clusters_with_metadata: total_result,
+                },
+            })
         } else {
-            Pipeline {
-                state: UnpopulatedClustersResult::Issues(read_results),
-            }
+            Err(Pipeline {
+                state: LoadedSubsetOfUnpopulatedClusters {
+                    unpopulated_cluster_results_with_metadata: read_results,
+                },
+            })
         }
     }
 }
-
 
 #[cfg(test)]
 mod tests {
     use std::path::PathBuf;
 
+    use super::Pipeline;
     use crate::readers;
-    use super::{Pipeline, UnpopulatedClustersResult};
 
     #[test]
     fn simple_unpopulated_clusters() {
@@ -141,13 +171,10 @@ mod tests {
         // not sure if there is all that much to test for this scenario
         // there are no plugins involved
         let pipeline = Pipeline::new().load_unpopulated_clusters(&combined_paths, &mut reader);
-        match pipeline.state {
-            UnpopulatedClustersResult::ZeroIssues(_) => {}
-            UnpopulatedClustersResult::Issues(issues) => {
-                dbg!(issues);
-                panic!("Unpopulated clusters have issues when they shouldn't.")
-            }
-        }
+        assert!(
+            pipeline.is_ok(),
+            "This should yield a state on the happy path."
+        );
     }
 
     #[test]
@@ -169,9 +196,11 @@ mod tests {
             .expect("If this panics, the test fails, which is fine.")
             .to_owned();
         let combined_paths = vec![cluster_1_path, cluster_2_path].join(";");
-        let pipeline = Pipeline::new().load_unpopulated_clusters(&combined_paths, &mut reader);
-        match pipeline.state {
-            UnpopulatedClustersResult::ZeroIssues(ucwms) => {
+        let resulting_state =
+            Pipeline::new().load_unpopulated_clusters(&combined_paths, &mut reader);
+        match resulting_state {
+            Ok(Pipeline { state }) => {
+                let ucwms = state.unpopulated_clusters_with_metadata;
                 assert!(ucwms.len() == 2);
                 let simpleproject_cluster = &ucwms[0].unpopulated_cluster;
                 let technicalinfo_cluster = &ucwms[1].unpopulated_cluster;
@@ -189,9 +218,9 @@ mod tests {
                 assert!(technicalinfo_cluster.post_merge_cluster_plugins.len() == 1);
                 assert!(technicalinfo_cluster.pre_archive_plugins.is_none());
             }
-            UnpopulatedClustersResult::Issues(issues) => {
-                dbg!(issues);
-                panic!("Unpopulated clusters have issues when they shouldn't.")
+            Err(Pipeline { state }) => {
+                dbg!(state);
+                panic!("Wound up off the expected happy path.");
             }
         }
     }
@@ -217,12 +246,12 @@ mod tests {
             .expect("If this panics, the test fails, which is fine.")
             .to_owned();
         let combined_paths = vec![cluster_1_path, cluster_2_path].join(";");
-        let pipeline = Pipeline::new().load_unpopulated_clusters(&combined_paths, &mut reader);
-        match pipeline.state {
-            UnpopulatedClustersResult::ZeroIssues(_) => {
-                panic!("Missing plugins should cause an issue but are not doing so.")
-            }
-            UnpopulatedClustersResult::Issues(issues) => {
+        let resulting_state =
+            Pipeline::new().load_unpopulated_clusters(&combined_paths, &mut reader);
+        match resulting_state {
+            Ok(_) => panic!("State should not be without issues."),
+            Err(pipeline) => {
+                let issues = pipeline.state.unpopulated_cluster_results_with_metadata;
                 assert!(issues.len() == 2);
                 assert!(format!("{:#?}", issues[0]).contains("Unable to load Wasm file"));
                 assert!(format!("{:#?}", issues[1]).contains("Unable to load Wasm file"));
