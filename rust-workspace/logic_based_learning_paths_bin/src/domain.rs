@@ -15,8 +15,11 @@ pub struct Cluster {
     pub nodes: Vec<Node>,
     pub edges: Vec<TypedEdge>,
     pub roots: Vec<NodeID>,
-    pub node_plugins: Vec<NodeProcessingPlugin>,
-    pub cluster_plugins: Vec<ClusterProcessingPlugin>,
+    pub pre_node_node_plugins: Vec<NodeProcessingPlugin>,
+    pub post_node_node_plugins: Vec<NodeProcessingPlugin>,
+    pub post_node_cluster_plugins: Vec<ClusterProcessingPlugin>,
+    pub post_merge_node_plugins: Vec<NodeProcessingPlugin>,
+    pub post_merge_cluster_plugins: Vec<ClusterProcessingPlugin>,
     pub pre_archive_plugins: Option<Vec<PreArchivePlugin>>,
 }
 
@@ -29,4 +32,21 @@ pub struct UnpopulatedCluster {
     pub post_merge_node_plugins: Vec<NodeProcessingPlugin>,
     pub post_merge_cluster_plugins: Vec<ClusterProcessingPlugin>,
     pub pre_archive_plugins: Option<Vec<PreArchivePlugin>>,
+}
+
+impl UnpopulatedCluster {
+    pub fn to_empty_cluster(self) -> Cluster {
+        Cluster {
+            namespace_prefix: self.namespace_prefix,
+            nodes: vec![],
+            edges: vec![],
+            roots: vec![],
+            pre_node_node_plugins: self.pre_node_node_plugins,
+            post_node_node_plugins: self.post_node_node_plugins,
+            post_node_cluster_plugins: self.post_node_cluster_plugins,
+            post_merge_node_plugins: self.post_merge_node_plugins,
+            post_merge_cluster_plugins: self.post_merge_cluster_plugins,
+            pre_archive_plugins: self.pre_archive_plugins
+        }
+    }
 }
