@@ -5,13 +5,13 @@ use ignore;
 use logic_based_learning_paths_bin::plugins::LBLPPlugin;
 use petgraph::adj::List;
 use petgraph::visit::IntoNeighbors;
+use pipeline::NoDataLoaded;
 use regex;
 use serde::Serialize;
 use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::io::Write;
 use zip::write::FileOptions;
 use zip::CompressionMethod;
-use crate::pipeline::Pipeline;
 
 use schemars::{
     schema::{
@@ -145,10 +145,10 @@ fn read_contents_with_test_dependencies<'a>(
     //
     let mut reader = readers::RealFileReader {};
 
-    let pipeline = Pipeline::new();
-    let pipeline = pipeline.load_unpopulated_clusters(paths, &mut reader);
+    let state = NoDataLoaded::new();
+    let state = state.load_unpopulated_clusters(paths, &mut reader);
     // next step
-    // let pipeline = pipeline.generate_schemas();
+    // let state = state.generate_schemas();
 
     todo!()
 }
@@ -382,6 +382,8 @@ fn process_and_comment_cluster(
     directory_is_readable: fn(&Path) -> bool,
     artifacts: &mut HashSet<ArtifactMapping>,
 ) -> Vec<String> {
+    todo!("See what can be done with this now.")
+        /*
     let mut remarks: Vec<String> = vec![];
     let cluster_path = Path::new(cluster_path);
     artifacts.insert(ArtifactMapping {
@@ -614,6 +616,7 @@ fn process_and_comment_cluster(
     });
     comment_graph(&graph, &mut remarks);
     remarks
+        */
 }
 
 fn associate_with_dag(cluster: domain::Cluster) -> Result<ClusterDAGRootsTriple, anyhow::Error> {
