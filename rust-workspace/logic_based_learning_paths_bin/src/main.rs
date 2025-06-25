@@ -1,5 +1,6 @@
 // Prevents additional console window on Windows in release, DO NOT REMOVE!!
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+use crate::readers::FileReader;
 use anyhow;
 use ignore;
 use logic_based_learning_paths_bin::plugins::LBLPPlugin;
@@ -33,8 +34,8 @@ use std::path::PathBuf;
 use std::sync::{Mutex, MutexGuard};
 use std::{collections::HashMap, fmt, fs::File, ops::Index, path::Path};
 
-mod rendering;
 mod readers;
+mod rendering;
 
 use logic_based_learning_paths_bin::domain::{self, UnpopulatedCluster};
 use logic_based_learning_paths_bin::domain::{
@@ -132,20 +133,8 @@ fn read_contents<'a>(
     read_contents_with_test_dependencies(paths, file_is_readable, path_is_dir, app_state)
 }
 
-struct Pipeline<T> {
-    state: T,
-}
-
 #[derive(Default)]
 struct NoDataLoaded {}
-
-impl Pipeline<NoDataLoaded> {
-    pub fn new() -> Pipeline<NoDataLoaded> {
-        Pipeline {
-            state: NoDataLoaded::default(),
-        }
-    }
-}
 
 #[derive(Debug)]
 struct UnpopulatedClusterWithMetadata {
@@ -160,93 +149,77 @@ struct UnpopulatedClusterResultWithMetadata {
     unpopulated_cluster_with_contents_file_contents: anyhow::Result<(UnpopulatedCluster, String)>,
 }
 
-enum UnpopulatedClustersResult {
-    ZeroIssues(Vec<UnpopulatedClusterWithMetadata>),
-    Issues(Vec<UnpopulatedClusterResultWithMetadata>),
-}
-
-impl Pipeline<NoDataLoaded> {
-    pub fn load_unpopulated_clusters<'a, T: readers::FileReader>(
-        self,
-        paths: &'a str,
-        reader: &mut T,
-    ) -> Pipeline<UnpopulatedClustersResult> {
-        let paths = paths.split(";").map(|p| PathBuf::from(p));
-        let read_results = paths.clone().map(|p| {
-            let yaml_location = p.join("contents.lc.yaml");
-            ReadResultForPath(reader.read_to_string(yaml_location.as_path()), p)
-        });
-        let read_results = read_results
-            .map(|ReadResultForPath(r, p)| {
-                (
-                    p,
-                    match r {
-                        Ok(ref text) => serde_yaml::from_str::<
-                            deserialization::UnpopulatedClusterForSerialization,
-                        >(text)
-                        .map(|ucfs| (ucfs, text.to_owned()))
-                        .map_err(anyhow::Error::new),
-                        Err(e) => Err(anyhow::Error::new(e)),
-                    },
-                )
-            })
-            .map(|(p, res)| UnpopulatedClusterResultWithMetadata {
-                cluster_path: p.clone(),
-                unpopulated_cluster_with_contents_file_contents: res
-                    .and_then(|(ucfs, text)| ucfs.build(&p).map(|uc| (uc, text))),
-            })
-            .collect::<Vec<_>>();
-        if read_results.iter().all(
-            |UnpopulatedClusterResultWithMetadata {
-                 unpopulated_cluster_with_contents_file_contents,
-                 ..
-             }| unpopulated_cluster_with_contents_file_contents.is_ok(),
-        ) {
-            let total_result = read_results
-                .into_iter()
-                .map(
-                    |UnpopulatedClusterResultWithMetadata {
-                         cluster_path,
-                         unpopulated_cluster_with_contents_file_contents,
-                     }| {
-                        let tup = unpopulated_cluster_with_contents_file_contents
-                            .expect("Just checked this via .all.");
-                        UnpopulatedClusterWithMetadata {
-                            cluster_path,
-                            unpopulated_cluster: tup.0,
-                            contents_file_contents: tup.1,
-                        }
-                    },
-                )
-                .collect();
-            Pipeline {
-                state: UnpopulatedClustersResult::ZeroIssues(total_result),
-            }
-        } else {
-            Pipeline {
-                state: UnpopulatedClustersResult::Issues(read_results),
-            }
-        }
-    }
+#[derive(Debug)]
+struct SchemaGenerationResult {
+    cluster_path: PathBuf,
+    unpopulated_cluster_with_contents_file_contents: anyhow::Result<(UnpopulatedCluster, String)>,
 }
 
 fn read_contents_with_test_dependencies<'a>(
     paths: &'a str,
     file_is_readable: fn(&Path) -> bool,
     directory_is_readable: fn(&Path) -> bool,
-    mut app_state: MutexGuard<Option<(RootedSupercluster, Vec<domain::Cluster>)>>,
-) -> Vec<(&'a str, Result<(Vec<Comment>, SVGSource), String>)> {
     // NOTE: app_state's current value does not matter
     // we just have the MutexGuard so we can write!
-    //
+    mut _app_state: MutexGuard<Option<(RootedSupercluster, Vec<domain::Cluster>)>>,
+) -> Vec<(&'a str, Result<(Vec<Comment>, SVGSource), String>)> {
     let mut reader = readers::RealFileReader {};
-
-    let pipeline = Pipeline::new();
-    let pipeline = pipeline.load_unpopulated_clusters(paths, &mut reader);
-    // next step
-    // let pipeline = pipeline.generate_schemas();
-
-    todo!()
+    let paths = paths.split(";").map(|p| PathBuf::from(p));
+    let read_results = paths.clone().map(|p| {
+        let yaml_location = p.join("contents.lc.yaml");
+        ReadResultForPath(reader.read_to_string(yaml_location.as_path()), p)
+    });
+    /* read_results contains results of reading *unpopulated* clusters
+     * this won't always be successful
+     * it has to be successful for every cluster if cluster merging is to succeed
+     */
+    let read_results = read_results
+        .map(|ReadResultForPath(r, p)| {
+            (
+                p,
+                match r {
+                    Ok(ref text) => serde_yaml::from_str::<
+                        deserialization::UnpopulatedClusterForSerialization,
+                    >(text)
+                    .map(|ucfs| (ucfs, text.to_owned()))
+                    .map_err(anyhow::Error::new),
+                    Err(e) => Err(anyhow::Error::new(e)),
+                },
+            )
+        })
+        .map(|(p, res)| UnpopulatedClusterResultWithMetadata {
+            cluster_path: p.clone(),
+            unpopulated_cluster_with_contents_file_contents: res
+                .and_then(|(ucfs, text)| ucfs.build(&p).map(|uc| (uc, text))),
+        })
+        .collect::<Vec<_>>();
+    println!("So I am seeing this. And I know there are read results.");
+    // how would schema gen work?
+    // should perform a mapping over the results
+    // no need to really transform the contents yet, but those for which schema cannot be generated
+    // should become error values
+    // the schema is for a *populated* cluster
+    // but deserialization will happen for *unpopulated* cluster
+    // see https://raw.githubusercontent.com/v-nys/learning-paths-tauri-react/4c143bb58e3a5066c40bb7fde71c5518c2289eb2/rust-workspace/logic_based_learning_paths_bin/src/main.rs
+    let mut overall_schema = dbg!(schema_for!(deserialization::ClusterForSerialization));
+    let mut plugin_schema = schemars::schema_for!(deserialization::PluginForSerialization);
+    let schema_generation_results = read_results.into_iter().map(|ucrwm| {
+        SchemaGenerationResult {
+            cluster_path: ucrwm.cluster_path,
+            unpopulated_cluster_with_contents_file_contents: ucrwm
+                .unpopulated_cluster_with_contents_file_contents
+                .and_then(|(uc, contents)| {
+                    // TODO: create customized version of overall_schema
+                    // and only map to Ok value if that goes smoothly
+                    Ok((uc, contents))
+                }),
+        }
+    });
+    // for sgr in schema_generation_results {
+    //     dbg!(sgr);
+    // }
+    std::process::exit(0);
+    todo!("add this part")
 }
 
 fn file_is_readable(file_path: &Path) -> bool {
@@ -903,13 +876,12 @@ mod tests {
         path::{Path, PathBuf},
     };
 
+    use super::readers::{FileReader, MockFileReader, RealFileReader};
     use crate::{
         associate_parents_children, can_trigger_change, comment_graph, process_and_comment_cluster,
         read_all_clusters_with_test_dependencies, ClusterDAGRootsTriple, Pipeline,
         UnpopulatedClustersResult,
     };
-    use super::readers::{RealFileReader, MockFileReader, FileReader};
-
 
     #[test]
     fn simple_unpopulated_clusters() {

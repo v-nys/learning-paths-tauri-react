@@ -1,6 +1,6 @@
 {
   inputs = {
-    nixpkgs.url = "nixpkgs";
+    nixpkgs.url = "github:nixos/nixpkgs/nixos-24.11";
     flake-utils.url = "github:numtide/flake-utils";
   };
 
@@ -19,6 +19,7 @@
           librsvg
         ];
         packages = with pkgs; [
+          nodejs_20
           envsubst # to enable tests which use absolute paths
           curlFull
           wget
