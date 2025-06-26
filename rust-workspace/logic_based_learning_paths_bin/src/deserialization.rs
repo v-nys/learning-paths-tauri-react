@@ -241,7 +241,7 @@ impl<'de> Deserialize<'de> for PluginForSerialization {
 /// which it is serialized.
 /// It uses disjoint, optional sets of edges because that saves a lot of repetition when writing in
 /// a data format.
-#[derive(Clone, JsonSchema)]
+#[derive(Deserialize, Clone, JsonSchema)]
 pub struct ClusterForSerialization {
     /// Units of information inside this `Cluster`.
     nodes: Vec<self::Node>,
@@ -251,7 +251,7 @@ pub struct ClusterForSerialization {
     any_type_edges: Option<Vec<Edge>>,
     /// IDs of `Node`s with no dependencies whatsoever, i.e. the only `Node`s which can be accessed unconditionally.
     roots: Option<Vec<String>>,
-    pre_node_node_plugins: Option<Vec<PluginForSerialization>>,
+    // don't need pre_node_cluster_plugins: those have already run from unpopulated variant
     post_node_node_plugins: Option<Vec<PluginForSerialization>>,
     post_node_cluster_plugins: Option<Vec<PluginForSerialization>>,
     post_merge_node_plugins: Option<Vec<PluginForSerialization>>,
@@ -282,7 +282,7 @@ pub struct ClusterPopulation {
 
 #[derive(Deserialize, Clone, JsonSchema)]
 pub struct UnpopulatedClusterForSerialization {
-    pre_node_node_plugins: Option<Vec<PluginForSerialization>>,
+    pre_node_cluster_plugins: Option<Vec<PluginForSerialization>>,
     post_node_node_plugins: Option<Vec<PluginForSerialization>>,
     post_node_cluster_plugins: Option<Vec<PluginForSerialization>>,
     post_merge_node_plugins: Option<Vec<PluginForSerialization>>,
@@ -301,20 +301,7 @@ impl UnpopulatedClusterForSerialization {
         let folder_name = folder_name.to_owned().into_string().map_err(|_osstr| {
             anyhow::Error::msg("Failed to convert OS String into normal string")
         })?;
-        // TODO: this is bascially the same thing three times...
-        let pre_node_node_plugins_result: anyhow::Result<Vec<_>> = load_node_processing_plugins(
-            self.pre_node_node_plugins
-                .unwrap_or_default()
-                .into_iter()
-                .map(|pfs| domain::UnloadedPlugin {
-                    path: pfs.path,
-                    parameters: pfs.parameters,
-                })
-                .collect(),
-            cluster_path,
-        )
-        .into_iter()
-        .collect();
+
         let post_node_node_plugins_result: anyhow::Result<Vec<_>> = load_node_processing_plugins(
             self.post_node_node_plugins
                 .unwrap_or_default()
@@ -341,7 +328,21 @@ impl UnpopulatedClusterForSerialization {
         )
         .into_iter()
         .collect();
-        // TODO: this is basically the same thing twice
+
+        let unloaded_pre_node_cluster_plugins: Vec<_> = self
+            .pre_node_cluster_plugins
+            .unwrap_or_default()
+            .into_iter()
+            .map(|pfs| UnloadedPlugin {
+                path: pfs.path,
+                parameters: pfs.parameters,
+            })
+            .collect();
+        let pre_node_cluster_plugins_result: Result<Vec<_>, _> =
+            load_cluster_processing_plugins(unloaded_pre_node_cluster_plugins, cluster_path)
+                .into_iter()
+                .collect();
+
         let unloaded_post_node_cluster_plugins: Vec<_> = self
             .post_node_cluster_plugins
             .unwrap_or_default()
@@ -386,20 +387,22 @@ impl UnpopulatedClusterForSerialization {
         // let pre_archive_plugins = pre_archive_plugins_result?;
         Ok(domain::UnpopulatedCluster {
             namespace_prefix: folder_name.clone(),
-            pre_node_node_plugins: pre_node_node_plugins_result?,
+            pre_node_cluster_plugins: pre_node_cluster_plugins_result?,
             post_node_node_plugins: post_node_node_plugins_result?,
             post_node_cluster_plugins: post_node_cluster_plugins_result?,
             post_merge_node_plugins: post_merge_node_plugins_result?,
             post_merge_cluster_plugins: post_merge_cluster_plugins_result?,
-            pre_archive_plugins: if pre_archive_plugins.len() > 0 { Some(pre_archive_plugins) } else { None },
+            pre_archive_plugins: if pre_archive_plugins.len() > 0 {
+                Some(pre_archive_plugins)
+            } else {
+                None
+            },
         })
     }
 }
 
 impl ClusterForSerialization {
     pub fn build(self, cluster_path: &PathBuf) -> Result<domain::Cluster, anyhow::Error> {
-        todo!("Need to update plugin fields.")
-        /*
         let folder_name = cluster_path.file_name().ok_or(anyhow::Error::msg(
             "Path does not have a final component.".to_owned(),
         ))?;
@@ -410,8 +413,8 @@ impl ClusterForSerialization {
         let nodes: Vec<_> = self.nodes.iter().map(|n| n.build(&folder_name)).collect();
         // turn it into a result for a vector
         let nodes: Result<Vec<_>, _> = nodes.into_iter().collect();
-        let node_plugins_result: anyhow::Result<Vec<_>> = load_node_processing_plugins(
-            self.node_plugins
+        let post_node_node_plugins_result: anyhow::Result<Vec<_>> = load_node_processing_plugins(
+            self.post_node_node_plugins
                 .unwrap_or_default()
                 .into_iter()
                 .map(|pfs| domain::UnloadedPlugin {
@@ -423,8 +426,9 @@ impl ClusterForSerialization {
         )
         .into_iter()
         .collect();
-        let unloaded_cluster_plugins: Vec<_> = self
-            .cluster_plugins
+
+        let unloaded_post_node_cluster_plugins: Vec<_> = self
+            .post_node_cluster_plugins
             .unwrap_or_default()
             .into_iter()
             .map(|pfs| UnloadedPlugin {
@@ -432,8 +436,35 @@ impl ClusterForSerialization {
                 parameters: pfs.parameters,
             })
             .collect();
-        let cluster_plugins_result: Result<Vec<_>, _> =
-            load_cluster_processing_plugins(unloaded_cluster_plugins, cluster_path)
+        let post_node_cluster_plugins_result: Result<Vec<_>, _> =
+            load_cluster_processing_plugins(unloaded_post_node_cluster_plugins, cluster_path)
+                .into_iter()
+                .collect();
+
+        let post_merge_node_plugins_result: anyhow::Result<Vec<_>> = load_node_processing_plugins(
+            self.post_merge_node_plugins
+                .unwrap_or_default()
+                .into_iter()
+                .map(|pfs| domain::UnloadedPlugin {
+                    path: pfs.path,
+                    parameters: pfs.parameters,
+                })
+                .collect(),
+            cluster_path,
+        )
+        .into_iter()
+        .collect();
+        let unloaded_post_merge_cluster_plugins: Vec<_> = self
+            .post_merge_cluster_plugins
+            .unwrap_or_default()
+            .into_iter()
+            .map(|pfs| UnloadedPlugin {
+                path: pfs.path,
+                parameters: pfs.parameters,
+            })
+            .collect();
+        let post_merge_cluster_plugins_result: Result<Vec<_>, _> =
+            load_cluster_processing_plugins(unloaded_post_merge_cluster_plugins, cluster_path)
                 .into_iter()
                 .collect();
 
@@ -478,14 +509,15 @@ impl ClusterForSerialization {
                     local_id: root_string,
                 })
                 .collect(),
-            node_plugins: node_plugins_result?,
-            cluster_plugins: cluster_plugins_result?,
+            post_node_node_plugins: post_node_node_plugins_result?,
+            post_node_cluster_plugins: post_node_cluster_plugins_result?,
+            post_merge_node_plugins: post_merge_node_plugins_result?,
+            post_merge_cluster_plugins: post_merge_cluster_plugins_result?,
             pre_archive_plugins: if is_main_cluster {
                 Some(pre_archive_plugins_result?)
             } else {
                 None
             },
         })
-        */
     }
 }

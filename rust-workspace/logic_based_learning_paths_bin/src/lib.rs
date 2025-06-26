@@ -14,7 +14,11 @@ pub mod plugins {
     use base64::{engine::general_purpose::STANDARD as BASE64_ENGINE, Engine};
     use extism::{host_fn, Manifest, Plugin, PluginBuilder, UserData, Wasm};
     use logic_based_learning_paths::domain_without_loading::{
-        ArchivePayload, BoolPayload, ClusterProcessingPayload, DirectoryStructurePayload, DummyPayload, ExtensionFieldProcessingPayload, ExtensionFieldProcessingResult, FileEntry, FileReadBase64OperationInPayload, FileReadBase64OperationOutPayload, FileReadOperationInPayload, FileReadOperationOutPayload, FileWriteOperationPayload, NodeProcessingError, NodeProcessingPayload, ParamsSchema, SystemTimePayload
+        ArchivePayload, BoolPayload, ClusterProcessingPayload, DirectoryStructurePayload,
+        DummyPayload, ExtensionFieldProcessingPayload, ExtensionFieldProcessingResult, FileEntry,
+        FileReadBase64OperationInPayload, FileReadBase64OperationOutPayload,
+        FileReadOperationInPayload, FileReadOperationOutPayload, FileWriteOperationPayload,
+        NodeProcessingError, NodeProcessingPayload, ParamsSchema, SystemTimePayload,
     };
     use serde_yaml;
     use std::collections::HashSet;
@@ -56,14 +60,15 @@ pub mod plugins {
         Ok(entries)
     }
 
-    // TODO: add plugin trait with method get_params_schema as before
-    // possibly other methods, too
     pub trait LBLPPlugin {
         fn get_path(&self) -> &String;
         // TODO: consider adding default impl of get_params_schema here?
         fn get_params_schema(
             &mut self,
         ) -> anyhow::Result<HashMap<String, (bool, serde_json::Value)>>;
+        // note: cannot provide default implementation here, even if it is the same everywhere
+        // need to know concrete type
+        fn as_lblp_plugin_mut(&mut self) -> &mut dyn LBLPPlugin;
     }
 
     host_fn!(file_exists(user_data: PathBuf; relative_path: String) -> BoolPayload {
@@ -213,6 +218,11 @@ pub mod plugins {
                 self.extism_plugin.call("get_params_schema", ());
             call_result.map(|s| s.schema)
         }
+
+        fn as_lblp_plugin_mut(&mut self) -> &mut dyn LBLPPlugin {
+            self
+        }
+
     }
 
     impl PreArchivePlugin {
@@ -221,8 +231,7 @@ pub mod plugins {
                 cluster_paths: cluster_paths.iter().map(|p| p.to_path_buf()).collect(),
                 parameter_values: self.parameter_values.clone(),
             };
-            let res: Result<(), _> =
-                self.extism_plugin.call("process_paths", payload);
+            let res: Result<(), _> = self.extism_plugin.call("process_paths", payload);
             res
         }
     }
@@ -245,6 +254,10 @@ pub mod plugins {
             let call_result: Result<ParamsSchema, _> =
                 self.extism_plugin.call("get_params_schema", ());
             call_result.map(|s| s.schema)
+        }
+
+        fn as_lblp_plugin_mut(&mut self) -> &mut dyn LBLPPlugin {
+            self
         }
     }
 
@@ -352,6 +365,10 @@ pub mod plugins {
             let call_result: Result<ParamsSchema, _> =
                 self.extism_plugin.call("get_params_schema", ());
             call_result.map(|s| s.schema)
+        }
+
+        fn as_lblp_plugin_mut(&mut self) -> &mut dyn LBLPPlugin {
+            self
         }
     }
 

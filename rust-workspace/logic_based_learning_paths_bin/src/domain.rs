@@ -1,4 +1,4 @@
-use crate::plugins::{ClusterProcessingPlugin, NodeProcessingPlugin, PreArchivePlugin};
+use crate::plugins::{ClusterProcessingPlugin, LBLPPlugin, NodeProcessingPlugin, PreArchivePlugin};
 
 pub use logic_based_learning_paths::domain_without_loading::*;
 
@@ -15,18 +15,66 @@ pub struct Cluster {
     pub nodes: Vec<Node>,
     pub edges: Vec<TypedEdge>,
     pub roots: Vec<NodeID>,
-    pub node_plugins: Vec<NodeProcessingPlugin>,
-    pub cluster_plugins: Vec<ClusterProcessingPlugin>,
+    // don't think I need pre_node_cluster_plugins here
+    // those have already run before the cluster is constructed
+    pub post_node_node_plugins: Vec<NodeProcessingPlugin>,
+    pub post_node_cluster_plugins: Vec<ClusterProcessingPlugin>,
+    pub post_merge_node_plugins: Vec<NodeProcessingPlugin>,
+    pub post_merge_cluster_plugins: Vec<ClusterProcessingPlugin>,
     pub pre_archive_plugins: Option<Vec<PreArchivePlugin>>,
 }
 
 #[derive(Debug)]
 pub struct UnpopulatedCluster {
     pub namespace_prefix: String,
-    pub pre_node_node_plugins: Vec<NodeProcessingPlugin>,
+    pub pre_node_cluster_plugins: Vec<ClusterProcessingPlugin>,
     pub post_node_node_plugins: Vec<NodeProcessingPlugin>,
     pub post_node_cluster_plugins: Vec<ClusterProcessingPlugin>,
     pub post_merge_node_plugins: Vec<NodeProcessingPlugin>,
     pub post_merge_cluster_plugins: Vec<ClusterProcessingPlugin>,
     pub pre_archive_plugins: Option<Vec<PreArchivePlugin>>,
+}
+
+impl UnpopulatedCluster {
+    pub fn node_plugins_mut(&mut self) -> impl Iterator<Item = &mut NodeProcessingPlugin> {
+        let ponnp = self.post_node_node_plugins.iter_mut();
+        let pmnp = self.post_merge_node_plugins.iter_mut();
+        ponnp.chain(pmnp)
+    }
+
+    pub fn all_plugins_mut(&mut self) -> impl Iterator<Item = &mut dyn LBLPPlugin> {
+        // node plugins
+        let prnnp = self
+            .pre_node_cluster_plugins
+            .iter_mut()
+            .map(|p| p.as_lblp_plugin_mut());
+        let ponnp = self
+            .post_node_node_plugins
+            .iter_mut()
+            .map(|p| p.as_lblp_plugin_mut());
+        let pmnp = self
+            .post_merge_node_plugins
+            .iter_mut()
+            .map(|p| p.as_lblp_plugin_mut());
+        // cluster plugins
+        let poncp = self
+            .post_node_cluster_plugins
+            .iter_mut()
+            .map(|p| p.as_lblp_plugin_mut());
+        let pomcp = self
+            .post_merge_cluster_plugins
+            .iter_mut()
+            .map(|p| p.as_lblp_plugin_mut());
+        let pap = self
+            .pre_archive_plugins
+            .iter_mut()
+            .flatten()
+            .map(|p| p.as_lblp_plugin_mut());
+        prnnp
+            .chain(ponnp)
+            .chain(pmnp)
+            .chain(poncp)
+            .chain(pomcp)
+            .chain(pap)
+    }
 }
