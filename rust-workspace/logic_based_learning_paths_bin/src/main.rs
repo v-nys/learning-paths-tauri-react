@@ -1,8 +1,10 @@
 // Prevents additional console window on Windows in release, DO NOT REMOVE!!
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+use crate::rendering::svgify;
 use crate::readers::FileReader;
 use anyhow;
 use ignore;
+use logic_based_learning_paths_bin::graph_processing::purge_nodes_not_leading_to_project;
 use logic_based_learning_paths_bin::deserialization::ClusterForSerialization;
 use logic_based_learning_paths_bin::plugins::LBLPPlugin;
 use petgraph::adj::List;
@@ -86,12 +88,19 @@ impl std::error::Error for StructuralErrorGrouping {
 }
 
 #[derive(Debug)]
-// A combination of a `Cluster`, its Petgraph representation and its roots.
-struct ClusterDAGRootsTriple(domain::Cluster, Graph, Vec<NodeID>);
+struct SuperclusterComponent {
+    cluster: domain::Cluster,
+    graph: Graph,
+    roots: Vec<NodeID>,
+    remarks: Vec<String>,
+    artifact_mappings: HashSet<ArtifactMapping>
+}
 
-/// A combination of the comments that apply to a cluster and its SVG representation.
-struct CommentsSvgTuple(Vec<String>, SVGSource);
-
+#[derive(Debug)]
+struct VisualizedSuperclusterComponent {
+    model: SuperclusterComponent,
+    view: SVGSource
+}
 /// The result of reading a Path, along with that Path.
 struct ReadResultForPath(Result<String, std::io::Error>, PathBuf);
 
@@ -105,7 +114,7 @@ struct RootedSupercluster {
 #[derive(Default)]
 struct AppState {
     // this stuff is stored so it can be accessed if user clicks on "create zip" button
-    supercluster_with_roots: Mutex<Option<(RootedSupercluster, Vec<domain::Cluster>)>>,
+    supercluster_with_roots: Mutex<Option<(RootedSupercluster, Vec<(domain::Cluster, HashSet<ArtifactMapping>)>)>>,
 }
 
 /// Given a sequence of filesystem paths, deserialize the cluster represented by each path and optionally run additional validation.
@@ -125,7 +134,7 @@ struct AppState {
 fn read_contents<'a>(
     paths: &'a str,
     state: tauri::State<'_, AppState>,
-) -> Vec<(&'a str, Result<(Vec<String>, String), String>)> {
+) -> Vec<(String, Result<(Vec<String>, String), String>)> {
     let mut app_state = state
         .supercluster_with_roots
         .lock()
@@ -179,7 +188,13 @@ struct ClusterPopulationResult {
 #[derive(Debug)]
 struct PostNodeNodePluginResult {
     cluster_path: PathBuf,
-    cluster_with_artifact_mapping: anyhow::Result<(Cluster, HashSet<ArtifactMapping>)>,
+    cluster_with_artifact_mapping_and_remarks: anyhow::Result<(Cluster, HashSet<ArtifactMapping>, Vec<String>)>,
+}
+
+#[derive(Debug)]
+struct PostNodeClusterPluginResult {
+    cluster_path: PathBuf,
+    cluster_with_artifact_mapping_and_remarks: anyhow::Result<(Cluster, HashSet<ArtifactMapping>, Vec<String>)>,
 }
 
 fn read_contents_with_test_dependencies<'a>(
@@ -188,18 +203,14 @@ fn read_contents_with_test_dependencies<'a>(
     directory_is_readable: fn(&Path) -> bool,
     // NOTE: app_state's current value does not matter
     // we just have the MutexGuard so we can write!
-    mut _app_state: MutexGuard<Option<(RootedSupercluster, Vec<domain::Cluster>)>>,
-) -> Vec<(&'a str, Result<(Vec<Comment>, SVGSource), String>)> {
+    mut app_state: MutexGuard<Option<(RootedSupercluster, Vec<(domain::Cluster, HashSet<ArtifactMapping>)>)>>,
+) -> Vec<(String, Result<(Vec<Comment>, SVGSource), String>)> {
     let mut reader = readers::RealFileReader {};
     let paths = paths.split(";").map(|p| PathBuf::from(p));
     let read_results = paths.clone().map(|p| {
         let yaml_location = p.join("contents.lc.yaml");
         ReadResultForPath(reader.read_to_string(yaml_location.as_path()), p)
     });
-    /* read_results contains results of reading *unpopulated* clusters
-     * this won't always be successful
-     * it has to be successful for every cluster if cluster merging is to succeed
-     */
     let read_results = read_results
         .map(|ReadResultForPath(r, p)| {
             (
@@ -225,6 +236,7 @@ fn read_contents_with_test_dependencies<'a>(
         .into_iter()
         .map(|ucrwm| {
             let cluster_path = ucrwm.cluster_path.clone();
+
             SchemaGenerationResult {
                 cluster_path: ucrwm.cluster_path,
                 unpopulated_cluster_with_contents_file_contents_and_mandatory_fields: ucrwm
@@ -408,7 +420,10 @@ fn read_contents_with_test_dependencies<'a>(
 
                         // can't seem to use collect, so do this manually
                         let overall_plugin_result = separate_plugin_results.into_iter().fold(
-                            Ok(HashSet::new()),
+                            Ok(HashSet::from_iter(vec![ArtifactMapping {
+        local_file: sgr.cluster_path.join("contents.lc.yaml"),
+        root_relative_target_dir: PathBuf::from(uc.namespace_prefix.clone()),
+    }].into_iter())),
                             |acc, current| match (acc, current) {
                                 (Ok(mut acc), Ok(current)) => {
                                     acc.extend(current);
@@ -445,14 +460,15 @@ fn read_contents_with_test_dependencies<'a>(
             });
 
     // run post-node node plugins
-    {
-        let mut post_node_node_plugin_remarks = vec![];
-        let post_node_node_plugin_results =
+    let post_node_node_plugin_results =
         cluster_population_results
             .into_iter()
-            .map(|cpr| PostNodeNodePluginResult {
+            .map(|cpr| 
+                {
+                let mut post_node_node_plugin_remarks = vec![];
+                PostNodeNodePluginResult {
                 cluster_path: cpr.cluster_path.clone(),
-                cluster_with_artifact_mapping: cpr.cluster_with_mandatory_fields_and_artifact_mapping.and_then(|(mut cluster, mandatory_fields, mut artifacts)| {
+                cluster_with_artifact_mapping_and_remarks: cpr.cluster_with_mandatory_fields_and_artifact_mapping.and_then(|(mut cluster, mandatory_fields, mut artifacts)| {
                     cluster.nodes.iter().for_each(|n| {
                     let node_dir_is_readable =
                         directory_is_readable(&cpr.cluster_path.join(&n.node_id.local_id).as_path());
@@ -498,7 +514,7 @@ fn read_contents_with_test_dependencies<'a>(
                                     post_node_node_plugin_remarks.extend(additional_remarks.into_iter());
                                 },
                                 Some(ExtensionFieldProcessingResult { result: Err(NodeProcessingError::CannotProcessFieldType) }) => { unreachable!("This indicates an inability to prcess the field, which is checked earlier."); },
-                                None => { post_node_node_plugin_remarks.push(format!("No plugin able to process field {}", k)) }
+                                None => { post_node_node_plugin_remarks.push(format!("No plugin able to process field {} in node {}", k, n.node_id)) }
                             }
                         });
                         let contents_file_path = &cpr.cluster_path
@@ -518,17 +534,138 @@ fn read_contents_with_test_dependencies<'a>(
                             });
                         }
                     }});
-
-                    Ok((cluster, artifacts))
+                    Ok((cluster, artifacts, post_node_node_plugin_remarks))
                 })
-            }).collect::<Vec<_>>();
-    }
+            }}).collect::<Vec<_>>();
 
-    // TODO: run post-node cluster plugins
-    // TODO: build supercluster
-    // TODO: run post-merge node
-    // TODO: run post-merge cluster plugins
-    std::process::exit(0);
+    let post_node_cluster_plugin_results =
+        post_node_node_plugin_results
+            .into_iter()
+            .map(|pnnpr| PostNodeClusterPluginResult {
+                cluster_path: pnnpr.cluster_path.clone(),
+                cluster_with_artifact_mapping_and_remarks: pnnpr.cluster_with_artifact_mapping_and_remarks.and_then(
+                    |(mut cluster, artifacts, remarks)| {
+                        let separate_plugin_results = cluster
+                            .post_node_cluster_plugins
+                            .iter_mut()
+                            .map(|p| p.process_cluster(&pnnpr.cluster_path));
+
+                        // can't seem to use collect, so do this manually
+                        let overall_plugin_result = separate_plugin_results.into_iter().fold(
+                            Ok(artifacts),
+                            |acc, current| match (acc, current) {
+                                (Ok(mut acc), Ok(current)) => {
+                                    acc.extend(current);
+                                    Ok(acc)
+                                }
+                                (e, Ok(_)) => e,
+                                (Ok(_), e) => e,
+                                // for now, just retain the first error
+                                // may want to merge
+                                (Err(e1), Err(_e2)) => Err(e1),
+                            },
+                        );
+                        overall_plugin_result.map(|mapping| (cluster, mapping, remarks))
+                    },
+                ),
+            }).collect::<Vec<_>>();
+    let supercluster_result = merge_clusters(post_node_cluster_plugin_results);
+
+    match supercluster_result {
+        Ok(SuperclusterComposition {
+            composition,
+            supercluster,
+        }) => {
+            let mut visualized_components: Vec<_> = composition
+                .into_iter()
+                .map(|component| {
+                    let svg = svgify(&component.graph);
+                    VisualizedSuperclusterComponent {
+                        model: component,
+                        view: svg
+                    }
+                })
+                .collect();
+            visualized_components.iter_mut().for_each(|component| {
+                comment_graph(&component.model.graph, &mut component.model.remarks);
+            });
+            // i.e. the "project" cluster, the one containing workflow(s)
+            let main_cluster_triple = visualized_components
+                .iter()
+                .find(|VisualizedSuperclusterComponent { model, .. }| model.cluster.pre_archive_plugins.is_some());
+            let supercluster_svg =
+                if let Some(VisualizedSuperclusterComponent { model: SuperclusterComponent { cluster: main_cluster, .. }, ..}) =
+                    main_cluster_triple
+                {
+                    let cleaned: Graph = purge_nodes_not_leading_to_project(
+                        &supercluster.graph,
+                        &main_cluster.namespace_prefix,
+                    )
+                    .expect("Not cycle checked yet?");
+                    svgify(&cleaned)
+                } else {
+                    svgify(&supercluster.graph)
+                };
+            let paths_and_visualized_components: Vec<_> = paths.zip(visualized_components).collect();
+            let mut supercluster_comments = vec![];
+            comment_graph(&supercluster.graph, &mut supercluster_comments);
+            // split apart SuperclusterComponents so app state can own part the Clusters
+            // while the outcome can return (owned) remarks
+            let (mut paths_comments_and_svgs, components): (Vec<_>, Vec<_>) =
+                paths_and_visualized_components
+                    .into_iter()
+                    .map(|(path, VisualizedSuperclusterComponent {model: SuperclusterComponent { remarks, cluster, artifact_mappings, ..}, view})| ((path.to_string_lossy().to_string(), remarks, view), (cluster, artifact_mappings)))
+                    .unzip();
+            let _ = app_state.insert((
+                supercluster.clone(),
+                components
+            ));
+            let supercluster_tuple = (
+                "Supercluster".to_owned(),
+                supercluster_comments,
+                supercluster_svg
+            );
+            paths_comments_and_svgs.push(supercluster_tuple);
+            // Each path maps to an OK.
+            // We would not have been able to construct a supercluster otherwise.
+            let outcome = paths_comments_and_svgs
+                .into_iter()
+                .map(|(path, comments, svg)| (path, Ok((comments, svg))))
+                .collect();
+            outcome
+        }
+        Err(SuperclusterErrorBreakdown {
+            supercluster_error,
+            component_results,
+        }) => {
+
+
+            let mut visualized_component_results: Vec<_> = component_results
+                .into_iter()
+                .map(|component_result| {
+                    component_result.map(|component| {
+                    let svg = svgify(&component.graph);
+                    VisualizedSuperclusterComponent {
+                        model: component,
+                        view: svg
+                    }
+                    })
+                })
+                .collect();
+            visualized_component_results.iter_mut().for_each(|component_result| {
+                if let Ok(component) = component_result {
+                    comment_graph(&component.model.graph, &mut component.model.remarks);
+                }
+            });
+            let pathless_outcome: Vec<Result<(Vec<Comment>, SVGSource), String>> = 
+                visualized_component_results.into_iter().map(|vcr| vcr.map(|vc| (vc.model.remarks, vc.view)).map_err(|e| e.to_string())).collect();
+            let mut outcome = paths.map(|p| p.to_string_lossy().to_string()).zip(pathless_outcome).collect::<Vec<_>>();
+            outcome.push(("Supercluster".to_owned(), Err(supercluster_error.to_string())));
+            outcome
+        }
+    }
+    // TODO (later): run post-merge node plugins → maybe I am currently setting the app_state too soon?
+    // TODO (later): run post-merge cluster plugins
 }
 
 fn file_is_readable(file_path: &Path) -> bool {
@@ -541,14 +678,14 @@ fn path_is_dir(directory_path: &Path) -> bool {
 
 #[derive(Debug)]
 struct SuperclusterComposition {
-    composition: Vec<ClusterDAGRootsTriple>,
+    composition: Vec<SuperclusterComponent>,
     supercluster: RootedSupercluster,
 }
 
 #[derive(Debug)]
 struct SuperclusterErrorBreakdown {
     supercluster_error: anyhow::Error,
-    component_results: Vec<anyhow::Result<ClusterDAGRootsTriple>>,
+    component_results: Vec<anyhow::Result<SuperclusterComponent>>,
 }
 
 /// Reads input files, returning individual clusters and supercluster.
@@ -752,112 +889,116 @@ fn plugin_to_paths_to_schemas_entry(
     (plugin_path, schema_for_plugin)
 }
 
-fn associate_with_dag(cluster: domain::Cluster) -> Result<ClusterDAGRootsTriple, anyhow::Error> {
-    let mut all_roots: Vec<NodeID> = vec![];
-    // Petgraph uses its own indexing system
-    // so map own node identifiers to Petgraph indexes
-    let mut identifier_to_index_map = std::collections::HashMap::new();
-    let mut single_cluster_graph = Graph::new();
-    let mut structural_errors: Vec<StructuralError> = vec![];
-    for node in &cluster.nodes {
-        if !identifier_to_index_map.contains_key(&node.node_id) {
-            let idx = single_cluster_graph.add_node((node.node_id.clone(), node.title.clone()));
-            identifier_to_index_map.insert(node.node_id.clone(), idx);
-        } else {
-            structural_errors.push(StructuralError::DoubleNode(node.node_id.clone()));
-        }
-    }
-    cluster.roots.iter().for_each(|root| {
-        if !identifier_to_index_map.contains_key(&root) {
-            structural_errors.push(StructuralError::UndeclaredRoot(root.clone()));
-        }
-        all_roots.push(root.clone());
-    });
-    // build the single-cluster graph and check for structural errors at the same time
-    for TypedEdge {
-        start_id,
-        end_id,
-        kind,
-    } in &cluster.edges
-    {
-        let mut can_add = true;
-        if cluster.roots.contains(end_id) {
-            structural_errors.push(StructuralError::DependentRootNode(
-                end_id.to_owned(),
-                start_id.to_owned(),
-            ));
-            can_add = false;
-        }
-        if start_id.namespace != cluster.namespace_prefix && *kind == EdgeType::AtLeastOne {
-            structural_errors.push(StructuralError::IncomingAnyEdge(
-                start_id.to_owned(),
-                end_id.to_owned(),
-            ));
-            can_add = false;
-        } else if end_id.namespace != cluster.namespace_prefix && *kind == EdgeType::All {
-            structural_errors.push(StructuralError::OutgoingAllEdge(
-                start_id.to_owned(),
-                end_id.to_owned(),
-            ));
-            can_add = false;
-        }
-        if can_add {
-            let ids = [start_id, end_id];
-            ids.iter().for_each(|id| {
-                if id.namespace != cluster.namespace_prefix
-                    && !identifier_to_index_map.contains_key(&id)
-                {
-                    let idx = single_cluster_graph.add_node(((*id).clone(), format!("{}", &id)));
-                    identifier_to_index_map.insert((*id).clone(), idx);
-                }
-            });
-            let idxs = ids.map(|id| identifier_to_index_map.get(id));
-            ids.iter().zip(idxs).for_each(|(id, idx)| {
-                if idx.is_none() {
-                    structural_errors.push(StructuralError::MissingInternalEndpoint(
-                        start_id.to_owned(),
-                        end_id.to_owned(),
-                        (*id).to_owned(),
-                    ));
-                }
-            });
-            if let [Some(start_idx), Some(end_idx)] = idxs {
-                single_cluster_graph.add_edge(*start_idx, *end_idx, kind.clone());
+fn associate_with_dag(post_node_cluster_plugin_result: PostNodeClusterPluginResult) -> Result<SuperclusterComponent, anyhow::Error> {
+    post_node_cluster_plugin_result.cluster_with_artifact_mapping_and_remarks.and_then(|c| {
+        let mut all_roots: Vec<NodeID> = vec![];
+        // Petgraph uses its own indexing system
+        // so map own node identifiers to Petgraph indexes
+        let mut identifier_to_index_map = std::collections::HashMap::new();
+        let mut single_cluster_graph = Graph::new();
+        let mut structural_errors: Vec<StructuralError> = vec![];
+        for node in &c.0.nodes {
+            if !identifier_to_index_map.contains_key(&node.node_id) {
+                let idx = single_cluster_graph.add_node((node.node_id.clone(), node.title.clone()));
+                identifier_to_index_map.insert(node.node_id.clone(), idx);
+            } else {
+                structural_errors.push(StructuralError::DoubleNode(node.node_id.clone()));
             }
         }
-    }
-    let toposort_result = toposort(&single_cluster_graph, None);
-    match toposort_result.as_ref() {
-        Err(cycle) => {
-            structural_errors.push(StructuralError::Cycle(
-                single_cluster_graph.index(cycle.node_id()).0.clone(),
-            ));
+        &c.0.roots.iter().for_each(|root| {
+            if !identifier_to_index_map.contains_key(&root) {
+                structural_errors.push(StructuralError::UndeclaredRoot(root.clone()));
+            }
+            all_roots.push(root.clone());
+        });
+        // build the single-cluster graph and check for structural errors at the same time
+        for TypedEdge {
+            start_id,
+            end_id,
+            kind,
+        } in &c.0.edges
+        {
+            let mut can_add = true;
+            if c.0.roots.contains(end_id) {
+                structural_errors.push(StructuralError::DependentRootNode(
+                    end_id.to_owned(),
+                    start_id.to_owned(),
+                ));
+                can_add = false;
+            }
+            if start_id.namespace != c.0.namespace_prefix && *kind == EdgeType::AtLeastOne {
+                structural_errors.push(StructuralError::IncomingAnyEdge(
+                    start_id.to_owned(),
+                    end_id.to_owned(),
+                ));
+                can_add = false;
+            } else if end_id.namespace != c.0.namespace_prefix && *kind == EdgeType::All {
+                structural_errors.push(StructuralError::OutgoingAllEdge(
+                    start_id.to_owned(),
+                    end_id.to_owned(),
+                ));
+                can_add = false;
+            }
+            if can_add {
+                let ids = [start_id, end_id];
+                ids.iter().for_each(|id| {
+                    if id.namespace != c.0.namespace_prefix
+                        && !identifier_to_index_map.contains_key(&id)
+                    {
+                        let idx = single_cluster_graph.add_node(((*id).clone(), format!("{}", &id)));
+                        identifier_to_index_map.insert((*id).clone(), idx);
+                    }
+                });
+                let idxs = ids.map(|id| identifier_to_index_map.get(id));
+                ids.iter().zip(idxs).for_each(|(id, idx)| {
+                    if idx.is_none() {
+                        structural_errors.push(StructuralError::MissingInternalEndpoint(
+                            start_id.to_owned(),
+                            end_id.to_owned(),
+                            (*id).to_owned(),
+                        ));
+                    }
+                });
+                if let [Some(start_idx), Some(end_idx)] = idxs {
+                    single_cluster_graph.add_edge(*start_idx, *end_idx, kind.clone());
+                }
+            }
         }
-        _ => {}
-    };
-    if structural_errors.is_empty() {
-        Ok(ClusterDAGRootsTriple(
-            cluster,
-            single_cluster_graph,
-            all_roots,
-        ))
-    } else {
-        Err(StructuralErrorGrouping {
-            components: structural_errors,
+        let toposort_result = toposort(&single_cluster_graph, None);
+        match toposort_result.as_ref() {
+            Err(cycle) => {
+                structural_errors.push(StructuralError::Cycle(
+                    single_cluster_graph.index(cycle.node_id()).0.clone(),
+                ));
+            }
+            _ => {}
+        };
+        if structural_errors.is_empty() {
+            Ok(SuperclusterComponent{
+                cluster: c.0,
+                roots: all_roots,
+                graph: single_cluster_graph,
+                artifact_mappings: c.1,
+                remarks: c.2
+            })
+        } else {
+            Err(StructuralErrorGrouping {
+                components: structural_errors,
+            }
+            .into())
         }
-        .into())
-    }
+    })
 }
 
 fn merge_into_supercluster(
-    cluster_graph_pairs: &Vec<ClusterDAGRootsTriple>,
+    components: &Vec<SuperclusterComponent>,
 ) -> Result<Graph, anyhow::Error> {
     let mut boundary_errors = vec![];
     let mut complete_graph: Graph = Graph::new();
     let mut complete_graph_map = HashMap::new();
-    cluster_graph_pairs
+    components
         .iter()
-        .for_each(|ClusterDAGRootsTriple(cluster, graph, _)| {
+        .for_each(|SuperclusterComponent {cluster, graph, ..}| {
             for (id, title) in graph.node_weights() {
                 // only add the internal ones to the map
                 if cluster.namespace_prefix == id.namespace {
@@ -866,9 +1007,9 @@ fn merge_into_supercluster(
                 }
             }
         });
-    cluster_graph_pairs
+    components
         .iter()
-        .for_each(|ClusterDAGRootsTriple(cluster, _, _)| {
+        .for_each(|SuperclusterComponent {cluster, ..}| {
             for TypedEdge {
                 start_id,
                 end_id,
@@ -946,7 +1087,7 @@ mod tests {
     use super::readers::{FileReader, MockFileReader, RealFileReader};
     use crate::{
         associate_parents_children, can_trigger_change, comment_graph,
-        read_all_clusters_with_test_dependencies, ClusterDAGRootsTriple,
+        read_all_clusters_with_test_dependencies, SuperclusterComponent,
     };
 
     /*
@@ -1205,6 +1346,7 @@ mod tests {
         );
     }
 
+    /*
     #[ignore]
     #[test]
     fn detect_redundant_hard_dependency() {
@@ -1228,8 +1370,9 @@ mod tests {
             );
             assert_eq!(reader.calls_made, 1);
         });
-    }
+    }*/
 
+    /*
     #[ignore]
     #[test]
     fn detect_redundant_soft_dependency() {
@@ -1254,10 +1397,13 @@ mod tests {
             assert_eq!(reader.calls_made, 1);
         });
     }
+    */
 }
 
 #[tauri::command]
+// TODO: will eventually want to get rid of this and run a user-defined workflow instead
 fn build_zip(_paths: &'_ str, state: tauri::State<'_, AppState>) -> Result<PathBuf, String> {
+    todo!("Run pre-archive plugins!");
     let zip_path = std::path::Path::new("archive.zip");
     let zip_file = std::fs::File::create(zip_path).map_err(|e| e.to_string())?;
     // copy clusters into zipped folder
@@ -1444,9 +1590,12 @@ fn build_zip(_paths: &'_ str, state: tauri::State<'_, AppState>) -> Result<PathB
             .as_bytes(),
     )
     .map_err(|ze| ze.to_string())?;
+    let artifact =
     zip.finish()
         .map(|_| zip_path.to_path_buf())
-        .map_err(|ze| ze.to_string())
+        .map_err(|ze| ze.to_string());
+    todo!("Run post-archive plugins!");
+    artifact
 }
 
 #[tauri::command]
@@ -1622,6 +1771,65 @@ fn check_learning_path(
     remarks
 }
 
+fn merge_clusters(
+    read_results: Vec<PostNodeClusterPluginResult>,
+) -> Result<SuperclusterComposition, SuperclusterErrorBreakdown> {
+    let supercluster_components: Vec<_> = read_results.into_iter().map(|result| associate_with_dag(result)).collect();
+    let overall_result: Result<Vec<SuperclusterComponent>, Vec<Result<SuperclusterComponent, anyhow::Error>>> =
+        supercluster_components.into_iter().fold(Ok(vec![]), |acc, elem| match acc {
+            Ok(mut components) => match elem {
+                Ok(component) => {
+                    components.push(component);
+                    Ok(components)
+                }
+                Err(e) => {
+                    let mut wrapped_results: Vec<_> = components.into_iter().map(Result::Ok).collect();
+                    wrapped_results.push(Err(e));
+                    Err(wrapped_results)
+                }
+            },
+            Err(mut component_results) => {
+                component_results.push(elem);
+                Err(component_results)
+            }
+        });
+    match overall_result {
+        Ok(components) => {
+            let merge_result = merge_into_supercluster(&components);
+            match merge_result {
+                Ok(graph) => {
+                    let all_roots = components.iter().flat_map(|component| component.roots.clone()).collect();
+                    // wanted to map, but chaining map and map_err leads to ownership problems...
+                    let toposort_result = toposort(&graph, None);
+                    match toposort_result {
+                        Ok(_) => Ok(SuperclusterComposition {
+                            composition: components,
+                            supercluster: RootedSupercluster {
+                                graph,
+                                roots: all_roots,
+                            },
+                        }),
+                        Err(cycle) => Err(SuperclusterErrorBreakdown {
+                            supercluster_error: anyhow::Error::from(StructuralError::Cycle(
+                                graph.index(cycle.node_id()).0.clone(),
+                            )),
+                            component_results: components.into_iter().map(Result::Ok).collect(),
+                        }),
+                    }
+                }
+                Err(e) => Err(SuperclusterErrorBreakdown {
+                    supercluster_error: e,
+                    component_results: components.into_iter().map(Result::Ok).collect(),
+                }),
+            }
+        }
+        Err(e) => Err(SuperclusterErrorBreakdown {
+            supercluster_error: StructuralError::InvalidComponentGraph.into(),
+            component_results: e,
+        }),
+    }
+}
+
 #[tauri::command]
 fn read_collections() -> Result<HashMap<String, String>, String> {
     let data_dir =
@@ -1673,12 +1881,12 @@ fn can_trigger_change(path: &str) -> bool {
     let mut cluster_root = PathBuf::from(path)
         .parent()
         .map(|p| p.to_path_buf())
-        .expect("Only an file in a folder should be able to trigger a potential change.");
+        .expect("Only a file in a folder should be able to trigger a potential change.");
     while !cluster_root.join("contents.lc.yaml").exists() {
         cluster_root = cluster_root
             .parent()
             .map(|p| p.to_path_buf())
-            .expect("Only an file in a folder should be able to trigger a potential change.");
+            .expect("Only a file in a folder should be able to trigger a potential change.");
     }
     // keep invoking parent() until we get a contents.lc.yaml
     let walk = ignore::WalkBuilder::new(cluster_root)
