@@ -742,13 +742,7 @@ struct SuperclusterErrorBreakdown {
     component_results: Vec<anyhow::Result<SuperclusterComponent>>,
 }
 
-/// Reads input files, returning individual clusters and supercluster.
-fn read_all_clusters_with_test_dependencies<'a, T: readers::FileReader>(
-    paths: &'a str,
-    reader: &mut T,
-) -> Result<SuperclusterComposition, SuperclusterErrorBreakdown> {
-    todo!("Switch to new approach.")
-}
+
 
 fn subgraph_with_edges(parent: &Graph, predicate: impl Fn(&EdgeData) -> bool) -> Graph {
     let mut subgraph = Graph::new();
@@ -1140,20 +1134,19 @@ fn associate_parents_children(
 #[cfg(test)]
 mod tests {
     use std::{
-        collections::{HashMap, HashSet},
+        collections::HashMap,
         path::{Path, PathBuf},
     };
 
-    use super::readers::{FileReader, MockFileReader, RealFileReader};
+    use super::readers::{MockFileReader, RealFileReader};
     use crate::{
-        associate_parents_children, can_trigger_change, comment_graph,
-        read_all_clusters_with_test_dependencies, read_unpopulated_cluster_results_with_metadata,
-        SuperclusterComponent,
+        associate_parents_children, can_trigger_change,
+        read_unpopulated_cluster_results_with_metadata,
     };
 
     #[test]
     fn simple_unpopulated_clusters() {
-        let mut reader = RealFileReader {};
+        let reader = RealFileReader {};
         let base_path = std::fs::canonicalize(
             PathBuf::from("tests/pipeline-tests/loading-of-unpopulated-clusters/simple").as_path(),
         );
@@ -1221,8 +1214,7 @@ mod tests {
                 assert!(technicalinfo_cluster.0.post_node_cluster_plugins.len() == 1);
                 assert!(technicalinfo_cluster.0.post_merge_cluster_plugins.len() == 1);
                 // maybe something related to workflow plugins
-
-            },
+            }
             _ => panic!("failed to read unpopulated clusters"),
         }
     }
@@ -1332,19 +1324,19 @@ mod tests {
         );
     }*/
 
-    #[ignore]
-    #[test]
-    fn check_structural_error_cycle() {
-        let mut reader = MockFileReader::new(vec![&Path::new(
-            "tests/technicalinfo_cycle/contents.lc.yaml",
-        )]);
+    // #[ignore]
+    // #[test]
+    // fn check_structural_error_cycle() {
+    //     let mut reader = MockFileReader::new(vec![&Path::new(
+    //         "tests/technicalinfo_cycle/contents.lc.yaml",
+    //     )]);
 
-        let supercluster_analysis = read_all_clusters_with_test_dependencies("_", &mut reader);
+    //     let supercluster_analysis = read_all_clusters_with_test_dependencies("_", &mut reader);
 
-        assert_eq!(reader.calls_made, 1);
-        // could be more specific...
-        assert!(supercluster_analysis.is_err());
-    }
+    //     assert_eq!(reader.calls_made, 1);
+    //     // could be more specific...
+    //     assert!(supercluster_analysis.is_err());
+    // }
 
     // TODO: mix of correctly read and incorrectly read results
     // TODO: test for various structural errors
