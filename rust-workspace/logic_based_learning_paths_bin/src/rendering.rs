@@ -1,12 +1,15 @@
 use crate::domain::{EdgeType, Graph, NodeData};
 use graphviz_rust::{cmd::Format, exec, printer::PrinterContext};
-use petgraph::dot::{Dot,Config};
+use petgraph::dot::{Config, Dot};
 use petgraph::graph::NodeIndex;
 
 /// Compute the Graphviz rendering attributes for a specific node in a graph.
 fn node_dot_attributes(_: &Graph, node_ref: (NodeIndex, &NodeData)) -> String {
     // label specified last is used, so this overrides the auto-generated one
-    format!("label=\"{}\" tooltip=\"{}\" shape=\"box\" fontname=\"Courier New\"", node_ref.1 .1, node_ref.1 .0)
+    format!(
+        "label=\"{}\" tooltip=\"{}\" shape=\"box\" fontname=\"Courier New\"",
+        node_ref.1 .1, node_ref.1 .0
+    )
 }
 
 /// Render a Graph to SVG source code.
