@@ -140,7 +140,8 @@ fn read_contents<'a>(
         .lock()
         .expect("Should always be able to gain access eventually.");
     app_state.take();
-    read_contents_with_test_dependencies(paths, file_is_readable, path_is_dir, app_state)
+    let mut reader = readers::RealFileReader {};
+    read_contents_with_test_dependencies(paths, reader, file_is_readable, path_is_dir, app_state)
 }
 
 #[derive(Default)]
@@ -199,13 +200,13 @@ struct PostNodeClusterPluginResult {
 
 fn read_contents_with_test_dependencies<'a>(
     paths: &'a str,
+    mut reader: impl FileReader,
     file_is_readable: fn(&Path) -> bool,
     directory_is_readable: fn(&Path) -> bool,
     // NOTE: app_state's current value does not matter
     // we just have the MutexGuard so we can write!
     mut app_state: MutexGuard<Option<(RootedSupercluster, Vec<(domain::Cluster, HashSet<ArtifactMapping>)>)>>,
 ) -> Vec<(String, Result<(Vec<Comment>, SVGSource), String>)> {
-    let mut reader = readers::RealFileReader {};
     let paths = paths.split(";").map(|p| PathBuf::from(p));
     let read_results = paths.clone().map(|p| {
         let yaml_location = p.join("contents.lc.yaml");
@@ -905,7 +906,7 @@ fn associate_with_dag(post_node_cluster_plugin_result: PostNodeClusterPluginResu
                 structural_errors.push(StructuralError::DoubleNode(node.node_id.clone()));
             }
         }
-        &c.0.roots.iter().for_each(|root| {
+        c.0.roots.iter().for_each(|root| {
             if !identifier_to_index_map.contains_key(&root) {
                 structural_errors.push(StructuralError::UndeclaredRoot(root.clone()));
             }
