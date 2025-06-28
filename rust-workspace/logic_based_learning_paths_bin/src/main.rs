@@ -1146,7 +1146,9 @@ mod tests {
 
     use super::readers::{FileReader, MockFileReader, RealFileReader};
     use crate::{
-        associate_parents_children, can_trigger_change, comment_graph, read_all_clusters_with_test_dependencies, read_unpopulated_cluster_results_with_metadata, SuperclusterComponent
+        associate_parents_children, can_trigger_change, comment_graph,
+        read_all_clusters_with_test_dependencies, read_unpopulated_cluster_results_with_metadata,
+        SuperclusterComponent,
     };
 
     #[test]
@@ -1171,13 +1173,14 @@ mod tests {
         // there are no plugins involved
         let read_results = read_unpopulated_cluster_results_with_metadata(&combined_paths, reader);
         assert!(read_results.iter().len() == 2);
-        assert!(read_results.iter().all(|res| res.unpopulated_cluster_with_contents_file_contents.is_ok()));
+        assert!(read_results
+            .iter()
+            .all(|res| res.unpopulated_cluster_with_contents_file_contents.is_ok()));
     }
 
-    /*
     #[test]
     fn unpopulated_clusters_with_noop_plugins() {
-        let mut reader = RealFileReader {};
+        let reader = RealFileReader {};
         let base_path = std::fs::canonicalize(
             PathBuf::from("tests/pipeline-tests/loading-of-unpopulated-clusters/with-noop-plugins")
                 .as_path(),
@@ -1194,33 +1197,35 @@ mod tests {
             .expect("If this panics, the test fails, which is fine.")
             .to_owned();
         let combined_paths = vec![cluster_1_path, cluster_2_path].join(";");
-        let pipeline = Pipeline::new().load_unpopulated_clusters(&combined_paths, &mut reader);
-        match pipeline.state {
-            UnpopulatedClustersResult::ZeroIssues(ucwms) => {
-                assert!(ucwms.len() == 2);
-                let simpleproject_cluster = &ucwms[0].unpopulated_cluster;
-                let technicalinfo_cluster = &ucwms[1].unpopulated_cluster;
-                assert!(simpleproject_cluster.pre_node_node_plugins.len() == 1);
-                assert!(simpleproject_cluster.post_node_node_plugins.len() == 1);
-                assert!(simpleproject_cluster.post_node_cluster_plugins.len() == 0);
-                assert!(simpleproject_cluster.post_merge_node_plugins.len() == 1);
-                assert!(simpleproject_cluster.post_merge_cluster_plugins.len() == 0);
-                assert!(simpleproject_cluster
-                    .pre_archive_plugins
-                    .as_ref()
-                    .is_some_and(|ps| ps.len() == 1));
-                assert!(technicalinfo_cluster.pre_node_node_plugins.len() == 0);
-                assert!(technicalinfo_cluster.post_node_cluster_plugins.len() == 1);
-                assert!(technicalinfo_cluster.post_merge_cluster_plugins.len() == 1);
-                assert!(technicalinfo_cluster.pre_archive_plugins.is_none());
-            }
-            UnpopulatedClustersResult::Issues(issues) => {
-                dbg!(issues);
-                panic!("Unpopulated clusters have issues when they shouldn't.")
-            }
+
+        let read_results = read_unpopulated_cluster_results_with_metadata(&combined_paths, reader);
+        assert!(read_results.iter().len() == 2);
+        assert!(read_results
+            .iter()
+            .all(|res| res.unpopulated_cluster_with_contents_file_contents.is_ok()));
+        let simpleproject_cluster = &read_results
+            .get(0)
+            .expect("This should exist.")
+            .unpopulated_cluster_with_contents_file_contents;
+        let technicalinfo_cluster = &read_results
+            .get(1)
+            .expect("This should exist.")
+            .unpopulated_cluster_with_contents_file_contents;
+        match (simpleproject_cluster, technicalinfo_cluster) {
+            (Ok(simpleproject_cluster), Ok(technicalinfo_cluster)) => {
+                assert!(simpleproject_cluster.0.post_node_node_plugins.len() == 1);
+                assert!(simpleproject_cluster.0.post_node_cluster_plugins.len() == 0);
+                assert!(simpleproject_cluster.0.post_merge_node_plugins.len() == 1);
+                assert!(simpleproject_cluster.0.post_merge_cluster_plugins.len() == 1);
+                // maybe something related to workflow plugins
+                assert!(technicalinfo_cluster.0.post_node_cluster_plugins.len() == 1);
+                assert!(technicalinfo_cluster.0.post_merge_cluster_plugins.len() == 1);
+                // maybe something related to workflow plugins
+
+            },
+            _ => panic!("failed to read unpopulated clusters"),
         }
     }
-    */
 
     /*
     #[test]
