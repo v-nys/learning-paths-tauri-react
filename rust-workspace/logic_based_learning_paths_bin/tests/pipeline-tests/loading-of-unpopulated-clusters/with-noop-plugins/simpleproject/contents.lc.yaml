@@ -11,7 +11,12 @@ any_type_edges:
     end_id: implementation
 roots: intro
 # have one instance of every plugin type to make sure we don't skip loading any plugins
+post_node_cluster_plugins:
+  - path: "./lblp_dummy_cluster_plugin.wasm"
 post_node_node_plugins:
   - path: "./lblp_dummy_node_plugin.wasm"
 post_merge_node_plugins:
   - path: "./lblp_dummy_node_plugin.wasm"
+post_merge_cluster_plugins:
+  - path: "./lblp_dummy_cluster_plugin.wasm"
+

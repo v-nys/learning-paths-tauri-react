@@ -742,8 +742,6 @@ struct SuperclusterErrorBreakdown {
     component_results: Vec<anyhow::Result<SuperclusterComponent>>,
 }
 
-
-
 fn subgraph_with_edges(parent: &Graph, predicate: impl Fn(&EdgeData) -> bool) -> Graph {
     let mut subgraph = Graph::new();
     let node_map = parent
@@ -1206,13 +1204,13 @@ mod tests {
             .unpopulated_cluster_with_contents_file_contents;
         match (simpleproject_cluster, technicalinfo_cluster) {
             (Ok(simpleproject_cluster), Ok(technicalinfo_cluster)) => {
-                assert!(simpleproject_cluster.0.post_node_node_plugins.len() == 1);
-                assert!(simpleproject_cluster.0.post_node_cluster_plugins.len() == 0);
-                assert!(simpleproject_cluster.0.post_merge_node_plugins.len() == 1);
-                assert!(simpleproject_cluster.0.post_merge_cluster_plugins.len() == 1);
+                assert_eq!(simpleproject_cluster.0.post_node_node_plugins.len(), 1);
+                assert_eq!(simpleproject_cluster.0.post_node_cluster_plugins.len(), 1);
+                assert_eq!(simpleproject_cluster.0.post_merge_node_plugins.len(), 1);
+                assert_eq!(simpleproject_cluster.0.post_merge_cluster_plugins.len(), 1);
                 // maybe something related to workflow plugins
-                assert!(technicalinfo_cluster.0.post_node_cluster_plugins.len() == 1);
-                assert!(technicalinfo_cluster.0.post_merge_cluster_plugins.len() == 1);
+                assert_eq!(technicalinfo_cluster.0.post_node_cluster_plugins.len(), 1);
+                assert_eq!(technicalinfo_cluster.0.post_merge_cluster_plugins.len(), 1);
                 // maybe something related to workflow plugins
             }
             _ => panic!("failed to read unpopulated clusters"),
