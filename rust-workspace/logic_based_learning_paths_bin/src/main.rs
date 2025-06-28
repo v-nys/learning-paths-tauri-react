@@ -1240,23 +1240,18 @@ mod tests {
         let combined_paths = vec![cluster_1_path, cluster_2_path].join(";");
         let read_results = read_unpopulated_cluster_results_with_metadata(&combined_paths, reader);
         assert_eq!(read_results.iter().len(), 2);
-        // TODO: really think about what is wrong here
-        assert!(read_results.get(0).is_some_and(|ucr| ucr
-            .unpopulated_cluster_with_contents_file_contents
-            .is_err_and(|e| format!("{:#?}", e).contains("Unable to load Wasm file"))));
-        //            .iter()
-        //            .all(|res| res.unpopulated_cluster_with_contents_file_contents.is_ok()));
-        // let pipeline = Pipeline::new().load_unpopulated_clusters(&combined_paths, &mut reader);
-        // match pipeline.state {
-        //     UnpopulatedClustersResult::ZeroIssues(_) => {
-        //         panic!("Missing plugins should cause an issue but are not doing so.")
-        //     }
-        //     UnpopulatedClustersResult::Issues(issues) => {
-        //         assert!(issues.len() == 2);
-        //         assert!(format!("{:#?}", issues[0]).contains("Unable to load Wasm file"));
-        //         assert!(format!("{:#?}", issues[1]).contains("Unable to load Wasm file"));
-        //     }
-        // }
+        let first_read_result = read_results.get(0).unwrap();
+        // first_read_result is "in" the read_results vector
+        // so getting a field directly is not an option
+        let unpopulated_cluster_with_contents_file_contents =
+            &first_read_result.unpopulated_cluster_with_contents_file_contents;
+        match unpopulated_cluster_with_contents_file_contents {
+            Ok(_) => panic!("Was actually expecting an error here."),
+            Err(e) => {
+
+                assert!(format!("{:#?}", e).contains("Unable to load Wasm file"));
+            }
+        }
     }
 
     #[test]
