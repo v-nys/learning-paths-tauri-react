@@ -1217,7 +1217,6 @@ mod tests {
         }
     }
 
-    /*
     #[test]
     fn unpopulated_clusters_with_missing_plugins() {
         let mut reader = RealFileReader {};
@@ -1239,19 +1238,26 @@ mod tests {
             .expect("If this panics, the test fails, which is fine.")
             .to_owned();
         let combined_paths = vec![cluster_1_path, cluster_2_path].join(";");
-        let pipeline = Pipeline::new().load_unpopulated_clusters(&combined_paths, &mut reader);
-        match pipeline.state {
-            UnpopulatedClustersResult::ZeroIssues(_) => {
-                panic!("Missing plugins should cause an issue but are not doing so.")
-            }
-            UnpopulatedClustersResult::Issues(issues) => {
-                assert!(issues.len() == 2);
-                assert!(format!("{:#?}", issues[0]).contains("Unable to load Wasm file"));
-                assert!(format!("{:#?}", issues[1]).contains("Unable to load Wasm file"));
-            }
-        }
+        let read_results = read_unpopulated_cluster_results_with_metadata(&combined_paths, reader);
+        assert_eq!(read_results.iter().len(), 2);
+        // TODO: really think about what is wrong here
+        assert!(read_results.get(0).is_some_and(|ucr| ucr
+            .unpopulated_cluster_with_contents_file_contents
+            .is_err_and(|e| format!("{:#?}", e).contains("Unable to load Wasm file"))));
+        //            .iter()
+        //            .all(|res| res.unpopulated_cluster_with_contents_file_contents.is_ok()));
+        // let pipeline = Pipeline::new().load_unpopulated_clusters(&combined_paths, &mut reader);
+        // match pipeline.state {
+        //     UnpopulatedClustersResult::ZeroIssues(_) => {
+        //         panic!("Missing plugins should cause an issue but are not doing so.")
+        //     }
+        //     UnpopulatedClustersResult::Issues(issues) => {
+        //         assert!(issues.len() == 2);
+        //         assert!(format!("{:#?}", issues[0]).contains("Unable to load Wasm file"));
+        //         assert!(format!("{:#?}", issues[1]).contains("Unable to load Wasm file"));
+        //     }
+        // }
     }
-    */
 
     #[test]
     fn ignored_file_cannot_trigger_change() {
