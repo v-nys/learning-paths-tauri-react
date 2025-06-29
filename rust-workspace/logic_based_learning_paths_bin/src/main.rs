@@ -2,7 +2,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 use crate::readers::FileReader;
 use crate::rendering::svgify;
-use anyhow;
+use anyhow::anyhow;
 use ignore;
 use logic_based_learning_paths_bin::graph_processing::purge_nodes_not_leading_to_project;
 use logic_based_learning_paths_bin::plugins::LBLPPlugin;
@@ -11,9 +11,6 @@ use petgraph::visit::IntoNeighbors;
 use regex;
 use serde::Serialize;
 use std::collections::{BTreeMap, BTreeSet, HashSet};
-use std::io::Write;
-use zip::write::FileOptions;
-use zip::CompressionMethod;
 
 use schemars::{
     schema::{
@@ -157,6 +154,13 @@ struct UnpopulatedClusterResultWithMetadata {
 #[derive(Debug)]
 struct SchemaGenerationResult {
     cluster_path: PathBuf,
+    unpopulated_cluster_with_contents_file_contents_and_mandatory_fields_and_schema:
+        anyhow::Result<(UnpopulatedCluster, String, HashSet<String>, String)>,
+}
+
+#[derive(Debug)]
+struct SchemaWriteResult {
+    cluster_path: PathBuf,
     unpopulated_cluster_with_contents_file_contents_and_mandatory_fields:
         anyhow::Result<(UnpopulatedCluster, String, HashSet<String>)>,
 }
@@ -229,31 +233,37 @@ fn read_unpopulated_cluster_results_with_metadata(
 fn perform_schema_generation(
     read_results: Vec<UnpopulatedClusterResultWithMetadata>,
 ) -> Vec<SchemaGenerationResult> {
+    /* NOTE:
+     * Schema is written directly.
+     * Might be easier for testing to return schema instead.
+     * So the schema string should become part of ucwfcamf
+     */
     read_results
         .into_iter()
         .map(|ucrwm| {
-            let cluster_path = ucrwm.cluster_path.clone();
             SchemaGenerationResult {
                 cluster_path: ucrwm.cluster_path,
-                unpopulated_cluster_with_contents_file_contents_and_mandatory_fields: ucrwm
-                    .unpopulated_cluster_with_contents_file_contents
-                    .and_then(|(mut uc, contents)| {
-                        let mut overall_schema =
-                            dbg!(schema_for!(deserialization::ClusterForSerialization));
-                        let mut plugin_schema =
-                            schemars::schema_for!(deserialization::PluginForSerialization);
-                        plugin_schema.meta_schema = None;
-                        let mut node_schema = schemars::schema_for!(deserialization::Node);
-                        node_schema.meta_schema = None;
-                        let mut schema_gen_issues = vec![];
-                        // this requires a mutable borrow of uc
-                        let node_plugins = uc.node_plugins_mut();
-                        let mut mandatory_fields = HashSet::new();
-                        // get extension fields, i.e. additional fields for nodes
-                        node_plugins.for_each(|node_plugin| {
-                            let extension_field_schema = node_plugin.get_extension_field_schema();
-                            if let Ok(extension_field_schema) = extension_field_schema {
-                                extension_field_schema.iter().for_each(
+                unpopulated_cluster_with_contents_file_contents_and_mandatory_fields_and_schema:
+                    ucrwm
+                        .unpopulated_cluster_with_contents_file_contents
+                        .and_then(|(mut uc, contents)| {
+                            let mut overall_schema =
+                                schema_for!(deserialization::ClusterForSerialization);
+                            let mut plugin_schema =
+                                schemars::schema_for!(deserialization::PluginForSerialization);
+                            plugin_schema.meta_schema = None;
+                            let mut node_schema = schemars::schema_for!(deserialization::Node);
+                            node_schema.meta_schema = None;
+                            let mut schema_gen_issues = vec![];
+                            // this requires a mutable borrow of uc
+                            let node_plugins = uc.node_plugins_mut();
+                            let mut mandatory_fields = HashSet::new();
+                            // get extension fields, i.e. additional fields for nodes
+                            node_plugins.for_each(|node_plugin| {
+                                let extension_field_schema =
+                                    node_plugin.get_extension_field_schema();
+                                if let Ok(extension_field_schema) = extension_field_schema {
+                                    extension_field_schema.iter().for_each(
                                     |(field, (required, field_schema))| {
                                         if *required {
                                             node_schema
@@ -282,119 +292,127 @@ fn perform_schema_generation(
                                         );
                                     },
                                 );
-                            } else {
-                                schema_gen_issues.push(format!(
+                                } else {
+                                    schema_gen_issues.push(format!(
                                     "Node plugin at {} cannot provide get_extension_field_schema.",
                                     node_plugin.get_path()
                                 ));
-                            }
-                        });
-                        {
-                            let plugins = uc.all_plugins_mut();
-                            let mut plugin_paths_to_schemas: HashMap<&String, RootSchema> = plugins
-                                .filter_map(|plugin| {
-                                    let params_schema = plugin.get_params_schema();
-                                    match params_schema {
-                                        Ok(params_schema) => {
-                                            if params_schema.is_empty() {
-                                                None
-                                            } else {
-                                                Some(plugin_to_paths_to_schemas_entry(
-                                                    plugin.get_path(),
-                                                    params_schema,
-                                                    plugin_schema.clone(),
-                                                ))
-                                            }
-                                        }
-                                        Err(e) => {
-                                            schema_gen_issues.push(format!(
+                                }
+                            });
+                            {
+                                let plugins = uc.all_plugins_mut();
+                                let mut plugin_paths_to_schemas: HashMap<&String, RootSchema> =
+                                    plugins
+                                        .filter_map(|plugin| {
+                                            let params_schema = plugin.get_params_schema();
+                                            match params_schema {
+                                                Ok(params_schema) => {
+                                                    if params_schema.is_empty() {
+                                                        None
+                                                    } else {
+                                                        Some(plugin_to_paths_to_schemas_entry(
+                                                            plugin.get_path(),
+                                                            params_schema,
+                                                            plugin_schema.clone(),
+                                                        ))
+                                                    }
+                                                }
+                                                Err(e) => {
+                                                    schema_gen_issues.push(format!(
                                             "Cannot obtain parameter schema from plugin at {}: {}",
                                             plugin.get_path(),
                                             e
                                         ));
-                                            None
-                                        }
-                                    }
-                                })
-                                .collect();
-                            plugin_paths_to_schemas.values().for_each(|root_schema| {
-                                root_schema
-                                    .definitions
-                                    .iter()
-                                    .for_each(|(ref_string, schema)| {
-                                        overall_schema
-                                            .definitions
-                                            .insert(ref_string.into(), schema.clone());
-                                    });
-                            });
+                                                    None
+                                                }
+                                            }
+                                        })
+                                        .collect();
+                                plugin_paths_to_schemas.values().for_each(|root_schema| {
+                                    root_schema.definitions.iter().for_each(
+                                        |(ref_string, schema)| {
+                                            overall_schema
+                                                .definitions
+                                                .insert(ref_string.into(), schema.clone());
+                                        },
+                                    );
+                                });
 
-                            let mut sorted_plugin_paths_to_schemas =
-                                plugin_paths_to_schemas.iter().collect::<Vec<_>>();
-                            sorted_plugin_paths_to_schemas.sort_by(|a, b| a.0.cmp(b.0));
-                            let conditional_schema = sorted_plugin_paths_to_schemas.iter().fold(
-                                plugin_schema.schema.clone(),
-                                |acc, (plugin_path, plugin_schema_object)| {
-                                    let mut if_clause = SchemaObject::new_ref("dummy-ref".into());
-                                    let mut if_clause_required = BTreeSet::new();
-                                    if_clause.reference = None;
-                                    if_clause.instance_type =
-                                        Some(SingleOrVec::from(InstanceType::Object));
-                                    if_clause_required.insert("path".into());
-                                    if_clause.object().required = if_clause_required;
-                                    let mut if_clause_properties = BTreeMap::new();
-                                    let mut path_schema = SchemaObject::new_ref("dummy-ref".into());
-                                    path_schema.reference = None;
-                                    let mut path_string_validation = StringValidation::default();
-                                    let plugin_filename = Path::new(plugin_path)
-                                        .file_name()
-                                        .and_then(|file_name| file_name.to_str())
-                                        .unwrap_or("problemwithpluginfilename");
-                                    let escaped_path_string =
-                                        format!("{}$", regex::escape(plugin_filename));
-                                    path_string_validation.pattern = Some(escaped_path_string);
-                                    path_schema.string = Some(Box::new(path_string_validation));
-                                    if_clause_properties.insert("path".into(), Object(path_schema));
-                                    if_clause.object().properties = if_clause_properties;
-                                    let mut conditional = SchemaObject::new_ref("dummy-ref".into());
-                                    conditional.reference = None;
-                                    let conditional_subschemas = conditional.subschemas();
-                                    conditional_subschemas.if_schema =
-                                        Some(Box::new(Object(if_clause)));
-                                    conditional_subschemas.then_schema =
-                                        Some(Box::new(Object(plugin_schema_object.schema.clone())));
-                                    conditional_subschemas.else_schema =
-                                        Some(Box::new(Object(acc)));
-                                    conditional
-                                },
-                            );
-                            overall_schema.definitions.insert(
-                                "PluginForSerialization".into(),
-                                Object(conditional_schema),
-                            );
-                            overall_schema
-                                .definitions
-                                .insert("Node".into(), Object(node_schema.schema));
-                            let stringified_schema = serde_json::to_string_pretty(&overall_schema);
-                            if stringified_schema.is_ok() {
-                                let write_result = std::fs::write(
-                                    cluster_path.join("cluster_schema.json"),
-                                    stringified_schema.unwrap().as_bytes(),
+                                let mut sorted_plugin_paths_to_schemas =
+                                    plugin_paths_to_schemas.iter().collect::<Vec<_>>();
+                                sorted_plugin_paths_to_schemas.sort_by(|a, b| a.0.cmp(b.0));
+                                let conditional_schema =
+                                    sorted_plugin_paths_to_schemas.iter().fold(
+                                        plugin_schema.schema.clone(),
+                                        |acc, (plugin_path, plugin_schema_object)| {
+                                            let mut if_clause =
+                                                SchemaObject::new_ref("dummy-ref".into());
+                                            let mut if_clause_required = BTreeSet::new();
+                                            if_clause.reference = None;
+                                            if_clause.instance_type =
+                                                Some(SingleOrVec::from(InstanceType::Object));
+                                            if_clause_required.insert("path".into());
+                                            if_clause.object().required = if_clause_required;
+                                            let mut if_clause_properties = BTreeMap::new();
+                                            let mut path_schema =
+                                                SchemaObject::new_ref("dummy-ref".into());
+                                            path_schema.reference = None;
+                                            let mut path_string_validation =
+                                                StringValidation::default();
+                                            let plugin_filename = Path::new(plugin_path)
+                                                .file_name()
+                                                .and_then(|file_name| file_name.to_str())
+                                                .unwrap_or("problemwithpluginfilename");
+                                            let escaped_path_string =
+                                                format!("{}$", regex::escape(plugin_filename));
+                                            path_string_validation.pattern =
+                                                Some(escaped_path_string);
+                                            path_schema.string =
+                                                Some(Box::new(path_string_validation));
+                                            if_clause_properties
+                                                .insert("path".into(), Object(path_schema));
+                                            if_clause.object().properties = if_clause_properties;
+                                            let mut conditional =
+                                                SchemaObject::new_ref("dummy-ref".into());
+                                            conditional.reference = None;
+                                            let conditional_subschemas = conditional.subschemas();
+                                            conditional_subschemas.if_schema =
+                                                Some(Box::new(Object(if_clause)));
+                                            conditional_subschemas.then_schema = Some(Box::new(
+                                                Object(plugin_schema_object.schema.clone()),
+                                            ));
+                                            conditional_subschemas.else_schema =
+                                                Some(Box::new(Object(acc)));
+                                            conditional
+                                        },
+                                    );
+                                overall_schema.definitions.insert(
+                                    "PluginForSerialization".into(),
+                                    Object(conditional_schema),
                                 );
-                                if write_result.is_err() {
-                                    schema_gen_issues.push("Failed to write schema.".into());
+                                overall_schema
+                                    .definitions
+                                    .insert("Node".into(), Object(node_schema.schema));
+                                let stringified_schema =
+                                    serde_json::to_string_pretty(&overall_schema);
+                                if stringified_schema.is_err() {
+                                    schema_gen_issues.push("Failed to stringify schema.".into());
                                 }
-                            } else {
-                                schema_gen_issues.push("Failed to stringify schema.".into());
+                                // and only map to Ok value if that is possibly and writing goes smoothly
+                                // otherwise, use schema_gen_issues to generate text (unless there is an IO error)
+                                if schema_gen_issues.is_empty() {
+                                    Ok((
+                                        uc,
+                                        contents,
+                                        mandatory_fields,
+                                        stringified_schema
+                                            .expect("Already checked whether this is an error."),
+                                    ))
+                                } else {
+                                    Err(anyhow::anyhow!(schema_gen_issues.join("\n")))
+                                }
                             }
-                        }
-                        // and only map to Ok value if that is possibly and writing goes smoothly
-                        // otherwise, use schema_gen_issues to generate text (unless there is an IO error)
-                        if schema_gen_issues.is_empty() {
-                            Ok((uc, contents, mandatory_fields))
-                        } else {
-                            Err(anyhow::anyhow!(schema_gen_issues.join("\n")))
-                        }
-                    }),
+                        }),
             }
         })
         .collect::<Vec<_>>()
@@ -417,9 +435,34 @@ fn read_contents_with_test_dependencies<'a>(
     let _test = 3;
     let read_results = read_unpopulated_cluster_results_with_metadata(paths, reader);
     let schema_generation_results = perform_schema_generation(read_results);
+    let schema_write_results = schema_generation_results.into_iter().map(|sgr| match sgr {
+        SchemaGenerationResult {
+            cluster_path,
+            unpopulated_cluster_with_contents_file_contents_and_mandatory_fields_and_schema:
+                Ok((uc, cfc, mf, schema)),
+        } => {
+            let write_result =
+                std::fs::write(cluster_path.join("cluster_schema.json"), schema.as_bytes());
+            SchemaWriteResult {
+                cluster_path,
+                unpopulated_cluster_with_contents_file_contents_and_mandatory_fields: write_result
+                    .map(|_| (uc, cfc, mf))
+                    .map_err(|e| anyhow!(e)),
+            }
+        }
+        SchemaGenerationResult {
+            cluster_path,
+            unpopulated_cluster_with_contents_file_contents_and_mandatory_fields_and_schema: Err(e),
+        } => SchemaWriteResult {
+            cluster_path,
+            unpopulated_cluster_with_contents_file_contents_and_mandatory_fields: Err(e),
+        },
+    });
+    // TODO: add schema_write_results
     // run pre-node cluster plugins
+    // TODO: move to separate function and add tests
     let pre_node_cluster_plugin_results =
-        schema_generation_results
+        schema_write_results
             .into_iter()
             .map(|sgr| PreNodeClusterPluginResult {
                 cluster_path: sgr.cluster_path.clone(),
@@ -1138,7 +1181,7 @@ mod tests {
 
     use super::readers::{MockFileReader, RealFileReader};
     use crate::{
-        associate_parents_children, can_trigger_change,
+        associate_parents_children, can_trigger_change, perform_schema_generation,
         read_unpopulated_cluster_results_with_metadata,
     };
 
@@ -1219,7 +1262,7 @@ mod tests {
 
     #[test]
     fn unpopulated_clusters_with_missing_plugins() {
-        let mut reader = RealFileReader {};
+        let reader = RealFileReader {};
         let base_path = std::fs::canonicalize(
             PathBuf::from(
                 "tests/pipeline-tests/loading-of-unpopulated-clusters/with-missing-plugins",
@@ -1248,9 +1291,89 @@ mod tests {
         match unpopulated_cluster_with_contents_file_contents {
             Ok(_) => panic!("Was actually expecting an error here."),
             Err(e) => {
-
                 assert!(format!("{:#?}", e).contains("Unable to load Wasm file"));
             }
+        }
+    }
+
+    #[test]
+    fn trivial_schema_generation() {
+        let reader = RealFileReader {};
+        let base_path = std::fs::canonicalize(
+            PathBuf::from("tests/pipeline-tests/loading-of-unpopulated-clusters/simple")
+                .as_path(),
+        );
+        let base_path = base_path.expect("If this panics, the test fails, which is fine.");
+        let cluster_1_path = base_path
+            .join("simpleproject")
+            .to_str()
+            .expect("If this panics, the test fails, which is fine.")
+            .to_owned();
+        let cluster_2_path = base_path
+            .join("technicalinfo")
+            .to_str()
+            .expect("If this panics, the test fails, which is fine.")
+            .to_owned();
+        let combined_paths = vec![cluster_1_path, cluster_2_path].join(";");
+        let read_results = read_unpopulated_cluster_results_with_metadata(&combined_paths, reader);
+        let schema_generation_results = perform_schema_generation(read_results);
+        let simpleproject_result = schema_generation_results.get(0).unwrap();
+        match simpleproject_result
+            .unpopulated_cluster_with_contents_file_contents_and_mandatory_fields_and_schema
+            .as_ref()
+        {
+            Ok((_, _, _, schema)) => {
+                assert_eq!(
+                    schema.trim(),
+                    std::fs::read_to_string(
+                        "tests/pipeline-tests/schema-generation/trivialschema.json"
+                    )
+                    .expect("This should be present and readable.")
+                    .trim()
+                )
+            }
+            Err(e) => panic!("Was expecting to find a schema here, got {:#?}.", e),
+        }
+    }
+
+
+    #[test]
+    fn non_trivial_schema_generation() {
+        let reader = RealFileReader {};
+        let base_path = std::fs::canonicalize(
+            PathBuf::from("tests/pipeline-tests/loading-of-unpopulated-clusters/with-noop-plugins")
+                .as_path(),
+        );
+        let base_path = base_path.expect("If this panics, the test fails, which is fine.");
+        let cluster_1_path = base_path
+            .join("simpleproject")
+            .to_str()
+            .expect("If this panics, the test fails, which is fine.")
+            .to_owned();
+        let cluster_2_path = base_path
+            .join("technicalinfo")
+            .to_str()
+            .expect("If this panics, the test fails, which is fine.")
+            .to_owned();
+        let combined_paths = vec![cluster_1_path, cluster_2_path].join(";");
+        let read_results = read_unpopulated_cluster_results_with_metadata(&combined_paths, reader);
+        let schema_generation_results = perform_schema_generation(read_results);
+        let simpleproject_result = schema_generation_results.get(0).unwrap();
+        match simpleproject_result
+            .unpopulated_cluster_with_contents_file_contents_and_mandatory_fields_and_schema
+            .as_ref()
+        {
+            Ok((_, _, _, schema)) => {
+                assert_eq!(
+                    schema.trim(),
+                    std::fs::read_to_string(
+                        "tests/pipeline-tests/schema-generation/nontrivialschema.json"
+                    )
+                    .expect("This should be present and readable.")
+                    .trim()
+                )
+            }
+            _ => panic!("Was expecting to find a schema here."),
         }
     }
 
@@ -1450,200 +1573,8 @@ mod tests {
 
 #[tauri::command]
 // TODO: will eventually want to get rid of this and run a user-defined workflow instead
-fn build_zip(_paths: &'_ str, state: tauri::State<'_, AppState>) -> Result<PathBuf, String> {
+fn build_zip(_paths: &'_ str, _state: tauri::State<'_, AppState>) -> Result<PathBuf, String> {
     todo!("Run pre-archive plugins!");
-    let zip_path = std::path::Path::new("archive.zip");
-    let zip_file = std::fs::File::create(zip_path).map_err(|e| e.to_string())?;
-    // copy clusters into zipped folder
-    let mut zip = zip::ZipWriter::new(zip_file);
-    let mut mutex_guard = state
-        .supercluster_with_roots
-        .lock()
-        .expect("Should always be able to gain access eventually.");
-    let (supercluster, _component_clusters) = mutex_guard
-        .as_mut()
-        .expect("Should only be possible to invoke this command when there is a supercluster.");
-
-    let options = FileOptions::default()
-        .compression_method(CompressionMethod::Stored)
-        .unix_permissions(0o755);
-    // TODO: factor this out?
-    {
-        let (supercluster, roots) = (&supercluster.graph, &supercluster.roots);
-
-        // graph without nodes would not be valid
-        let mut serialized = "nodes:\n".to_string();
-        supercluster.node_weights().for_each(|(id, title)| {
-            serialized.push_str(&format!("  - id: {}\n", id));
-            serialized.push_str(&format!("    title: {}\n", title));
-        });
-        // misschien gebruik maken van partition op edge_references?
-        let all_type_edges: Vec<_> = supercluster
-            .edge_references()
-            .filter(|e| e.weight() == &EdgeType::All)
-            .map(|e| {
-                Option::zip(
-                    supercluster.node_weight(e.source()),
-                    supercluster.node_weight(e.target()),
-                )
-                .map(|(n1, n2)| (n1.0.clone(), n2.0.clone()))
-            })
-            .flatten()
-            .collect();
-        let any_type_edges: Vec<_> = supercluster
-            .edge_references()
-            .filter(|e| e.weight() == &EdgeType::AtLeastOne)
-            .map(|e| {
-                Option::zip(
-                    supercluster.node_weight(e.source()),
-                    supercluster.node_weight(e.target()),
-                )
-                .map(|(n1, n2)| (n1.0.clone(), n2.0.clone()))
-            })
-            .flatten()
-            .collect();
-        if all_type_edges.len() > 0 {
-            serialized.push_str("all_type_edges:\n");
-            all_type_edges.iter().for_each(|(id1, id2)| {
-                serialized.push_str(&format!("  - start_id: {}\n", id1));
-                serialized.push_str(&format!("    end_id: {}\n", id2));
-            })
-        }
-        if any_type_edges.len() > 0 {
-            serialized.push_str("any_type_edges:\n");
-            any_type_edges.iter().for_each(|(id1, id2)| {
-                serialized.push_str(&format!("  - start_id: {}\n", id1));
-                serialized.push_str(&format!("    end_id: {}\n", id2));
-            })
-        }
-        if roots.len() > 0 {
-            serialized.push_str("roots:\n");
-            roots.iter().for_each(|root| {
-                serialized.push_str(&format!("  - {}\n", root));
-            });
-        }
-
-        let _ = zip.start_file("serialized_complete_graph.yaml", options); // TODO: use result
-        let _ = zip.write(serialized.as_bytes()); // same
-    }
-
-    let (
-        (
-            dependent_to_dependency_graph,
-            dependent_to_dependency_tc,
-            dependent_to_dependency_revmap,
-            dependent_to_dependency_toposort_order,
-        ),
-        (
-            dependency_to_dependent_graph,
-            dependency_to_dependent_tc,
-            dependency_to_dependent_revmap,
-            dependency_to_dependent_toposort_order,
-        ),
-        motivations_graph,
-    ) = dependency_helpers(supercluster);
-    let mut unlocking_conditions: HashMap<NodeID, Option<UnlockingCondition>> = HashMap::new();
-    let roots = &supercluster.roots;
-    supercluster.graph.node_references().for_each(
-        |(_supercluster_node_index, (supercluster_node_id, _))| {
-            if roots.contains(supercluster_node_id) {
-                unlocking_conditions.insert(supercluster_node_id.clone(), None);
-            } else {
-                // dependent_to... uses a subgraph, so indexes are different!
-                // matching_node = "all-type" graph counterpart to the current supercluster node
-                let matching_nodes = dependency_to_dependent_graph
-                    .node_references()
-                    .filter(|(_idx, weight)| &weight.0 == supercluster_node_id)
-                    .collect::<Vec<_>>();
-                let matching_node = matching_nodes
-                    .get(0)
-                    .expect("Subgraph should contain all the supercluster nodes.");
-                let matching_node_idx = matching_node.0.index();
-                // denk dat dit strenger is dan nodig
-                // dependent_to_dependency_tc betekent dat we *alle* harde dependencies zullen oplijsten
-                // kan dit beperken tot enkel directe dependencies
-                // i.e. de neighbors in dependent_to_depency_graph (neighbors = bereikbaar in één gerichte hop)
-                let hard_dependency_ids: HashSet<NodeID> = dependent_to_dependency_tc
-                    .neighbors(dependent_to_dependency_revmap[matching_node_idx])
-                    .map(|ix: NodeIndex| dependent_to_dependency_toposort_order[ix.index()])
-                    .filter_map(|idx| {
-                        dependent_to_dependency_graph
-                            .node_weight(idx)
-                            .map(|(id, _)| id.clone())
-                    })
-                    .collect();
-                let mut dependent_ids: HashSet<NodeID> = dependency_to_dependent_tc
-                    .neighbors(dependency_to_dependent_revmap[matching_node.0.index()])
-                    .map(|ix: NodeIndex| dependency_to_dependent_toposort_order[ix.index()])
-                    .filter_map(|idx| {
-                        dependency_to_dependent_graph
-                            .node_weight(idx)
-                            .map(|(id, _)| id.clone())
-                    })
-                    .collect();
-                dependent_ids.insert(matching_node.1 .0.clone());
-                let soft_dependency_ids = motivations_graph
-                    .node_references()
-                    .filter_map(|potential_motivator| {
-                        let neighbors: HashSet<NodeID> = motivations_graph
-                            .neighbors(potential_motivator.0)
-                            .filter_map(|motivator_index| {
-                                motivations_graph
-                                    .node_weight(motivator_index)
-                                    .map(|(id, _)| id.to_owned())
-                            })
-                            .collect();
-                        if neighbors.is_disjoint(&dependent_ids) {
-                            None
-                        } else {
-                            Some(potential_motivator.1 .0.to_owned())
-                        }
-                    })
-                    .collect();
-                unlocking_conditions.insert(
-                    supercluster_node_id.clone(),
-                    Some(UnlockingCondition {
-                        all_of: hard_dependency_ids,
-                        one_of: soft_dependency_ids,
-                    }),
-                );
-            }
-        },
-    );
-    let representation: HashMap<_, _> = unlocking_conditions
-        .iter()
-        .map(|(k, v)| {
-            (
-                format!("{}", k),
-                v.as_ref().map(|condition| ReadableUnlockingCondition {
-                    all_of: condition
-                        .all_of
-                        .iter()
-                        .map(|node_id| format!("{}", node_id))
-                        .collect(),
-                    one_of: condition
-                        .one_of
-                        .iter()
-                        .map(|node_id| format!("{}", node_id))
-                        .collect(),
-                }),
-            )
-        })
-        .collect();
-    zip.start_file("unlocking_conditions.json", options)
-        .map_err(|ze| ze.to_string())?;
-    zip.write(
-        serde_json::to_string_pretty(&representation)
-            .unwrap()
-            .as_bytes(),
-    )
-    .map_err(|ze| ze.to_string())?;
-    let artifact = zip
-        .finish()
-        .map(|_| zip_path.to_path_buf())
-        .map_err(|ze| ze.to_string());
-    todo!("Run post-archive plugins!");
-    artifact
 }
 
 #[tauri::command]
