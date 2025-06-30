@@ -418,6 +418,35 @@ fn perform_schema_generation(
         .collect::<Vec<_>>()
 }
 
+fn write_schemas(schema_generation_results: Vec<SchemaGenerationResult>) -> Vec<SchemaWriteResult> {
+    schema_generation_results
+        .into_iter()
+        .map(|sgr| match sgr {
+            SchemaGenerationResult {
+                cluster_path,
+                unpopulated_cluster_with_contents_file_contents_and_mandatory_fields_and_schema:
+                    Ok((uc, cfc, mf, schema)),
+            } => {
+                let write_result =
+                    std::fs::write(cluster_path.join("cluster_schema.json"), schema.as_bytes());
+                SchemaWriteResult {
+                    cluster_path,
+                    unpopulated_cluster_with_contents_file_contents_and_mandatory_fields:
+                        write_result.map(|_| (uc, cfc, mf)).map_err(|e| anyhow!(e)),
+                }
+            }
+            SchemaGenerationResult {
+                cluster_path,
+                unpopulated_cluster_with_contents_file_contents_and_mandatory_fields_and_schema:
+                    Err(e),
+            } => SchemaWriteResult {
+                cluster_path,
+                unpopulated_cluster_with_contents_file_contents_and_mandatory_fields: Err(e),
+            },
+        })
+        .collect()
+}
+
 fn read_contents_with_test_dependencies<'a>(
     paths: &'a str,
     mut reader: impl FileReader,
@@ -435,30 +464,7 @@ fn read_contents_with_test_dependencies<'a>(
     let _test = 3;
     let read_results = read_unpopulated_cluster_results_with_metadata(paths, reader);
     let schema_generation_results = perform_schema_generation(read_results);
-    let schema_write_results = schema_generation_results.into_iter().map(|sgr| match sgr {
-        SchemaGenerationResult {
-            cluster_path,
-            unpopulated_cluster_with_contents_file_contents_and_mandatory_fields_and_schema:
-                Ok((uc, cfc, mf, schema)),
-        } => {
-            let write_result =
-                std::fs::write(cluster_path.join("cluster_schema.json"), schema.as_bytes());
-            SchemaWriteResult {
-                cluster_path,
-                unpopulated_cluster_with_contents_file_contents_and_mandatory_fields: write_result
-                    .map(|_| (uc, cfc, mf))
-                    .map_err(|e| anyhow!(e)),
-            }
-        }
-        SchemaGenerationResult {
-            cluster_path,
-            unpopulated_cluster_with_contents_file_contents_and_mandatory_fields_and_schema: Err(e),
-        } => SchemaWriteResult {
-            cluster_path,
-            unpopulated_cluster_with_contents_file_contents_and_mandatory_fields: Err(e),
-        },
-    });
-    // TODO: add schema_write_results
+    let schema_write_results = write_schemas(schema_generation_results);
     // run pre-node cluster plugins
     // TODO: move to separate function and add tests
     let pre_node_cluster_plugin_results =
@@ -1182,7 +1188,7 @@ mod tests {
     use super::readers::{MockFileReader, RealFileReader};
     use crate::{
         associate_parents_children, can_trigger_change, perform_schema_generation,
-        read_unpopulated_cluster_results_with_metadata,
+        read_unpopulated_cluster_results_with_metadata, write_schemas,
     };
 
     #[test]
@@ -1300,8 +1306,7 @@ mod tests {
     fn trivial_schema_generation() {
         let reader = RealFileReader {};
         let base_path = std::fs::canonicalize(
-            PathBuf::from("tests/pipeline-tests/loading-of-unpopulated-clusters/simple")
-                .as_path(),
+            PathBuf::from("tests/pipeline-tests/loading-of-unpopulated-clusters/simple").as_path(),
         );
         let base_path = base_path.expect("If this panics, the test fails, which is fine.");
         let cluster_1_path = base_path
@@ -1335,7 +1340,6 @@ mod tests {
             Err(e) => panic!("Was expecting to find a schema here, got {:#?}.", e),
         }
     }
-
 
     #[test]
     fn non_trivial_schema_generation() {
@@ -1375,6 +1379,42 @@ mod tests {
             }
             _ => panic!("Was expecting to find a schema here."),
         }
+    }
+
+    #[test]
+    fn schema_write() {
+        let reader = RealFileReader {};
+        let base_path = std::fs::canonicalize(
+            PathBuf::from("tests/pipeline-tests/loading-of-unpopulated-clusters/with-noop-plugins")
+                .as_path(),
+        );
+        let base_path = base_path.expect("If this panics, the test fails, which is fine.");
+        let cluster_1_path = base_path
+            .join("simpleproject")
+            .to_str()
+            .expect("If this panics, the test fails, which is fine.")
+            .to_owned();
+        let cluster_2_path = base_path
+            .join("technicalinfo")
+            .to_str()
+            .expect("If this panics, the test fails, which is fine.")
+            .to_owned();
+        let schema_simpleproject_path = base_path.join("simpleproject/cluster_schema.json");
+        let schema_technicalinfo_path = base_path.join("technicalinfo/cluster_schema.json");
+        let combined_paths = vec![cluster_1_path, cluster_2_path].join(";");
+        let read_results = read_unpopulated_cluster_results_with_metadata(&combined_paths, reader);
+        let schema_generation_results = perform_schema_generation(read_results);
+        let _ = std::fs::remove_file(schema_simpleproject_path.clone());
+        let _ = std::fs::remove_file(schema_technicalinfo_path.clone());
+        let _schema_write_results = write_schemas(schema_generation_results);
+        let schema_simpleproject = std::fs::read_to_string(schema_simpleproject_path)
+            .expect("If this fails, the test fails.");
+        assert_eq!(
+            schema_simpleproject.trim(),
+            std::fs::read_to_string("tests/pipeline-tests/schema-generation/trivialschema.json")
+                .expect("This test file should exist, otherwise test should fail.")
+                .trim(),
+        );
     }
 
     #[test]
