@@ -447,26 +447,9 @@ fn write_schemas(schema_generation_results: Vec<SchemaGenerationResult>) -> Vec<
         .collect()
 }
 
-fn read_contents_with_test_dependencies<'a>(
-    paths: &'a str,
-    mut reader: impl FileReader,
-    file_is_readable: fn(&Path) -> bool,
-    directory_is_readable: fn(&Path) -> bool,
-    // NOTE: app_state's current value does not matter
-    // we just have the MutexGuard so we can write!
-    mut app_state: MutexGuard<
-        Option<(
-            RootedSupercluster,
-            Vec<(domain::Cluster, HashSet<ArtifactMapping>)>,
-        )>,
-    >,
-) -> Vec<(String, Result<(Vec<Comment>, SVGSource), String>)> {
-    let _test = 3;
-    let read_results = read_unpopulated_cluster_results_with_metadata(paths, reader);
-    let schema_generation_results = perform_schema_generation(read_results);
-    let schema_write_results = write_schemas(schema_generation_results);
-    // run pre-node cluster plugins
-    // TODO: move to separate function and add tests
+fn run_pre_node_cluster_plugins(
+    schema_write_results: Vec<SchemaWriteResult>,
+) -> Vec<PreNodeClusterPluginResult> {
     let pre_node_cluster_plugin_results =
         schema_write_results
             .into_iter()
@@ -501,6 +484,29 @@ fn read_contents_with_test_dependencies<'a>(
                         overall_plugin_result.map(|mapping| (uc, contents, mandatory_fields, mapping))
                     }),
             });
+    pre_node_cluster_plugin_results.collect()
+}
+
+fn read_contents_with_test_dependencies<'a>(
+    paths: &'a str,
+    mut reader: impl FileReader,
+    file_is_readable: fn(&Path) -> bool,
+    directory_is_readable: fn(&Path) -> bool,
+    // NOTE: app_state's current value does not matter
+    // we just have the MutexGuard so we can write!
+    mut app_state: MutexGuard<
+        Option<(
+            RootedSupercluster,
+            Vec<(domain::Cluster, HashSet<ArtifactMapping>)>,
+        )>,
+    >,
+) -> Vec<(String, Result<(Vec<Comment>, SVGSource), String>)> {
+    let _test = 3;
+    let read_results = read_unpopulated_cluster_results_with_metadata(paths, reader);
+    let schema_generation_results = perform_schema_generation(read_results);
+    let schema_write_results = write_schemas(schema_generation_results);
+    let pre_node_cluster_plugin_results = run_pre_node_cluster_plugins(schema_write_results);
+
     // load nodes/edges from file contents
     let cluster_population_results =
         pre_node_cluster_plugin_results
@@ -598,6 +604,7 @@ fn read_contents_with_test_dependencies<'a>(
                     Ok((cluster, artifacts, post_node_node_plugin_remarks))
                 })
             }}).collect::<Vec<_>>();
+
     let post_node_cluster_plugin_results = post_node_node_plugin_results
         .into_iter()
         .map(|pnnpr| PostNodeClusterPluginResult {
@@ -1181,15 +1188,17 @@ fn associate_parents_children(
 #[cfg(test)]
 mod tests {
     use std::{
-        collections::HashMap,
+        collections::{HashMap,HashSet},
         path::{Path, PathBuf},
     };
 
     use super::readers::{MockFileReader, RealFileReader};
     use crate::{
         associate_parents_children, can_trigger_change, perform_schema_generation,
-        read_unpopulated_cluster_results_with_metadata, write_schemas,
+        read_unpopulated_cluster_results_with_metadata, run_pre_node_cluster_plugins,
+        write_schemas, ReadResultForPath, SchemaWriteResult, UnpopulatedClusterResultWithMetadata,
     };
+    use pretty_assertions::{assert_eq, assert_ne};
 
     #[test]
     fn simple_unpopulated_clusters() {
@@ -1385,8 +1394,7 @@ mod tests {
     fn schema_write() {
         let reader = RealFileReader {};
         let base_path = std::fs::canonicalize(
-            PathBuf::from("tests/pipeline-tests/loading-of-unpopulated-clusters/with-noop-plugins")
-                .as_path(),
+            PathBuf::from("tests/pipeline-tests/loading-of-unpopulated-clusters/simple").as_path(),
         );
         let base_path = base_path.expect("If this panics, the test fails, which is fine.");
         let cluster_1_path = base_path
@@ -1415,6 +1423,41 @@ mod tests {
                 .expect("This test file should exist, otherwise test should fail.")
                 .trim(),
         );
+    }
+
+    #[test]
+    fn pre_node_cluster_plugin_effect() {
+        let reader = RealFileReader {};
+        let base_path = std::fs::canonicalize(
+            PathBuf::from("tests/pipeline-tests/plugin-side-effects/pre-node-plugin").as_path(),
+        );
+        let base_path = base_path.expect("If this panics, the test fails, which is fine.");
+        let cluster_1_path = base_path.join("technicalinfo");
+        let file_from_plugin = cluster_1_path.join("cluster-plugin-file.txt");
+        let _ = std::fs::remove_file(file_from_plugin.clone());
+        let read_results = read_unpopulated_cluster_results_with_metadata(&cluster_1_path.to_str().expect("If this panics, the test just fails.").to_owned(), reader);
+        let _ = std::fs::remove_file(file_from_plugin.clone());
+        let skipped_schema_write_results = read_results.into_iter().map(
+            |UnpopulatedClusterResultWithMetadata {
+                 cluster_path,
+                 unpopulated_cluster_with_contents_file_contents,
+             }| {
+                SchemaWriteResult {
+                    cluster_path,
+                    unpopulated_cluster_with_contents_file_contents_and_mandatory_fields: unpopulated_cluster_with_contents_file_contents.map(|(uc,text)| {
+                        (uc,text,HashSet::new())
+                    }),
+                }
+            },
+        ).collect();
+        run_pre_node_cluster_plugins(skipped_schema_write_results);
+        assert!(file_from_plugin.exists());
+    }
+
+    #[test]
+    #[ignore]
+    fn cluster_population() {
+        assert!(false, "Still need to implement this.");
     }
 
     #[test]
@@ -1614,6 +1657,7 @@ mod tests {
 #[tauri::command]
 // TODO: will eventually want to get rid of this and run a user-defined workflow instead
 fn build_zip(_paths: &'_ str, _state: tauri::State<'_, AppState>) -> Result<PathBuf, String> {
+    // note that archival also requires artifact mappings!
     todo!("Run pre-archive plugins!");
 }
 
