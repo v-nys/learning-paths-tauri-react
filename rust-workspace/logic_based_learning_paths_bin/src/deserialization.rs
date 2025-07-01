@@ -259,26 +259,33 @@ pub struct ClusterForSerialization {
     pre_archive_plugins: Option<Vec<PluginForSerialization>>,
 }
 
-#[derive(Deserialize, Clone)]
-#[serde(deny_unknown_fields)]
-pub struct ClusterPopulation {
-    /// Units of information inside this `Cluster`.
-    nodes: Vec<self::Node>,
-    /// Strict dependencies. A non-root `Node` can only be accessed if all of its dependencies of this type have been marked complete, along with one interchangeable dependency of this `Node` or of a `Node` which is strictly dependent on this `Node`.
-    all_type_edges: Option<Vec<Edge>>,
-    /// Interchangeable dependencies. A non-root `Node` can only be accessed if one dependency of this type has been marked complete for this node or for a `Node` which is strictly dependent on this `Node`. Furthermore, all strict dependencies must still be marked complete.
-    any_type_edges: Option<Vec<Edge>>,
-    /// IDs of `Node`s with no dependencies whatsoever, i.e. the only `Node`s which can be accessed unconditionally.
-    roots: Option<Vec<String>>,
-    // same as in unpopulated version
-    // basically says these fields exist but are irrelevant here
-    pre_node_node_plugins: IgnoredAny,
-    post_node_node_plugins: IgnoredAny,
-    post_node_cluster_plugins: IgnoredAny,
-    post_merge_node_plugins: IgnoredAny,
-    post_merge_cluster_plugins: IgnoredAny,
-    pre_archive_plugins: IgnoredAny,
-}
+// #[derive(Deserialize, Clone)]
+// #[serde(deny_unknown_fields)]
+// #[allow(dead_code)]
+// pub struct ClusterPopulation {
+//     /// Units of information inside this `Cluster`.
+//     nodes: Vec<self::Node>,
+//     /// Strict dependencies. A non-root `Node` can only be accessed if all of its dependencies of this type have been marked complete, along with one interchangeable dependency of this `Node` or of a `Node` which is strictly dependent on this `Node`.
+//     all_type_edges: Option<Vec<Edge>>,
+//     /// Interchangeable dependencies. A non-root `Node` can only be accessed if one dependency of this type has been marked complete for this node or for a `Node` which is strictly dependent on this `Node`. Furthermore, all strict dependencies must still be marked complete.
+//     any_type_edges: Option<Vec<Edge>>,
+//     /// IDs of `Node`s with no dependencies whatsoever, i.e. the only `Node`s which can be accessed unconditionally.
+//     roots: Option<Vec<String>>,
+//     // same as in unpopulated version
+//     // basically says these fields exist but are irrelevant here
+//     #[allow(dead_code)]
+//     pre_node_node_plugins: IgnoredAny,
+//     #[allow(dead_code)]
+//     post_node_node_plugins: IgnoredAny,
+//     #[allow(dead_code)]
+//     post_node_cluster_plugins: IgnoredAny,
+//     #[allow(dead_code)]
+//     post_merge_node_plugins: IgnoredAny,
+//     #[allow(dead_code)]
+//     post_merge_cluster_plugins: IgnoredAny,
+//     #[allow(dead_code)]
+//     pre_archive_plugins: IgnoredAny,
+// }
 
 #[derive(Deserialize, Clone, JsonSchema)]
 pub struct UnpopulatedClusterForSerialization {
@@ -369,7 +376,7 @@ impl UnpopulatedClusterForSerialization {
             load_cluster_processing_plugins(unloaded_post_merge_cluster_plugins, cluster_path)
                 .into_iter()
                 .collect();
-        let is_main_cluster = self.pre_archive_plugins.is_some();
+        let _is_main_cluster = self.pre_archive_plugins.is_some();
         let unloaded_pre_archive_plugins: Vec<_> = self
             .pre_archive_plugins
             .unwrap_or_default()

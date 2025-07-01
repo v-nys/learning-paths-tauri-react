@@ -30,10 +30,10 @@ impl<'a> FileReader for MockFileReader<'a> {
 }
 
 impl<'a> MockFileReader<'a> {
-    pub fn new(paths: Vec<&'a Path>) -> Self {
-        Self {
-            paths,
-            calls_made: 0,
-        }
-    }
+    // pub fn new(paths: Vec<&'a Path>) -> Self {
+    //     Self {
+    //         paths,
+    //         calls_made: 0,
+    //     }
+    // }
 }

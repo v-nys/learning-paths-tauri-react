@@ -9,7 +9,7 @@ use logic_based_learning_paths_bin::plugins::LBLPPlugin;
 use petgraph::adj::List;
 use petgraph::visit::IntoNeighbors;
 use regex;
-use serde::Serialize;
+// use serde::Serialize;
 use std::collections::{BTreeMap, BTreeSet, HashSet};
 
 use schemars::{
@@ -52,17 +52,18 @@ struct StructuralErrorGrouping {
     components: Vec<StructuralError>,
 }
 
-#[derive(Debug, Serialize)]
-struct UnlockingCondition {
-    all_of: HashSet<NodeID>,
-    one_of: HashSet<NodeID>,
-}
-
-#[derive(Serialize)]
-struct ReadableUnlockingCondition {
-    all_of: HashSet<String>,
-    one_of: HashSet<String>,
-}
+// related to archive functionality
+// #[derive(Debug, Serialize)]
+// struct UnlockingCondition {
+//     all_of: HashSet<NodeID>,
+//     one_of: HashSet<NodeID>,
+// }
+// 
+// #[derive(Serialize)]
+// struct ReadableUnlockingCondition {
+//     all_of: HashSet<String>,
+//     one_of: HashSet<String>,
+// }
 
 impl fmt::Display for StructuralErrorGrouping {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -301,7 +302,7 @@ fn perform_schema_generation(
                             });
                             {
                                 let plugins = uc.all_plugins_mut();
-                                let mut plugin_paths_to_schemas: HashMap<&String, RootSchema> =
+                                let plugin_paths_to_schemas: HashMap<&String, RootSchema> =
                                     plugins
                                         .filter_map(|plugin| {
                                             let params_schema = plugin.get_params_schema();
@@ -489,7 +490,7 @@ fn run_pre_node_cluster_plugins(
 
 fn read_contents_with_test_dependencies<'a>(
     paths: &'a str,
-    mut reader: impl FileReader,
+    reader: impl FileReader,
     file_is_readable: fn(&Path) -> bool,
     directory_is_readable: fn(&Path) -> bool,
     // NOTE: app_state's current value does not matter
