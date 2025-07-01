@@ -194,16 +194,16 @@ impl std::fmt::Display for NodeID {
 
 impl NodeID {
     pub fn from_two_part_string(string: &str) -> Result<NodeID, StructuralError> {
-        let string = string;
+        // let string = string;
         let identifier_regex = regex!("[a-z][a-z_]*");
         let parts = string.split("__").collect::<Vec<_>>();
         let invalid_part = parts.iter().find(|p| !identifier_regex.is_match(p));
         if let Some(part) = invalid_part {
-            Err(StructuralError::InvalidIdentifierError(part.to_string()).into())
+            Err(StructuralError::InvalidIdentifierError(part.to_string()))
         } else if parts.len() == 1 {
-            Err(StructuralError::NodeMissingNamespace(string.to_string()).into())
+            Err(StructuralError::NodeMissingNamespace(string.to_string()))
         } else if parts.len() > 2 {
-            Err(StructuralError::NodeMultipleNamespace(string.to_string()).into())
+            Err(StructuralError::NodeMultipleNamespace(string.to_string()))
         } else {
             Ok(NodeID {
                 namespace: parts[0].to_owned(),
