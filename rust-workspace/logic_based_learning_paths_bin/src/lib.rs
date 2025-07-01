@@ -132,7 +132,7 @@ pub mod plugins {
       let mut joined_path = base_path.clone();
       joined_path.push(relative_path);
       if joined_path.starts_with(&base_path) {
-          let _write_result = std::fs::write(joined_path, contents)?;
+          std::fs::write(joined_path, contents)?;
           Ok(())
       }
       else {
@@ -274,7 +274,7 @@ pub mod plugins {
             let res = self.extism_plugin.call("process_node", payload);
             res.map(|representation: String| {
                 println!("{representation}");
-                ()
+                
             })
         }
 

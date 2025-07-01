@@ -1,7 +1,7 @@
 use lazy_regex::regex;
 use logic_based_learning_paths::domain_without_loading::UnloadedPlugin;
 use schemars::JsonSchema;
-use serde::de::{self, IgnoredAny, MapAccess, Visitor};
+use serde::de::{self, MapAccess, Visitor};
 use serde::Deserialize;
 use serde::Deserializer;
 use serde_yaml::Value;
@@ -399,7 +399,7 @@ impl UnpopulatedClusterForSerialization {
             post_node_cluster_plugins: post_node_cluster_plugins_result?,
             post_merge_node_plugins: post_merge_node_plugins_result?,
             post_merge_cluster_plugins: post_merge_cluster_plugins_result?,
-            pre_archive_plugins: if pre_archive_plugins.len() > 0 {
+            pre_archive_plugins: if !pre_archive_plugins.is_empty() {
                 Some(pre_archive_plugins)
             } else {
                 None
