@@ -2,7 +2,7 @@ name: Build
 
 on:
   push:
-    branches: [ "main", "extism" ]
+    branches: [ "main", "extism", "not-using-typestate-after-all" ]
   pull_request:
     branches: [ "main", "extism"]
 
