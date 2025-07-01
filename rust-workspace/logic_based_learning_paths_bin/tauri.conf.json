@@ -31,7 +31,7 @@
         "icons/icon.ico"
       ],
       "identifier": "com.programmingemu.logicbasedlearningpaths",
-      "targets": ["deb", "msi"]
+      "targets": ["deb", "msi", "appimage"]
     },
     "security": {
       "csp": null
