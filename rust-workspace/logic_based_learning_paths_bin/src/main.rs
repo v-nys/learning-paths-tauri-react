@@ -45,6 +45,7 @@ use logic_based_learning_paths_bin::{deserialization, domain::ArtifactMapping};
 
 type SVGSource = String;
 type Comment = String;
+type TypedInPath = String;
 
 /// A way to bundle multiple structural errors, so they can be signalled simultaneously.
 #[derive(Debug)]
@@ -52,13 +53,21 @@ struct StructuralErrorGrouping {
     components: Vec<StructuralError>,
 }
 
+const svg_placeholder: &str = r##"<?xml version="1.0" encoding="UTF-8"?>
+<svg width="102.4mm" height="10.372mm" version="1.1" viewBox="0 0 102.4 10.372" xmlns="http://www.w3.org/2000/svg">
+<g transform="translate(-41.695 -46.491)" fill="#1a1a1a" font-family="Sans" font-size="14.111px" stroke="#ffffff" stroke-width=".26458">
+<text x="18" y="20.8125" xml:space="preserve"><tspan x="18" y="20.8125" fill="#1a1a1a" stroke-width=".26458"/></text>
+<text x="41.0625" y="56.53125" xml:space="preserve"><tspan x="41.0625" y="56.53125" stroke-width=".26458">see comments</tspan></text>
+</g>
+</svg>"##;
+
 // related to archive functionality
 // #[derive(Debug, Serialize)]
 // struct UnlockingCondition {
 //     all_of: HashSet<NodeID>,
 //     one_of: HashSet<NodeID>,
 // }
-// 
+//
 // #[derive(Serialize)]
 // struct ReadableUnlockingCondition {
 //     all_of: HashSet<String>,
@@ -96,7 +105,7 @@ struct SuperclusterComponent {
 #[derive(Debug)]
 struct VisualizedSuperclusterComponent {
     model: SuperclusterComponent,
-    view: SVGSource,
+    view: anyhow::Result<SVGSource>,
 }
 /// The result of reading a Path, along with that Path.
 struct ReadResultForPath(Result<String, std::io::Error>, PathBuf);
@@ -123,27 +132,52 @@ struct AppState {
 ///
 /// # Parameters
 /// - `paths`: A sequence of filesystem paths, represented as a single string.
+/// - `state`: The Tauri application state.
 ///
 /// # Returns
 ///
-/// An association list from each component path to ...?
+/// An association list from each component path as well as a special "supercluster" path to a `Result`. Any `Ok` value means that component has been successfully processed. The values produced are then non-fatal errors (like redundant edges) and the SVG source that can be rendered for that component (or the supercluster). An `Err` contains an error message that should be useful to the author.
 ///
 /// # Errors
 ///
-/// The function always produces an association list, but the associated values may be errors. This is because each cluster can be analyzed in isolation.
+/// The function always produces an association list, but the associated values may be errors. This is because each cluster can be analyzed in isolation. If any cluster cannot be fully processed, the result for the supercluster will always be a failure.
 ///
 #[tauri::command]
 fn read_contents<'a>(
     paths: &'a str,
     state: tauri::State<'_, AppState>,
-) -> Vec<(String, Result<(Vec<String>, String), String>)> {
+) -> Vec<(TypedInPath, Result<(Vec<Comment>, SVGSource), String>)> {
     let mut app_state = state
         .supercluster_with_roots
         .lock()
         .expect("Should always be able to gain access eventually.");
     app_state.take();
     let reader = readers::RealFileReader {};
-    read_contents_with_test_dependencies(paths, reader, file_is_readable, path_is_dir, app_state)
+    // these are two-tuples
+    let before_comment_merge = read_contents_with_test_dependencies(
+        paths,
+        reader,
+        file_is_readable,
+        path_is_dir,
+        app_state,
+    );
+    before_comment_merge
+        .into_iter()
+        .map(|(typed_in_path, path_processing_result)| {
+            (
+                typed_in_path,
+                path_processing_result.map(
+                    |(mut comments, rendering_result)| match rendering_result {
+                        Ok(svg_source) => (comments, svg_source),
+                        Err(rendering_issue) => {
+                            comments.push(format!("{}", rendering_issue));
+                            (comments, svg_placeholder.into())
+                        }
+                    },
+                ),
+            )
+        })
+        .collect()
 }
 
 #[derive(Debug)]
@@ -302,33 +336,32 @@ fn perform_schema_generation(
                             });
                             {
                                 let plugins = uc.all_plugins_mut();
-                                let plugin_paths_to_schemas: HashMap<&String, RootSchema> =
-                                    plugins
-                                        .filter_map(|plugin| {
-                                            let params_schema = plugin.get_params_schema();
-                                            match params_schema {
-                                                Ok(params_schema) => {
-                                                    if params_schema.is_empty() {
-                                                        None
-                                                    } else {
-                                                        Some(plugin_to_paths_to_schemas_entry(
-                                                            plugin.get_path(),
-                                                            params_schema,
-                                                            plugin_schema.clone(),
-                                                        ))
-                                                    }
+                                let plugin_paths_to_schemas: HashMap<&String, RootSchema> = plugins
+                                    .filter_map(|plugin| {
+                                        let params_schema = plugin.get_params_schema();
+                                        match params_schema {
+                                            Ok(params_schema) => {
+                                                if params_schema.is_empty() {
+                                                    None
+                                                } else {
+                                                    Some(plugin_to_paths_to_schemas_entry(
+                                                        plugin.get_path(),
+                                                        params_schema,
+                                                        plugin_schema.clone(),
+                                                    ))
                                                 }
-                                                Err(e) => {
-                                                    schema_gen_issues.push(format!(
+                                            }
+                                            Err(e) => {
+                                                schema_gen_issues.push(format!(
                                             "Cannot obtain parameter schema from plugin at {}: {}",
                                             plugin.get_path(),
                                             e
                                         ));
-                                                    None
-                                                }
+                                                None
                                             }
-                                        })
-                                        .collect();
+                                        }
+                                    })
+                                    .collect();
                                 plugin_paths_to_schemas.values().for_each(|root_schema| {
                                     root_schema.definitions.iter().for_each(
                                         |(ref_string, schema)| {
@@ -501,7 +534,10 @@ fn read_contents_with_test_dependencies<'a>(
             Vec<(domain::Cluster, HashSet<ArtifactMapping>)>,
         )>,
     >,
-) -> Vec<(String, Result<(Vec<Comment>, SVGSource), String>)> {
+) -> Vec<(
+    TypedInPath,
+    Result<(Vec<Comment>, anyhow::Result<SVGSource>), String>,
+)> {
     let _test = 3;
     let read_results = read_unpopulated_cluster_results_with_metadata(paths, reader);
     let schema_generation_results = perform_schema_generation(read_results);
@@ -755,7 +791,7 @@ fn read_contents_with_test_dependencies<'a>(
                         comment_graph(&component.model.graph, &mut component.model.remarks);
                     }
                 });
-            let pathless_outcome: Vec<Result<(Vec<Comment>, SVGSource), String>> =
+            let pathless_outcome: Vec<Result<(Vec<Comment>, anyhow::Result<SVGSource>), String>> =
                 visualized_component_results
                     .into_iter()
                     .map(|vcr| {
@@ -1189,7 +1225,7 @@ fn associate_parents_children(
 #[cfg(test)]
 mod tests {
     use std::{
-        collections::{HashMap,HashSet},
+        collections::{HashMap, HashSet},
         path::{Path, PathBuf},
     };
 
@@ -1436,21 +1472,30 @@ mod tests {
         let cluster_1_path = base_path.join("technicalinfo");
         let file_from_plugin = cluster_1_path.join("cluster-plugin-file.txt");
         let _ = std::fs::remove_file(file_from_plugin.clone());
-        let read_results = read_unpopulated_cluster_results_with_metadata(&cluster_1_path.to_str().expect("If this panics, the test just fails.").to_owned(), reader);
+        let read_results = read_unpopulated_cluster_results_with_metadata(
+            &cluster_1_path
+                .to_str()
+                .expect("If this panics, the test just fails.")
+                .to_owned(),
+            reader,
+        );
         let _ = std::fs::remove_file(file_from_plugin.clone());
-        let skipped_schema_write_results = read_results.into_iter().map(
-            |UnpopulatedClusterResultWithMetadata {
-                 cluster_path,
-                 unpopulated_cluster_with_contents_file_contents,
-             }| {
-                SchemaWriteResult {
-                    cluster_path,
-                    unpopulated_cluster_with_contents_file_contents_and_mandatory_fields: unpopulated_cluster_with_contents_file_contents.map(|(uc,text)| {
-                        (uc,text,HashSet::new())
-                    }),
-                }
-            },
-        ).collect();
+        let skipped_schema_write_results = read_results
+            .into_iter()
+            .map(
+                |UnpopulatedClusterResultWithMetadata {
+                     cluster_path,
+                     unpopulated_cluster_with_contents_file_contents,
+                 }| {
+                    SchemaWriteResult {
+                        cluster_path,
+                        unpopulated_cluster_with_contents_file_contents_and_mandatory_fields:
+                            unpopulated_cluster_with_contents_file_contents
+                                .map(|(uc, text)| (uc, text, HashSet::new())),
+                    }
+                },
+            )
+            .collect();
         run_pre_node_cluster_plugins(skipped_schema_write_results);
         assert!(file_from_plugin.exists());
     }
