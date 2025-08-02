@@ -13,7 +13,7 @@ fn node_dot_attributes(_: &Graph, node_ref: (NodeIndex, &NodeData)) -> String {
 }
 
 /// Render a Graph to SVG source code.
-pub fn svgify(graph: &Graph) -> String {
+pub fn svgify(graph: &Graph) -> anyhow::Result<String> {
     let dot = dbg!(format!(
         "digraph {{
             {:?}
@@ -32,7 +32,12 @@ pub fn svgify(graph: &Graph) -> String {
             &node_dot_attributes
         )
     ));
-    let g = graphviz_rust::parse(&dot).expect("Assuming petgraph generated valid dot syntax.");
-    exec(g, &mut PrinterContext::default(), vec![Format::Svg.into()])
-        .expect("Assuming valid graph can be rendered into SVG.")
+    let graph_result = graphviz_rust::parse(&dot);
+    let dot_syntax = graph_result.map_err(|e| anyhow::anyhow!(e))?;
+    let svg_result = exec(
+        dot_syntax,
+        &mut PrinterContext::default(),
+        vec![Format::Svg.into()],
+    );
+    svg_result.map_err(|e| anyhow::anyhow!(format!("{}", e)))
 }
