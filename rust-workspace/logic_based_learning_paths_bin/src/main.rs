@@ -53,7 +53,7 @@ struct StructuralErrorGrouping {
     components: Vec<StructuralError>,
 }
 
-const svg_placeholder: &str = r##"<?xml version="1.0" encoding="UTF-8"?>
+const SVG_PLACEHOLDER: &str = r##"<?xml version="1.0" encoding="UTF-8"?>
 <svg width="102.4mm" height="10.372mm" version="1.1" viewBox="0 0 102.4 10.372" xmlns="http://www.w3.org/2000/svg">
 <g transform="translate(-41.695 -46.491)" fill="#1a1a1a" font-family="Sans" font-size="14.111px" stroke="#ffffff" stroke-width=".26458">
 <text x="18" y="20.8125" xml:space="preserve"><tspan x="18" y="20.8125" fill="#1a1a1a" stroke-width=".26458"/></text>
@@ -171,7 +171,7 @@ fn read_contents<'a>(
                         Ok(svg_source) => (comments, svg_source),
                         Err(rendering_issue) => {
                             comments.push(format!("{}", rendering_issue));
-                            (comments, svg_placeholder.into())
+                            (comments, SVG_PLACEHOLDER.into())
                         }
                     },
                 ),
@@ -521,6 +521,28 @@ fn run_pre_node_cluster_plugins(
     pre_node_cluster_plugin_results.collect()
 }
 
+fn populate_clusters(
+    pre_node_cluster_plugin_results: Vec<PreNodeClusterPluginResult>,
+) -> Vec<ClusterPopulationResult> {
+    pre_node_cluster_plugin_results
+            .into_iter()
+            .map(|pncpr| ClusterPopulationResult {
+                cluster_path: pncpr.cluster_path.clone(),
+                cluster_with_mandatory_fields_and_artifact_mapping: pncpr
+                    .unpopulated_cluster_with_contents_file_contents_and_mandatory_fields_and_artifact_mapping
+                    .and_then(|(_uc, contents, mandatory_fields, artifact_mapping)| {
+                        // produces a Serde arror, not an anyhow error, so need to convert
+                        let cfs: Result<_, serde_yaml::Error> = serde_yaml::from_str::<
+                            deserialization::ClusterForSerialization,
+                        >(&contents);
+                        let anyhow_cfs = cfs.map_err(|e| anyhow::anyhow!(e));
+                        let build_result =
+                            anyhow_cfs.and_then(|cfs| cfs.build(&pncpr.cluster_path));
+                        build_result.map(|c| (c, mandatory_fields, artifact_mapping))
+                    }),
+            }).collect()
+}
+
 fn read_contents_with_test_dependencies<'a>(
     paths: &'a str,
     reader: impl FileReader,
@@ -538,32 +560,11 @@ fn read_contents_with_test_dependencies<'a>(
     TypedInPath,
     Result<(Vec<Comment>, anyhow::Result<SVGSource>), String>,
 )> {
-    let _test = 3;
     let read_results = read_unpopulated_cluster_results_with_metadata(paths, reader);
     let schema_generation_results = perform_schema_generation(read_results);
     let schema_write_results = write_schemas(schema_generation_results);
     let pre_node_cluster_plugin_results = run_pre_node_cluster_plugins(schema_write_results);
-
-    // load nodes/edges from file contents
-    let cluster_population_results =
-        pre_node_cluster_plugin_results
-            .into_iter()
-            .map(|pncpr| ClusterPopulationResult {
-                cluster_path: pncpr.cluster_path.clone(),
-                cluster_with_mandatory_fields_and_artifact_mapping: pncpr
-                    .unpopulated_cluster_with_contents_file_contents_and_mandatory_fields_and_artifact_mapping
-                    .and_then(|(_uc, contents, mandatory_fields, artifact_mapping)| {
-                        // produces a Serde arror, not an anyhow error, so need to convert
-                        let cfs: Result<_, serde_yaml::Error> = serde_yaml::from_str::<
-                            deserialization::ClusterForSerialization,
-                        >(&contents);
-                        let anyhow_cfs = cfs.map_err(|e| anyhow::anyhow!(e));
-                        let build_result =
-                            anyhow_cfs.and_then(|cfs| cfs.build(&pncpr.cluster_path));
-                        build_result.map(|c| (c, mandatory_fields, artifact_mapping))
-                    }),
-            });
-
+    let cluster_population_results = populate_clusters(pre_node_cluster_plugin_results);
     // run post-node node plugins
     let post_node_node_plugin_results =
         cluster_population_results
@@ -721,8 +722,6 @@ fn read_contents_with_test_dependencies<'a>(
             } else {
                 svgify(&supercluster.graph)
             };
-            // TODO: get paths back
-            // before merging, component results had path
             let paths_and_visualized_components: Vec<_> =
                 paths.iter().zip(visualized_components).collect();
             let mut supercluster_comments = vec![];
@@ -1232,9 +1231,11 @@ mod tests {
     use super::readers::{MockFileReader, RealFileReader};
     use crate::{
         associate_parents_children, can_trigger_change, perform_schema_generation,
-        read_unpopulated_cluster_results_with_metadata, run_pre_node_cluster_plugins,
-        write_schemas, ReadResultForPath, SchemaWriteResult, UnpopulatedClusterResultWithMetadata,
+        populate_clusters, read_unpopulated_cluster_results_with_metadata,
+        run_pre_node_cluster_plugins, write_schemas, ClusterPopulationResult, ReadResultForPath,
+        SchemaWriteResult, UnpopulatedClusterResultWithMetadata,
     };
+    use logic_based_learning_paths_bin::domain::EdgeType;
     use pretty_assertions::{assert_eq, assert_ne};
 
     #[test]
@@ -1501,8 +1502,99 @@ mod tests {
     }
 
     #[test]
-    #[ignore]
     fn cluster_population() {
+        let reader = RealFileReader {};
+        let base_path = std::fs::canonicalize(
+            PathBuf::from("tests/pipeline-tests/cluster-population").as_path(),
+        );
+        let base_path = base_path.expect("If this panics, the test fails, which is fine.");
+        let cluster_1_path = base_path.join("simpleproject");
+        let read_results = read_unpopulated_cluster_results_with_metadata(
+            &cluster_1_path
+                .to_str()
+                .expect("If this panics, the test just fails.")
+                .to_owned(),
+            reader,
+        );
+        let skipped_schema_write_results = read_results
+            .into_iter()
+            .map(
+                |UnpopulatedClusterResultWithMetadata {
+                     cluster_path,
+                     unpopulated_cluster_with_contents_file_contents,
+                 }| {
+                    SchemaWriteResult {
+                        cluster_path,
+                        unpopulated_cluster_with_contents_file_contents_and_mandatory_fields:
+                            unpopulated_cluster_with_contents_file_contents
+                                .map(|(uc, text)| (uc, text, HashSet::new())),
+                    }
+                },
+            )
+            .collect();
+        let skipped_pre_node_plugins_results =
+            run_pre_node_cluster_plugins(skipped_schema_write_results);
+        let cluster_population_results = populate_clusters(skipped_pre_node_plugins_results);
+        assert_eq!(cluster_population_results.len(), 1);
+        let ClusterPopulationResult {
+            cluster_path,
+            cluster_with_mandatory_fields_and_artifact_mapping,
+        } = &cluster_population_results[0];
+
+        assert_eq!(cluster_path, &cluster_1_path);
+        let (cluster, _, _) = cluster_with_mandatory_fields_and_artifact_mapping
+            .as_ref()
+            .expect("Should've gotten a valid cluster.");
+        assert!(cluster
+            .nodes
+            .iter()
+            .any(|node| node.node_id.namespace == "simpleproject"
+                && node.node_id.local_id == "intro"
+                && node.title == "Intro"));
+        assert_eq!(cluster.edges.iter().len(), 2);
+        assert!(cluster.edges.iter().any(|edge| {
+            edge.kind == EdgeType::All
+                && edge.start_id.namespace == "technicalinfo"
+                && edge.start_id.local_id == "concept_Q"
+                && edge.end_id.namespace == "simpleproject"
+                && edge.end_id.local_id == "implementation"
+        }));
+        assert!(cluster.edges.iter().any(|edge| {
+            edge.kind == EdgeType::AtLeastOne
+                && edge.start_id.namespace == "simpleproject"
+                && edge.start_id.local_id == "intro"
+                && edge.end_id.namespace == "simpleproject"
+                && edge.end_id.local_id == "implementation"
+        }));
+    }
+
+    #[test]
+    #[ignore]
+    fn post_node_node_plugin_effect() {
+        assert!(false, "Still need to implement this.");
+    }
+
+    #[test]
+    #[ignore]
+    fn post_node_cluster_plugin_effect() {
+        assert!(false, "Still need to implement this.");
+    }
+
+    #[test]
+    #[ignore]
+    fn post_merge_node_plugin_effect() {
+        assert!(false, "Still need to implement this.");
+    }
+
+    #[test]
+    #[ignore]
+    fn post_merge_cluster_plugin_effect() {
+        assert!(false, "Still need to implement this.");
+    }
+
+    #[test]
+    #[ignore]
+    fn pre_archive_plugins_effect() {
         assert!(false, "Still need to implement this.");
     }
 
