@@ -32,6 +32,7 @@ base64 = "0.22.1"
 ignore = "0.4.23"
 
 [dev-dependencies]
+claim = "0.5.0"
 pretty_assertions = "1"
 
 [build-dependencies]

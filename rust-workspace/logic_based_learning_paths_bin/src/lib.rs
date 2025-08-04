@@ -222,7 +222,6 @@ pub mod plugins {
         fn as_lblp_plugin_mut(&mut self) -> &mut dyn LBLPPlugin {
             self
         }
-
     }
 
     impl PreArchivePlugin {
@@ -274,7 +273,6 @@ pub mod plugins {
             let res = self.extism_plugin.call("process_node", payload);
             res.map(|representation: String| {
                 println!("{representation}");
-                
             })
         }
 
@@ -337,6 +335,15 @@ pub mod plugins {
                         [extism::PTR],
                         UserData::new(cluster_path.to_owned()),
                         file_exists,
+                    )
+                    .with_function(
+                        "write_text_file",
+                        [extism::PTR],
+                        [extism::PTR],
+                        // TODO: should this be node_path?
+                        // these plugins are still defined cluster-wide...
+                        UserData::new(cluster_path.to_owned()),
+                        write_text_file,
                     )
                     .build();
                 plugin.map(|plugin| NodeProcessingPlugin {

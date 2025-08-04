@@ -543,31 +543,12 @@ fn populate_clusters(
             }).collect()
 }
 
-fn read_contents_with_test_dependencies<'a>(
-    paths: &'a str,
-    reader: impl FileReader,
+fn run_post_node_node_plugins(
+    cluster_population_results: Vec<ClusterPopulationResult>,
     file_is_readable: fn(&Path) -> bool,
     directory_is_readable: fn(&Path) -> bool,
-    // NOTE: app_state's current value does not matter
-    // we just have the MutexGuard so we can write!
-    mut app_state: MutexGuard<
-        Option<(
-            RootedSupercluster,
-            Vec<(domain::Cluster, HashSet<ArtifactMapping>)>,
-        )>,
-    >,
-) -> Vec<(
-    TypedInPath,
-    Result<(Vec<Comment>, anyhow::Result<SVGSource>), String>,
-)> {
-    let read_results = read_unpopulated_cluster_results_with_metadata(paths, reader);
-    let schema_generation_results = perform_schema_generation(read_results);
-    let schema_write_results = write_schemas(schema_generation_results);
-    let pre_node_cluster_plugin_results = run_pre_node_cluster_plugins(schema_write_results);
-    let cluster_population_results = populate_clusters(pre_node_cluster_plugin_results);
-    // run post-node node plugins
-    let post_node_node_plugin_results =
-        cluster_population_results
+) -> Vec<PostNodeNodePluginResult> {
+    cluster_population_results
             .into_iter()
             .map(|cpr| {
                 let mut post_node_node_plugin_remarks = vec![];
@@ -641,8 +622,33 @@ fn read_contents_with_test_dependencies<'a>(
                     }});
                     Ok((cluster, artifacts, post_node_node_plugin_remarks))
                 })
-            }}).collect::<Vec<_>>();
+            }}).collect::<Vec<_>>()
+}
 
+fn read_contents_with_test_dependencies<'a>(
+    paths: &'a str,
+    reader: impl FileReader,
+    file_is_readable: fn(&Path) -> bool,
+    directory_is_readable: fn(&Path) -> bool,
+    // NOTE: app_state's current value does not matter
+    // we just have the MutexGuard so we can write!
+    mut app_state: MutexGuard<
+        Option<(
+            RootedSupercluster,
+            Vec<(domain::Cluster, HashSet<ArtifactMapping>)>,
+        )>,
+    >,
+) -> Vec<(
+    TypedInPath,
+    Result<(Vec<Comment>, anyhow::Result<SVGSource>), String>,
+)> {
+    let read_results = read_unpopulated_cluster_results_with_metadata(paths, reader);
+    let schema_generation_results = perform_schema_generation(read_results);
+    let schema_write_results = write_schemas(schema_generation_results);
+    let pre_node_cluster_plugin_results = run_pre_node_cluster_plugins(schema_write_results);
+    let cluster_population_results = populate_clusters(pre_node_cluster_plugin_results);
+    let post_node_node_plugin_results =
+        run_post_node_node_plugins(cluster_population_results, file_is_readable, path_is_dir);
     let post_node_cluster_plugin_results = post_node_node_plugin_results
         .into_iter()
         .map(|pnnpr| PostNodeClusterPluginResult {
@@ -1223,20 +1229,22 @@ fn associate_parents_children(
 
 #[cfg(test)]
 mod tests {
+    use claim::assert_ok;
     use std::{
         collections::{HashMap, HashSet},
         path::{Path, PathBuf},
     };
 
-    use super::readers::{MockFileReader, RealFileReader};
+    use super::readers::RealFileReader;
     use crate::{
-        associate_parents_children, can_trigger_change, perform_schema_generation,
-        populate_clusters, read_unpopulated_cluster_results_with_metadata,
-        run_pre_node_cluster_plugins, write_schemas, ClusterPopulationResult, ReadResultForPath,
-        SchemaWriteResult, UnpopulatedClusterResultWithMetadata,
+        associate_parents_children, can_trigger_change, file_is_readable, path_is_dir,
+        perform_schema_generation, populate_clusters,
+        read_unpopulated_cluster_results_with_metadata, run_post_node_node_plugins,
+        run_pre_node_cluster_plugins, write_schemas, ClusterPopulationResult, SchemaWriteResult,
+        UnpopulatedClusterResultWithMetadata,
     };
     use logic_based_learning_paths_bin::domain::EdgeType;
-    use pretty_assertions::{assert_eq, assert_ne};
+    use pretty_assertions::assert_eq;
 
     #[test]
     fn simple_unpopulated_clusters() {
@@ -1504,11 +1512,10 @@ mod tests {
     #[test]
     fn cluster_population() {
         let reader = RealFileReader {};
-        let base_path = std::fs::canonicalize(
-            PathBuf::from("tests/pipeline-tests/cluster-population").as_path(),
-        );
-        let base_path = base_path.expect("If this panics, the test fails, which is fine.");
-        let cluster_1_path = base_path.join("simpleproject");
+        let cluster_1_path = std::fs::canonicalize(
+            PathBuf::from("tests/pipeline-tests/cluster-population/simpleproject").as_path(),
+        )
+        .expect("If this panics, the test fails, which is fine.");
         let read_results = read_unpopulated_cluster_results_with_metadata(
             &cluster_1_path
                 .to_str()
@@ -1516,24 +1523,9 @@ mod tests {
                 .to_owned(),
             reader,
         );
-        let skipped_schema_write_results = read_results
-            .into_iter()
-            .map(
-                |UnpopulatedClusterResultWithMetadata {
-                     cluster_path,
-                     unpopulated_cluster_with_contents_file_contents,
-                 }| {
-                    SchemaWriteResult {
-                        cluster_path,
-                        unpopulated_cluster_with_contents_file_contents_and_mandatory_fields:
-                            unpopulated_cluster_with_contents_file_contents
-                                .map(|(uc, text)| (uc, text, HashSet::new())),
-                    }
-                },
-            )
-            .collect();
-        let skipped_pre_node_plugins_results =
-            run_pre_node_cluster_plugins(skipped_schema_write_results);
+        let schema_generation_results = perform_schema_generation(read_results);
+        let schema_write_results = write_schemas(schema_generation_results);
+        let skipped_pre_node_plugins_results = run_pre_node_cluster_plugins(schema_write_results);
         let cluster_population_results = populate_clusters(skipped_pre_node_plugins_results);
         assert_eq!(cluster_population_results.len(), 1);
         let ClusterPopulationResult {
@@ -1569,26 +1561,57 @@ mod tests {
     }
 
     #[test]
-    #[ignore]
     fn post_node_node_plugin_effect() {
-        assert!(false, "Still need to implement this.");
+        let reader = RealFileReader {};
+        let cluster_1_path = std::fs::canonicalize(
+            PathBuf::from(
+                "tests/pipeline-tests/plugin-side-effects/post-node-node-plugin/simpleproject",
+            )
+            .as_path(),
+        )
+        .expect("If this panics, the test fails, which is fine.");
+        let file1_from_plugin = cluster_1_path.join("intro/Intro.txt");
+        let file2_from_plugin = cluster_1_path.join("implementation/Implementation.txt");
+        let _ = std::fs::remove_file(file1_from_plugin.clone());
+        let _ = std::fs::remove_file(file2_from_plugin.clone());
+        let read_results = read_unpopulated_cluster_results_with_metadata(
+            &cluster_1_path
+                .to_str()
+                .expect("If this panics, the test just fails.")
+                .to_owned(),
+            reader,
+        );
+        let schema_generation_results = perform_schema_generation(read_results);
+        let schema_write_results = write_schemas(schema_generation_results);
+        let pre_node_plugins_results = run_pre_node_cluster_plugins(schema_write_results);
+        let cluster_population_results = populate_clusters(pre_node_plugins_results);
+        let post_node_node_plugin_results =
+            run_post_node_node_plugins(cluster_population_results, file_is_readable, path_is_dir);
+        post_node_node_plugin_results.into_iter().for_each(|pnnpr| {
+            assert_ok!(pnnpr.cluster_with_artifact_mapping_and_remarks);
+        });
+        assert!(!file1_from_plugin.exists());
+        assert!(file2_from_plugin.exists());
     }
 
     #[test]
     #[ignore]
     fn post_node_cluster_plugin_effect() {
+        // use a plugin that writes a text file with all the nodes' IDs, concatenated?
         assert!(false, "Still need to implement this.");
     }
 
     #[test]
     #[ignore]
     fn post_merge_node_plugin_effect() {
+        // same as before, just a different stage plugin?
         assert!(false, "Still need to implement this.");
     }
 
     #[test]
     #[ignore]
     fn post_merge_cluster_plugin_effect() {
+        // same as before, just a different stage plugin?
         assert!(false, "Still need to implement this.");
     }
 
