@@ -625,31 +625,10 @@ fn run_post_node_node_plugins(
             }}).collect::<Vec<_>>()
 }
 
-fn read_contents_with_test_dependencies<'a>(
-    paths: &'a str,
-    reader: impl FileReader,
-    file_is_readable: fn(&Path) -> bool,
-    directory_is_readable: fn(&Path) -> bool,
-    // NOTE: app_state's current value does not matter
-    // we just have the MutexGuard so we can write!
-    mut app_state: MutexGuard<
-        Option<(
-            RootedSupercluster,
-            Vec<(domain::Cluster, HashSet<ArtifactMapping>)>,
-        )>,
-    >,
-) -> Vec<(
-    TypedInPath,
-    Result<(Vec<Comment>, anyhow::Result<SVGSource>), String>,
-)> {
-    let read_results = read_unpopulated_cluster_results_with_metadata(paths, reader);
-    let schema_generation_results = perform_schema_generation(read_results);
-    let schema_write_results = write_schemas(schema_generation_results);
-    let pre_node_cluster_plugin_results = run_pre_node_cluster_plugins(schema_write_results);
-    let cluster_population_results = populate_clusters(pre_node_cluster_plugin_results);
-    let post_node_node_plugin_results =
-        run_post_node_node_plugins(cluster_population_results, file_is_readable, path_is_dir);
-    let post_node_cluster_plugin_results = post_node_node_plugin_results
+fn run_post_node_cluster_plugins(
+    post_node_node_plugin_results: Vec<PostNodeNodePluginResult>,
+) -> Vec<PostNodeClusterPluginResult> {
+    post_node_node_plugin_results
         .into_iter()
         .map(|pnnpr| PostNodeClusterPluginResult {
             cluster_path: pnnpr.cluster_path.clone(),
@@ -679,7 +658,36 @@ fn read_contents_with_test_dependencies<'a>(
                     overall_plugin_result.map(|mapping| (cluster, mapping, remarks))
                 }),
         })
-        .collect::<Vec<_>>();
+        .collect::<Vec<_>>()
+}
+
+fn read_contents_with_test_dependencies<'a>(
+    paths: &'a str,
+    reader: impl FileReader,
+    file_is_readable: fn(&Path) -> bool,
+    directory_is_readable: fn(&Path) -> bool,
+    // NOTE: app_state's current value does not matter
+    // we just have the MutexGuard so we can write!
+    mut app_state: MutexGuard<
+        Option<(
+            RootedSupercluster,
+            Vec<(domain::Cluster, HashSet<ArtifactMapping>)>,
+        )>,
+    >,
+) -> Vec<(
+    TypedInPath,
+    Result<(Vec<Comment>, anyhow::Result<SVGSource>), String>,
+)> {
+    let read_results = read_unpopulated_cluster_results_with_metadata(paths, reader);
+    let schema_generation_results = perform_schema_generation(read_results);
+    let schema_write_results = write_schemas(schema_generation_results);
+    let pre_node_cluster_plugin_results = run_pre_node_cluster_plugins(schema_write_results);
+    let cluster_population_results = populate_clusters(pre_node_cluster_plugin_results);
+    let post_node_node_plugin_results =
+        run_post_node_node_plugins(cluster_population_results, file_is_readable, path_is_dir);
+    let post_node_cluster_plugin_results =
+        run_post_node_cluster_plugins(post_node_node_plugin_results);
+
     let paths: Vec<_> = post_node_cluster_plugin_results
         .iter()
         .map(|r| r.cluster_path.clone())
@@ -1239,9 +1247,9 @@ mod tests {
     use crate::{
         associate_parents_children, can_trigger_change, file_is_readable, path_is_dir,
         perform_schema_generation, populate_clusters,
-        read_unpopulated_cluster_results_with_metadata, run_post_node_node_plugins,
-        run_pre_node_cluster_plugins, write_schemas, ClusterPopulationResult, SchemaWriteResult,
-        UnpopulatedClusterResultWithMetadata,
+        read_unpopulated_cluster_results_with_metadata, run_post_node_cluster_plugins,
+        run_post_node_node_plugins, run_pre_node_cluster_plugins, write_schemas,
+        ClusterPopulationResult, SchemaWriteResult, UnpopulatedClusterResultWithMetadata,
     };
     use logic_based_learning_paths_bin::domain::EdgeType;
     use pretty_assertions::assert_eq;
@@ -1474,11 +1482,11 @@ mod tests {
     #[test]
     fn pre_node_cluster_plugin_effect() {
         let reader = RealFileReader {};
-        let base_path = std::fs::canonicalize(
-            PathBuf::from("tests/pipeline-tests/plugin-side-effects/pre-node-plugin").as_path(),
-        );
-        let base_path = base_path.expect("If this panics, the test fails, which is fine.");
-        let cluster_1_path = base_path.join("technicalinfo");
+        let cluster_1_path = std::fs::canonicalize(
+            PathBuf::from("tests/pipeline-tests/plugin-side-effects/pre-node-plugin/technicalinfo")
+                .as_path(),
+        )
+        .expect("If this fails, the test fails.");
         let file_from_plugin = cluster_1_path.join("cluster-plugin-file.txt");
         let _ = std::fs::remove_file(file_from_plugin.clone());
         let read_results = read_unpopulated_cluster_results_with_metadata(
@@ -1595,17 +1603,74 @@ mod tests {
     }
 
     #[test]
-    #[ignore]
     fn post_node_cluster_plugin_effect() {
-        // use a plugin that writes a text file with all the nodes' IDs, concatenated?
-        assert!(false, "Still need to implement this.");
+        let reader = RealFileReader {};
+        let cluster_1_path = std::fs::canonicalize(
+            PathBuf::from(
+                "tests/pipeline-tests/plugin-side-effects/post-node-cluster-plugin/technicalinfo",
+            )
+            .as_path(),
+        )
+        .expect("If this fails, the test fails.");
+        let file_from_plugin = cluster_1_path.join("cluster-plugin-file.txt");
+        let _ = std::fs::remove_file(file_from_plugin.clone());
+        let read_results = read_unpopulated_cluster_results_with_metadata(
+            &cluster_1_path
+                .to_str()
+                .expect("If this panics, the test just fails.")
+                .to_owned(),
+            reader,
+        );
+        let _ = std::fs::remove_file(file_from_plugin.clone());
+        let schema_generation_results = perform_schema_generation(read_results);
+        let schema_write_results = write_schemas(schema_generation_results);
+        let pre_node_plugins_results = run_pre_node_cluster_plugins(schema_write_results);
+        let cluster_population_results = populate_clusters(pre_node_plugins_results);
+        let post_node_node_plugin_results =
+            run_post_node_node_plugins(cluster_population_results, file_is_readable, path_is_dir);
+        let post_node_cluster_plugin_results =
+            run_post_node_cluster_plugins(post_node_node_plugin_results);
+        post_node_cluster_plugin_results
+            .into_iter()
+            .for_each(|pncpr| {
+                assert_ok!(pncpr.cluster_with_artifact_mapping_and_remarks);
+            });
+
+        assert!(file_from_plugin.exists());
     }
 
     #[test]
     #[ignore]
     fn post_merge_node_plugin_effect() {
-        // same as before, just a different stage plugin?
-        assert!(false, "Still need to implement this.");
+        let reader = RealFileReader {};
+        // TODO: make this folder, can copy post-node variant but need to change plugin type
+        let cluster_1_path = std::fs::canonicalize(
+            PathBuf::from(
+                "tests/pipeline-tests/plugin-side-effects/post-merge-node-plugin/simpleproject",
+            )
+            .as_path(),
+        )
+        .expect("If this panics, the test fails, which is fine.");
+        let file1_from_plugin = cluster_1_path.join("intro/Intro.txt");
+        let file2_from_plugin = cluster_1_path.join("implementation/Implementation.txt");
+        let _ = std::fs::remove_file(file1_from_plugin.clone());
+        let _ = std::fs::remove_file(file2_from_plugin.clone());
+        let read_results = read_unpopulated_cluster_results_with_metadata(
+            &cluster_1_path
+                .to_str()
+                .expect("If this panics, the test just fails.")
+                .to_owned(),
+            reader,
+        );
+        let schema_generation_results = perform_schema_generation(read_results);
+        let schema_write_results = write_schemas(schema_generation_results);
+        let pre_node_plugins_results = run_pre_node_cluster_plugins(schema_write_results);
+        let cluster_population_results = populate_clusters(pre_node_plugins_results);
+        // TODO complete pipeline
+        let post_node_node_plugin_results =
+            run_post_node_node_plugins(cluster_population_results, file_is_readable, path_is_dir);
+        assert!(!file1_from_plugin.exists());
+        assert!(file2_from_plugin.exists());
     }
 
     #[test]
