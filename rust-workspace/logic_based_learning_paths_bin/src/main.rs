@@ -1,11 +1,12 @@
 // Prevents additional console window on Windows in release, DO NOT REMOVE!!
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+
 use crate::readers::FileReader;
 use crate::rendering::svgify;
 use anyhow::anyhow;
 use ignore;
 use logic_based_learning_paths_bin::graph_processing::purge_nodes_not_leading_to_project;
-use logic_based_learning_paths_bin::plugins::LBLPPlugin;
+use logic_based_learning_paths_bin::plugins::{LBLPPlugin, PreArchivePlugin};
 use petgraph::adj::List;
 use petgraph::visit::IntoNeighbors;
 use regex;
@@ -671,11 +672,13 @@ fn run_post_node_cluster_plugins(
         .collect::<Vec<_>>()
 }
 
+#[derive(Debug)]
 struct DisplayableClusterAnalysis {
     cluster_label: ClusterLabel,
     comments_and_svg_or_structual_issue: Result<CommentsAndSVG, String>,
 }
 
+#[derive(Debug)]
 struct CommentsAndSVG {
     comments: Vec<Comment>,
     svg: anyhow::Result<SVGSource>,
@@ -883,13 +886,13 @@ fn read_contents_with_test_dependencies<'a>(
         bundle_supercluster_and_component_results(supercluster_result, component_paths);
     match bundle_result {
         Ok((outcome, supercluster, components)) => {
+            // TODO (later): run post-merge node plugins → maybe I am currently setting the app_state too soon?
+            // TODO (later): run post-merge cluster plugins
             let _ = app_state.insert((supercluster, components));
             outcome
         }
         Err(outcome) => outcome,
     }
-    // TODO (later): run post-merge node plugins → maybe I am currently setting the app_state too soon?
-    // TODO (later): run post-merge cluster plugins
 }
 
 fn file_is_readable(file_path: &Path) -> bool {
@@ -1309,13 +1312,14 @@ mod tests {
 
     use super::readers::RealFileReader;
     use crate::{
-        associate_parents_children, can_trigger_change, file_is_readable, path_is_dir,
-        perform_schema_generation, populate_clusters,
-        read_unpopulated_cluster_results_with_metadata, run_post_node_cluster_plugins,
-        run_post_node_node_plugins, run_pre_node_cluster_plugins, write_schemas,
-        ClusterPopulationResult, SchemaWriteResult, UnpopulatedClusterResultWithMetadata,
+        associate_parents_children, bundle_supercluster_and_component_results, can_trigger_change,
+        file_is_readable, merge_clusters, path_is_dir, perform_schema_generation,
+        populate_clusters, read_unpopulated_cluster_results_with_metadata,
+        run_post_node_cluster_plugins, run_post_node_node_plugins, run_pre_node_cluster_plugins,
+        write_schemas, ClusterPopulationResult, PostNodeNodePluginResult, SchemaWriteResult,
+        UnpopulatedClusterResultWithMetadata,
     };
-    use logic_based_learning_paths_bin::domain::EdgeType;
+    use logic_based_learning_paths_bin::domain::{ArtifactMapping, EdgeType};
     use pretty_assertions::assert_eq;
 
     #[test]
@@ -1704,6 +1708,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore]
     fn post_merge_node_plugin_effect() {
         let reader = RealFileReader {};
         // TODO: make this folder, can copy post-node variant but need to change plugin type
@@ -1733,10 +1738,19 @@ mod tests {
             run_post_node_node_plugins(cluster_population_results, file_is_readable, path_is_dir);
         let post_node_cluster_plugin_results =
             run_post_node_cluster_plugins(post_node_node_plugin_results);
-        let post_merge_node_plugin_results = unimplemented!("Nog mee bezig");
-        //run_post_merge_node_plugins(post_node_cluster_plugin_results);
-        assert!(!file1_from_plugin.exists());
-        assert!(file2_from_plugin.exists());
+
+        let component_paths: Vec<_> = post_node_cluster_plugin_results
+            .iter()
+            .map(|r| r.cluster_path.clone())
+            .collect();
+        let supercluster_result = merge_clusters(post_node_cluster_plugin_results);
+        let bundle_result =
+            bundle_supercluster_and_component_results(supercluster_result, component_paths);
+        let (_cluster_analyses, _rooted_supercluster, clusters_and_artifacts) =
+            bundle_result.expect("If this fails, the test fails.");
+        let post_merge_node_plugin_results =
+            unimplemented!("roughly: run_post_merge_node_plugins(clusters_and_artifacts)");
+        // TODO: check for file existence,...
     }
 
     #[test]
@@ -1747,7 +1761,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore]
     fn pre_archive_plugins_effect() {
         assert!(false, "Still need to implement this.");
     }
@@ -1947,10 +1960,62 @@ mod tests {
 }
 
 #[tauri::command]
-// TODO: will eventually want to get rid of this and run a user-defined workflow instead
-fn build_zip(_paths: &'_ str, _state: tauri::State<'_, AppState>) -> Result<PathBuf, String> {
-    // note that archival also requires artifact mappings!
-    todo!("Run pre-archive plugins!");
+fn build_zip(paths: &'_ str, state: tauri::State<'_, AppState>) -> Result<(), String> {
+    let mut mutex_guard = state
+        .supercluster_with_roots
+        .lock()
+        .expect("Should always be able to gain access eventually.");
+    let paths: Vec<_> = paths.split(";").map(|p| PathBuf::from(p)).collect();
+    let cluster_paths: Vec<&Path> = paths.iter().map(|p| p.as_path()).collect();
+    let (_supercluster, component_clusters_and_mappings) = mutex_guard
+        .as_mut()
+        .expect("Should only be possible to invoke this command when there is a supercluster.");
+
+    // TODO: need the artifact mappings as well here
+    // see https://github.com/v-nys/learning-paths-tauri-react/blob/72d10be4430ed6761866b9d8a03dd1de1bd21395/rust-workspace/logic_based_learning_paths_bin/src/main.rs
+    // how do I do that?
+    // I already have mapping (&mut HashSet<ArtifactMapping>)
+    //
+    let mut pre_archive_plugins_per_component: Vec<_> = component_clusters_and_mappings
+        .iter_mut()
+        .flat_map(|(cluster, mapping)| {
+            // note that pre_archive_plugins is an Option<Vec<...>>, so iterate twice and flatten!
+            let option_mut_vec = cluster.pre_archive_plugins.as_mut();
+            let plugins_for_cluster = option_mut_vec
+                .into_iter()
+                .map(|mut_vec| mut_vec.iter_mut())
+                .flatten();
+            plugins_for_cluster
+        })
+        .collect();
+
+    // let mut pre_archive_plugins: Vec<_> = pre_archive_plugins_per_component
+    //     .iter_mut()
+    //     .flatten()
+    //     .collect();
+    // // FIXME: where did the artifact mappings go?
+    // let workflow_result = pre_archive_plugins.iter_mut().fold(Ok(()), |acc, pap| {
+    //     if acc.is_ok() {
+    //         pap.run(cluster_paths.clone())
+    //     } else {
+    //         acc
+    //     }
+    // });
+    // workflow_result.map_err(|e| format!("{}", e))
+
+    //.map(|pap| pap.run(cluster_paths));
+    // TODO: have a run method, but not sure if it takes all the required inputs
+    // for pre_archive_plugin in pre_archive_plugins {
+    //     pre_archive_plugin
+    //         .process_project(
+    //             absolute_cluster_dirs
+    //                 .iter()
+    //                 .map(|pb| pb.as_path())
+    //                 .collect(),
+    //             artifacts,
+    //         )
+    //         .map_err(|e| format!("{:#?}", e))?;
+    // }
 }
 
 #[tauri::command]
