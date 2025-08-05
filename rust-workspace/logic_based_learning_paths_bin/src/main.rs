@@ -661,39 +661,24 @@ fn run_post_node_cluster_plugins(
         .collect::<Vec<_>>()
 }
 
-fn read_contents_with_test_dependencies<'a>(
-    paths: &'a str,
-    reader: impl FileReader,
-    file_is_readable: fn(&Path) -> bool,
-    directory_is_readable: fn(&Path) -> bool,
-    // NOTE: app_state's current value does not matter
-    // we just have the MutexGuard so we can write!
-    mut app_state: MutexGuard<
-        Option<(
-            RootedSupercluster,
-            Vec<(domain::Cluster, HashSet<ArtifactMapping>)>,
+// FIXME: just look at the types!!
+fn bundle_supercluster_and_component_results(
+    supercluster_result: Result<SuperclusterComposition, SuperclusterErrorBreakdown>,
+    component_paths: Vec<PathBuf>,
+) -> Result<
+    (
+        Vec<(
+            TypedInPath,
+            Result<(Vec<Comment>, anyhow::Result<SVGSource>), String>,
         )>,
-    >,
-) -> Vec<(
-    TypedInPath,
-    Result<(Vec<Comment>, anyhow::Result<SVGSource>), String>,
-)> {
-    let read_results = read_unpopulated_cluster_results_with_metadata(paths, reader);
-    let schema_generation_results = perform_schema_generation(read_results);
-    let schema_write_results = write_schemas(schema_generation_results);
-    let pre_node_cluster_plugin_results = run_pre_node_cluster_plugins(schema_write_results);
-    let cluster_population_results = populate_clusters(pre_node_cluster_plugin_results);
-    let post_node_node_plugin_results =
-        run_post_node_node_plugins(cluster_population_results, file_is_readable, path_is_dir);
-    let post_node_cluster_plugin_results =
-        run_post_node_cluster_plugins(post_node_node_plugin_results);
-
-    let paths: Vec<_> = post_node_cluster_plugin_results
-        .iter()
-        .map(|r| r.cluster_path.clone())
-        .collect();
-    let supercluster_result = merge_clusters(post_node_cluster_plugin_results);
-
+        RootedSupercluster,
+        Vec<(Cluster, HashSet<ArtifactMapping>)>,
+    ),
+    Vec<(
+        TypedInPath,
+        Result<(Vec<Comment>, anyhow::Result<SVGSource>), String>,
+    )>,
+> {
     match supercluster_result {
         Ok(SuperclusterComposition {
             composition,
@@ -737,7 +722,7 @@ fn read_contents_with_test_dependencies<'a>(
                 svgify(&supercluster.graph)
             };
             let paths_and_visualized_components: Vec<_> =
-                paths.iter().zip(visualized_components).collect();
+                component_paths.iter().zip(visualized_components).collect();
             let mut supercluster_comments = vec![];
             comment_graph(&supercluster.graph, &mut supercluster_comments);
             // split apart SuperclusterComponents so app state can own part the Clusters
@@ -766,7 +751,6 @@ fn read_contents_with_test_dependencies<'a>(
                         },
                     )
                     .unzip();
-            let _ = app_state.insert((supercluster.clone(), components));
             let supercluster_tuple = (
                 "Supercluster".to_owned(),
                 supercluster_comments,
@@ -775,11 +759,12 @@ fn read_contents_with_test_dependencies<'a>(
             paths_comments_and_svgs.push(supercluster_tuple);
             // Each path maps to an OK.
             // We would not have been able to construct a supercluster otherwise.
+            // SVG rendering might have failed, but that is signaled by type of `svg`
             let outcome = paths_comments_and_svgs
                 .into_iter()
                 .map(|(path, comments, svg)| (path, Ok((comments, svg))))
                 .collect();
-            outcome
+            Ok((outcome, supercluster, components))
         }
         Err(SuperclusterErrorBreakdown {
             supercluster_error,
@@ -812,7 +797,7 @@ fn read_contents_with_test_dependencies<'a>(
                             .map_err(|e| e.to_string())
                     })
                     .collect();
-            let mut outcome = paths
+            let mut outcome = component_paths
                 .iter()
                 .map(|p| p.to_string_lossy().to_string())
                 .zip(pathless_outcome)
@@ -821,8 +806,50 @@ fn read_contents_with_test_dependencies<'a>(
                 "Supercluster".to_owned(),
                 Err(supercluster_error.to_string()),
             ));
+            Err(outcome)
+        }
+    }
+}
+
+fn read_contents_with_test_dependencies<'a>(
+    paths: &'a str,
+    reader: impl FileReader,
+    file_is_readable: fn(&Path) -> bool,
+    directory_is_readable: fn(&Path) -> bool,
+    // NOTE: app_state's current value does not matter
+    // we just have the MutexGuard so we can write!
+    mut app_state: MutexGuard<
+        Option<(
+            RootedSupercluster,
+            Vec<(domain::Cluster, HashSet<ArtifactMapping>)>,
+        )>,
+    >,
+) -> Vec<(
+    TypedInPath,
+    Result<(Vec<Comment>, anyhow::Result<SVGSource>), String>,
+)> {
+    let read_results = read_unpopulated_cluster_results_with_metadata(paths, reader);
+    let schema_generation_results = perform_schema_generation(read_results);
+    let schema_write_results = write_schemas(schema_generation_results);
+    let pre_node_cluster_plugin_results = run_pre_node_cluster_plugins(schema_write_results);
+    let cluster_population_results = populate_clusters(pre_node_cluster_plugin_results);
+    let post_node_node_plugin_results =
+        run_post_node_node_plugins(cluster_population_results, file_is_readable, path_is_dir);
+    let post_node_cluster_plugin_results =
+        run_post_node_cluster_plugins(post_node_node_plugin_results);
+    let component_paths: Vec<_> = post_node_cluster_plugin_results
+        .iter()
+        .map(|r| r.cluster_path.clone())
+        .collect();
+    let supercluster_result = merge_clusters(post_node_cluster_plugin_results);
+    let bundle_result =
+        bundle_supercluster_and_component_results(supercluster_result, component_paths);
+    match bundle_result {
+        Ok((outcome, supercluster, components)) => {
+            let _ = app_state.insert((supercluster, components));
             outcome
         }
+        Err(outcome) => outcome,
     }
     // TODO (later): run post-merge node plugins → maybe I am currently setting the app_state too soon?
     // TODO (later): run post-merge cluster plugins
@@ -1640,7 +1667,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore]
     fn post_merge_node_plugin_effect() {
         let reader = RealFileReader {};
         // TODO: make this folder, can copy post-node variant but need to change plugin type
@@ -1666,9 +1692,12 @@ mod tests {
         let schema_write_results = write_schemas(schema_generation_results);
         let pre_node_plugins_results = run_pre_node_cluster_plugins(schema_write_results);
         let cluster_population_results = populate_clusters(pre_node_plugins_results);
-        // TODO complete pipeline
         let post_node_node_plugin_results =
             run_post_node_node_plugins(cluster_population_results, file_is_readable, path_is_dir);
+        let post_node_cluster_plugin_results =
+            run_post_node_cluster_plugins(post_node_node_plugin_results);
+        let post_merge_node_plugin_results = unimplemented!("Nog mee bezig");
+        //run_post_merge_node_plugins(post_node_cluster_plugin_results);
         assert!(!file1_from_plugin.exists());
         assert!(file2_from_plugin.exists());
     }
