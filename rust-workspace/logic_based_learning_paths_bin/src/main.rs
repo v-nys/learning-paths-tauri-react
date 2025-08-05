@@ -37,7 +37,9 @@ use std::{collections::HashMap, fmt, fs::File, ops::Index, path::Path};
 mod readers;
 mod rendering;
 
-use logic_based_learning_paths_bin::domain::{self, Cluster, UnpopulatedCluster};
+use logic_based_learning_paths_bin::domain::{
+    self, Cluster, ClusterProcessingResult, UnpopulatedCluster,
+};
 use logic_based_learning_paths_bin::domain::{
     EdgeData, EdgeType, ExtensionFieldProcessingResult, Graph, NodeID, NodeProcessingError,
     StructuralError, TypedEdge,
@@ -1970,15 +1972,13 @@ fn build_zip(paths: &'_ str, state: tauri::State<'_, AppState>) -> Result<(), St
     let (_supercluster, component_clusters_and_mappings) = mutex_guard
         .as_mut()
         .expect("Should only be possible to invoke this command when there is a supercluster.");
-
-    // TODO: need the artifact mappings as well here
-    // see https://github.com/v-nys/learning-paths-tauri-react/blob/72d10be4430ed6761866b9d8a03dd1de1bd21395/rust-workspace/logic_based_learning_paths_bin/src/main.rs
-    // how do I do that?
-    // I already have mapping (&mut HashSet<ArtifactMapping>)
-    //
-    let mut pre_archive_plugins_per_component: Vec<_> = component_clusters_and_mappings
+    let mappings: HashSet<_> = component_clusters_and_mappings
+        .iter()
+        .flat_map(|(_cluster, mapping)| mapping.clone())
+        .collect();
+    let mut pre_archive_plugins: Vec<_> = component_clusters_and_mappings
         .iter_mut()
-        .flat_map(|(cluster, mapping)| {
+        .flat_map(|(cluster, _mapping)| {
             // note that pre_archive_plugins is an Option<Vec<...>>, so iterate twice and flatten!
             let option_mut_vec = cluster.pre_archive_plugins.as_mut();
             let plugins_for_cluster = option_mut_vec
@@ -1988,34 +1988,16 @@ fn build_zip(paths: &'_ str, state: tauri::State<'_, AppState>) -> Result<(), St
             plugins_for_cluster
         })
         .collect();
-
-    // let mut pre_archive_plugins: Vec<_> = pre_archive_plugins_per_component
-    //     .iter_mut()
-    //     .flatten()
-    //     .collect();
-    // // FIXME: where did the artifact mappings go?
-    // let workflow_result = pre_archive_plugins.iter_mut().fold(Ok(()), |acc, pap| {
-    //     if acc.is_ok() {
-    //         pap.run(cluster_paths.clone())
-    //     } else {
-    //         acc
-    //     }
-    // });
-    // workflow_result.map_err(|e| format!("{}", e))
-
-    //.map(|pap| pap.run(cluster_paths));
-    // TODO: have a run method, but not sure if it takes all the required inputs
-    // for pre_archive_plugin in pre_archive_plugins {
-    //     pre_archive_plugin
-    //         .process_project(
-    //             absolute_cluster_dirs
-    //                 .iter()
-    //                 .map(|pb| pb.as_path())
-    //                 .collect(),
-    //             artifacts,
-    //         )
-    //         .map_err(|e| format!("{:#?}", e))?;
-    // }
+    let workflow_result = pre_archive_plugins
+        .iter_mut()
+        .fold(Ok(mappings), |acc, pap| match acc {
+            Ok(mappings) => {
+                let new_acc = pap.run(cluster_paths.clone(), mappings);
+                new_acc.map(|payload| payload.hash_set)
+            }
+            _ => acc,
+        });
+    workflow_result.map(|_| ()).map_err(|e| format!("{}", e))
 }
 
 #[tauri::command]

@@ -10,7 +10,7 @@ pub mod prelude {
 }
 
 pub mod plugins {
-    use crate::domain::{self, ClusterProcessingResult, Node};
+    use crate::domain::{self, ArtifactMapping, ClusterProcessingResult, Node};
     use base64::{engine::general_purpose::STANDARD as BASE64_ENGINE, Engine};
     use extism::{host_fn, Manifest, Plugin, PluginBuilder, UserData, Wasm};
     use logic_based_learning_paths::domain_without_loading::{
@@ -225,12 +225,18 @@ pub mod plugins {
     }
 
     impl PreArchivePlugin {
-        pub fn run(&mut self, cluster_paths: Vec<&Path>) -> anyhow::Result<()> {
+        pub fn run(
+            &mut self,
+            cluster_paths: Vec<&Path>,
+            artifact_mapping: HashSet<ArtifactMapping>,
+        ) -> anyhow::Result<ClusterProcessingResult> {
             let payload = ArchivePayload {
                 cluster_paths: cluster_paths.iter().map(|p| p.to_path_buf()).collect(),
                 parameter_values: self.parameter_values.clone(),
+                artifact_mapping: artifact_mapping.clone(),
             };
-            let res: Result<(), _> = self.extism_plugin.call("process_paths", payload);
+            let res: Result<ClusterProcessingResult, anyhow::Error> =
+                self.extism_plugin.call("process_paths", payload);
             res
         }
     }

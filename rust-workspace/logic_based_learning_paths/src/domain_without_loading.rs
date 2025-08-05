@@ -109,6 +109,7 @@ pub struct ClusterProcessingPayload {
 pub struct ArchivePayload {
     pub parameter_values: HashMap<String, serde_yaml::Value>,
     pub cluster_paths: Vec<PathBuf>,
+    pub artifact_mapping: HashSet<ArtifactMapping>,
 }
 
 #[derive(ToBytes, FromBytes, Serialize, Deserialize, Debug)]
