@@ -45,7 +45,7 @@ use logic_based_learning_paths_bin::{deserialization, domain::ArtifactMapping};
 
 type SVGSource = String;
 type Comment = String;
-type TypedInPath = String;
+type ClusterLabel = String;
 
 /// A way to bundle multiple structural errors, so they can be signalled simultaneously.
 #[derive(Debug)]
@@ -146,7 +146,7 @@ struct AppState {
 fn read_contents<'a>(
     paths: &'a str,
     state: tauri::State<'_, AppState>,
-) -> Vec<(TypedInPath, Result<(Vec<Comment>, SVGSource), String>)> {
+) -> Vec<(ClusterLabel, Result<(Vec<Comment>, SVGSource), String>)> {
     let mut app_state = state
         .supercluster_with_roots
         .lock()
@@ -163,20 +163,30 @@ fn read_contents<'a>(
     );
     before_comment_merge
         .into_iter()
-        .map(|(typed_in_path, path_processing_result)| {
-            (
-                typed_in_path,
-                path_processing_result.map(
-                    |(mut comments, rendering_result)| match rendering_result {
-                        Ok(svg_source) => (comments, svg_source),
-                        Err(rendering_issue) => {
-                            comments.push(format!("{}", rendering_issue));
-                            (comments, SVG_PLACEHOLDER.into())
-                        }
-                    },
-                ),
-            )
-        })
+        .map(
+            |DisplayableClusterAnalysis {
+                 cluster_label: typed_in_path,
+                 comments_and_svg_or_structual_issue: path_processing_result,
+             }| {
+                (
+                    typed_in_path,
+                    path_processing_result.map(
+                        |CommentsAndSVG {
+                             mut comments,
+                             svg: rendering_result,
+                         }| {
+                            match rendering_result {
+                                Ok(svg_source) => (comments, svg_source),
+                                Err(rendering_issue) => {
+                                    comments.push(format!("{}", rendering_issue));
+                                    (comments, SVG_PLACEHOLDER.into())
+                                }
+                            }
+                        },
+                    ),
+                )
+            },
+        )
         .collect()
 }
 
@@ -661,23 +671,26 @@ fn run_post_node_cluster_plugins(
         .collect::<Vec<_>>()
 }
 
-// FIXME: just look at the types!!
+struct DisplayableClusterAnalysis {
+    cluster_label: ClusterLabel,
+    comments_and_svg_or_structual_issue: Result<CommentsAndSVG, String>,
+}
+
+struct CommentsAndSVG {
+    comments: Vec<Comment>,
+    svg: anyhow::Result<SVGSource>,
+}
+
 fn bundle_supercluster_and_component_results(
     supercluster_result: Result<SuperclusterComposition, SuperclusterErrorBreakdown>,
     component_paths: Vec<PathBuf>,
 ) -> Result<
     (
-        Vec<(
-            TypedInPath,
-            Result<(Vec<Comment>, anyhow::Result<SVGSource>), String>,
-        )>,
+        Vec<DisplayableClusterAnalysis>,
         RootedSupercluster,
         Vec<(Cluster, HashSet<ArtifactMapping>)>,
     ),
-    Vec<(
-        TypedInPath,
-        Result<(Vec<Comment>, anyhow::Result<SVGSource>), String>,
-    )>,
+    Vec<DisplayableClusterAnalysis>,
 > {
     match supercluster_result {
         Ok(SuperclusterComposition {
@@ -762,7 +775,11 @@ fn bundle_supercluster_and_component_results(
             // SVG rendering might have failed, but that is signaled by type of `svg`
             let outcome = paths_comments_and_svgs
                 .into_iter()
-                .map(|(path, comments, svg)| (path, Ok((comments, svg))))
+                //.map(|(path, comments, svg)| (path, Ok((comments, svg))))
+                .map(|(path, comments, svg)| DisplayableClusterAnalysis {
+                    cluster_label: path,
+                    comments_and_svg_or_structual_issue: Ok(CommentsAndSVG { comments, svg }),
+                })
                 .collect();
             Ok((outcome, supercluster, components))
         }
@@ -789,23 +806,46 @@ fn bundle_supercluster_and_component_results(
                         comment_graph(&component.model.graph, &mut component.model.remarks);
                     }
                 });
-            let pathless_outcome: Vec<Result<(Vec<Comment>, anyhow::Result<SVGSource>), String>> =
+            let pathless_outcome: Vec<Result<CommentsAndSVG, String>> =
                 visualized_component_results
                     .into_iter()
                     .map(|vcr| {
-                        vcr.map(|vc| (vc.model.remarks, vc.view))
-                            .map_err(|e| e.to_string())
+                        vcr.map(|vc| {
+                            (CommentsAndSVG {
+                                comments: vc.model.remarks,
+                                svg: vc.view,
+                            })
+                        })
+                        .map_err(|e| e.to_string())
                     })
                     .collect();
+            /* struct DisplayableClusterAnalysis {
+                cluster_label: ClusterLabel,
+                comments_and_svg_or_structual_issue: Result<CommentsAndSVG, String>,
+            }
+
+            struct CommentsAndSVG {
+                comments: Vec<Comment>,
+                svg: anyhow::Result<SVGSource>,
+            }
+            outcome should be a Vec<DisplayableClusterAnalysis>
+
+            */
             let mut outcome = component_paths
                 .iter()
                 .map(|p| p.to_string_lossy().to_string())
                 .zip(pathless_outcome)
+                .map(|(cluster_label, comments_and_svg_or_structual_issue)| {
+                    DisplayableClusterAnalysis {
+                        cluster_label,
+                        comments_and_svg_or_structual_issue,
+                    }
+                })
                 .collect::<Vec<_>>();
-            outcome.push((
-                "Supercluster".to_owned(),
-                Err(supercluster_error.to_string()),
-            ));
+            outcome.push(DisplayableClusterAnalysis {
+                cluster_label: "Supercluster".to_owned(),
+                comments_and_svg_or_structual_issue: Err(supercluster_error.to_string()),
+            });
             Err(outcome)
         }
     }
@@ -824,10 +864,7 @@ fn read_contents_with_test_dependencies<'a>(
             Vec<(domain::Cluster, HashSet<ArtifactMapping>)>,
         )>,
     >,
-) -> Vec<(
-    TypedInPath,
-    Result<(Vec<Comment>, anyhow::Result<SVGSource>), String>,
-)> {
+) -> Vec<DisplayableClusterAnalysis> {
     let read_results = read_unpopulated_cluster_results_with_metadata(paths, reader);
     let schema_generation_results = perform_schema_generation(read_results);
     let schema_write_results = write_schemas(schema_generation_results);
