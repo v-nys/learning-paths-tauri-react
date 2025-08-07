@@ -17,8 +17,9 @@ pub mod plugins {
         ArchivePayload, BoolPayload, ClusterProcessingPayload, DirectoryStructurePayload,
         DummyPayload, ExtensionFieldProcessingPayload, ExtensionFieldProcessingResult, FileEntry,
         FileReadBase64OperationInPayload, FileReadBase64OperationOutPayload,
-        FileReadOperationInPayload, FileReadOperationOutPayload, FileWriteOperationPayload,
-        NodeProcessingError, NodeProcessingPayload, ParamsSchema, SystemTimePayload,
+        FileReadOperationInPayload, FileReadOperationOutPayload, FileWriteBase64OperationInPayload,
+        FileWriteOperationPayload, NodeProcessingError, NodeProcessingPayload, ParamsSchema,
+        RootedSupercluster, SystemTimePayload, WorkflowStepProcessingResult,
     };
     use serde_yaml;
     use std::collections::HashSet;
@@ -161,6 +162,30 @@ pub mod plugins {
     });
 
     // TODO: FOR ALL HOST FUNCTIONS: check that joined_path extends user_data path
+    host_fn!(write_binary_file_base64(user_data: PathBuf; payload: FileWriteBase64OperationInPayload) -> () {
+      let FileWriteBase64OperationInPayload { relative_path, base64_text } = payload;
+      let base_path = user_data.get()
+          // TODO: under what circumstances would this fail?
+          .expect("Should be able to get inner value.")
+          .lock()
+          // TODO: under what circumstances would this fail?
+          .expect("Should be able to lock eventually.")
+          .clone();
+      let mut joined_path = base_path.clone();
+      joined_path.push(relative_path);
+      if joined_path.starts_with(&base_path) {
+          let base64_as_bytes = BASE64_ENGINE.decode(&base64_text)?;
+          // FIXME: should use result!
+          std::fs::write(joined_path, base64_as_bytes);
+      Ok(())
+      }
+      else {
+          // Err()
+          Ok(())
+      }
+    });
+
+    // TODO: FOR ALL HOST FUNCTIONS: check that joined_path extends user_data path
     host_fn!(read_binary_file_base64(user_data: PathBuf; payload: FileReadBase64OperationInPayload) -> FileReadBase64OperationOutPayload {
       let FileReadBase64OperationInPayload { relative_path } = payload;
       let base_path = user_data.get()
@@ -229,14 +254,21 @@ pub mod plugins {
             &mut self,
             cluster_paths: Vec<&Path>,
             artifact_mapping: HashSet<ArtifactMapping>,
-        ) -> anyhow::Result<ClusterProcessingResult> {
+            rooted_supercluster: &mut RootedSupercluster,
+        ) -> anyhow::Result<WorkflowStepProcessingResult> {
+            println!("creating the archive payload");
+
             let payload = ArchivePayload {
                 cluster_paths: cluster_paths.iter().map(|p| p.to_path_buf()).collect(),
                 parameter_values: self.parameter_values.clone(),
                 artifact_mapping: artifact_mapping.clone(),
+                rooted_supercluster: rooted_supercluster.clone(),
             };
-            let res: Result<ClusterProcessingResult, anyhow::Error> =
+            println!("calling the Extism plugin");
+            let res: Result<WorkflowStepProcessingResult, anyhow::Error> =
                 self.extism_plugin.call("process_paths", payload);
+
+            println!("called the Extism plugin");
             res
         }
     }
@@ -508,6 +540,13 @@ pub mod plugins {
                         [extism::PTR],
                         UserData::new(cluster_path.to_owned()),
                         read_binary_file_base64,
+                    )
+                    .with_function(
+                        "write_binary_file_base64",
+                        [extism::PTR],
+                        [extism::PTR],
+                        UserData::new(cluster_path.to_owned()),
+                        write_binary_file_base64,
                     )
                     .with_function(
                         "read_text_file",

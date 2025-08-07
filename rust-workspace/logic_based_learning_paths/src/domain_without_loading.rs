@@ -61,6 +61,13 @@ pub struct FileReadBase64OperationInPayload {
 
 #[derive(ToBytes, Serialize, FromBytes, Deserialize)]
 #[encoding(Json)]
+pub struct FileWriteBase64OperationInPayload {
+    pub relative_path: String,
+    pub base64_text: String,
+}
+
+#[derive(ToBytes, Serialize, FromBytes, Deserialize)]
+#[encoding(Json)]
 pub struct FileReadBase64OperationOutPayload {
     pub contents: String,
 }
@@ -110,6 +117,7 @@ pub struct ArchivePayload {
     pub parameter_values: HashMap<String, serde_yaml::Value>,
     pub cluster_paths: Vec<PathBuf>,
     pub artifact_mapping: HashSet<ArtifactMapping>,
+    pub rooted_supercluster: RootedSupercluster,
 }
 
 #[derive(ToBytes, FromBytes, Serialize, Deserialize, Debug)]
@@ -135,6 +143,14 @@ pub struct ClusterProcessingResult {
     pub hash_set: HashSet<ArtifactMapping>,
 }
 
+#[derive(ToBytes, FromBytes, Serialize, Deserialize, Debug)]
+#[encoding(Json)]
+pub struct WorkflowStepProcessingResult {
+    // NOTE: currently assuming there will not be any errors
+    // seems liable to change!
+    pub hash_set: HashSet<ArtifactMapping>,
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 pub enum NodeProcessingError {
     CannotProcessFieldType,
@@ -152,7 +168,7 @@ impl NodeProcessingError {
 }
 
 // FROM HERE ON OUT, THEY ARE REALLY "DOMAIN"
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum EdgeType {
     All,
     AtLeastOne,
@@ -276,3 +292,11 @@ pub type EdgeData = EdgeType;
 
 /// The specific type of Petgraph graph for this application.
 pub type Graph = petgraph::Graph<NodeData, EdgeData>;
+
+/// A supercluster (result of merging normal Clusters) and dependency-free nodes.
+#[derive(ToBytes, FromBytes, Serialize, Deserialize, Debug, Clone)]
+#[encoding(Json)]
+pub struct RootedSupercluster {
+    pub graph: Graph,
+    pub roots: Vec<NodeID>,
+}

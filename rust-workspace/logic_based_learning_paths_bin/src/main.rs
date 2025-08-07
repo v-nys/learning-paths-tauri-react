@@ -38,7 +38,7 @@ mod readers;
 mod rendering;
 
 use logic_based_learning_paths_bin::domain::{
-    self, Cluster, ClusterProcessingResult, UnpopulatedCluster,
+    self, Cluster, ClusterProcessingResult, RootedSupercluster, UnpopulatedCluster,
 };
 use logic_based_learning_paths_bin::domain::{
     EdgeData, EdgeType, ExtensionFieldProcessingResult, Graph, NodeID, NodeProcessingError,
@@ -112,13 +112,6 @@ struct VisualizedSuperclusterComponent {
 }
 /// The result of reading a Path, along with that Path.
 struct ReadResultForPath(Result<String, std::io::Error>, PathBuf);
-
-/// A supercluster (result of merging normal Clusters) and dependency-free nodes.
-#[derive(Debug, Clone)]
-struct RootedSupercluster {
-    graph: Graph,
-    roots: Vec<NodeID>,
-}
 
 #[derive(Default)]
 struct AppState {
@@ -1968,8 +1961,9 @@ fn build_zip(paths: &'_ str, state: tauri::State<'_, AppState>) -> Result<(), St
         .lock()
         .expect("Should always be able to gain access eventually.");
     let paths: Vec<_> = paths.split(";").map(|p| PathBuf::from(p)).collect();
+
     let cluster_paths: Vec<&Path> = paths.iter().map(|p| p.as_path()).collect();
-    let (_supercluster, component_clusters_and_mappings) = mutex_guard
+    let (supercluster, component_clusters_and_mappings) = mutex_guard
         .as_mut()
         .expect("Should only be possible to invoke this command when there is a supercluster.");
     let mappings: HashSet<_> = component_clusters_and_mappings
@@ -1992,12 +1986,13 @@ fn build_zip(paths: &'_ str, state: tauri::State<'_, AppState>) -> Result<(), St
         .iter_mut()
         .fold(Ok(mappings), |acc, pap| match acc {
             Ok(mappings) => {
-                let new_acc = pap.run(cluster_paths.clone(), mappings);
+                let new_acc = pap.run(cluster_paths.clone(), mappings, supercluster);
                 new_acc.map(|payload| payload.hash_set)
             }
             _ => acc,
         });
-    workflow_result.map(|_| ()).map_err(|e| format!("{}", e))
+    // ending with an Ok here is still fine...
+    dbg!(workflow_result.map(|_| ()).map_err(|e| format!("{}", e)))
 }
 
 #[tauri::command]
