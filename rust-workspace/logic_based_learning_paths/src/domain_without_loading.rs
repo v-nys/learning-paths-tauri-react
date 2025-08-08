@@ -61,6 +61,12 @@ pub struct FileReadBase64OperationInPayload {
 
 #[derive(ToBytes, Serialize, FromBytes, Deserialize)]
 #[encoding(Json)]
+pub struct FileReadBase64AnyClusterOperationInPayload {
+    pub absolute_path: String,
+}
+
+#[derive(ToBytes, Serialize, FromBytes, Deserialize)]
+#[encoding(Json)]
 pub struct FileWriteBase64OperationInPayload {
     pub relative_path: String,
     pub base64_text: String,

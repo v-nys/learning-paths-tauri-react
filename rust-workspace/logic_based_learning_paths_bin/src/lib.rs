@@ -16,10 +16,11 @@ pub mod plugins {
     use logic_based_learning_paths::domain_without_loading::{
         ArchivePayload, BoolPayload, ClusterProcessingPayload, DirectoryStructurePayload,
         DummyPayload, ExtensionFieldProcessingPayload, ExtensionFieldProcessingResult, FileEntry,
-        FileReadBase64OperationInPayload, FileReadBase64OperationOutPayload,
-        FileReadOperationInPayload, FileReadOperationOutPayload, FileWriteBase64OperationInPayload,
-        FileWriteOperationPayload, NodeProcessingError, NodeProcessingPayload, ParamsSchema,
-        RootedSupercluster, SystemTimePayload, WorkflowStepProcessingResult,
+        FileReadBase64AnyClusterOperationInPayload, FileReadBase64OperationInPayload,
+        FileReadBase64OperationOutPayload, FileReadOperationInPayload, FileReadOperationOutPayload,
+        FileWriteBase64OperationInPayload, FileWriteOperationPayload, NodeProcessingError,
+        NodeProcessingPayload, ParamsSchema, RootedSupercluster, SystemTimePayload,
+        WorkflowStepProcessingResult,
     };
     use serde_yaml;
     use std::collections::HashSet;
@@ -186,7 +187,7 @@ pub mod plugins {
     });
 
     // TODO: FOR ALL HOST FUNCTIONS: check that joined_path extends user_data path
-    host_fn!(read_binary_file_base64(user_data: PathBuf; payload: FileReadBase64OperationInPayload) -> FileReadBase64OperationOutPayload {
+    host_fn!(read_binary_file_base64_from_single_cluster(user_data: PathBuf; payload: FileReadBase64OperationInPayload) -> FileReadBase64OperationOutPayload {
       let FileReadBase64OperationInPayload { relative_path } = payload;
       let base_path = user_data.get()
           // TODO: under what circumstances would this fail?
@@ -207,6 +208,30 @@ pub mod plugins {
        }
         else {
            Err(anyhow::anyhow!(format!("Host function is restricted to extensions of {base_path:?}")))
+       }
+    });
+
+    host_fn!(read_binary_file_base64_from_any_cluster(user_data: Vec<PathBuf>; payload: FileReadBase64AnyClusterOperationInPayload) -> FileReadBase64OperationOutPayload {
+      let FileReadBase64AnyClusterOperationInPayload { absolute_path } = payload;
+      let allowed_base_paths = user_data.get()
+          // TODO: under what circumstances would this fail?
+          .expect("Should be able to get inner value.")
+          .lock()
+          // TODO: under what circumstances would this fail?
+          .expect("Should be able to lock eventually.")
+          .clone();
+
+      if allowed_base_paths.iter().any(|base_path| {
+          absolute_path.starts_with(&base_path.to_string_lossy().to_string())
+      }) {
+       let mut file = std::fs::File::open(absolute_path)?;
+      let mut buf = Vec::new();
+      file.read_to_end(&mut buf)?;
+      let base64 = BASE64_ENGINE.encode(&buf);
+      Ok(FileReadBase64OperationOutPayload { contents: base64 })
+      }
+        else {
+           Err(anyhow::anyhow!("Host function can only read files inside the cluster directories.".to_owned()))
        }
     });
 
@@ -463,11 +488,11 @@ pub mod plugins {
                         write_text_file,
                     )
                     .with_function(
-                        "read_binary_file_base64",
+                        "read_binary_file_base64_from_single_cluster",
                         [extism::PTR],
                         [extism::PTR],
                         UserData::new(cluster_path.to_owned()),
-                        read_binary_file_base64,
+                        read_binary_file_base64_from_single_cluster,
                     )
                     .with_function(
                         "read_text_file",
@@ -510,6 +535,7 @@ pub mod plugins {
     pub fn load_pre_archive_plugins(
         unloaded_plugins: Vec<domain::UnloadedPlugin>,
         cluster_path: &PathBuf,
+        all_cluster_paths: &Vec<PathBuf>,
     ) -> Vec<anyhow::Result<PreArchivePlugin>> {
         unloaded_plugins
             .into_iter()
@@ -535,11 +561,19 @@ pub mod plugins {
                         write_text_file,
                     )
                     .with_function(
-                        "read_binary_file_base64",
+                        "read_binary_file_base64_from_any_cluster",
+                        [extism::PTR],
+                        [extism::PTR],
+                        // TODO: need more info here
+                        UserData::new(all_cluster_paths.to_owned()),
+                        read_binary_file_base64_from_any_cluster,
+                    )
+                    .with_function(
+                        "read_binary_file_base64_from_single_cluster",
                         [extism::PTR],
                         [extism::PTR],
                         UserData::new(cluster_path.to_owned()),
-                        read_binary_file_base64,
+                        read_binary_file_base64_from_single_cluster,
                     )
                     .with_function(
                         "write_binary_file_base64",

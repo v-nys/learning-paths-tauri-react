@@ -242,6 +242,7 @@ fn read_unpopulated_cluster_results_with_metadata(
         let yaml_location = p.join("contents.lc.yaml");
         ReadResultForPath(reader.read_to_string(yaml_location.as_path()), p)
     });
+    let paths: Vec<_> = paths.collect();
     let read_results = read_results
         .map(|ReadResultForPath(r, p)| {
             (
@@ -259,7 +260,7 @@ fn read_unpopulated_cluster_results_with_metadata(
         .map(|(p, res)| UnpopulatedClusterResultWithMetadata {
             cluster_path: p.clone(),
             unpopulated_cluster_with_contents_file_contents: res
-                .and_then(|(ucfs, text)| ucfs.build(&p).map(|uc| (uc, text))),
+                .and_then(|(ucfs, text)| ucfs.build(&p, &paths).map(|uc| (uc, text))),
         })
         .collect::<Vec<_>>();
     read_results
@@ -523,6 +524,7 @@ fn run_pre_node_cluster_plugins(
 
 fn populate_clusters(
     pre_node_cluster_plugin_results: Vec<PreNodeClusterPluginResult>,
+    all_cluster_paths: &Vec<PathBuf>,
 ) -> Vec<ClusterPopulationResult> {
     pre_node_cluster_plugin_results
             .into_iter()
@@ -537,7 +539,7 @@ fn populate_clusters(
                         >(&contents);
                         let anyhow_cfs = cfs.map_err(|e| anyhow::anyhow!(e));
                         let build_result =
-                            anyhow_cfs.and_then(|cfs| cfs.build(&pncpr.cluster_path));
+                            anyhow_cfs.and_then(|cfs| cfs.build(&pncpr.cluster_path, all_cluster_paths));
                         build_result.map(|c| (c, mandatory_fields, artifact_mapping))
                     }),
             }).collect()
@@ -861,15 +863,16 @@ fn read_contents_with_test_dependencies<'a>(
     let schema_generation_results = perform_schema_generation(read_results);
     let schema_write_results = write_schemas(schema_generation_results);
     let pre_node_cluster_plugin_results = run_pre_node_cluster_plugins(schema_write_results);
-    let cluster_population_results = populate_clusters(pre_node_cluster_plugin_results);
+    let component_paths: Vec<_> = pre_node_cluster_plugin_results
+        .iter()
+        .map(|r| r.cluster_path.clone())
+        .collect();
+    let cluster_population_results =
+        populate_clusters(pre_node_cluster_plugin_results, &component_paths);
     let post_node_node_plugin_results =
         run_post_node_node_plugins(cluster_population_results, file_is_readable, path_is_dir);
     let post_node_cluster_plugin_results =
         run_post_node_cluster_plugins(post_node_node_plugin_results);
-    let component_paths: Vec<_> = post_node_cluster_plugin_results
-        .iter()
-        .map(|r| r.cluster_path.clone())
-        .collect();
     let supercluster_result = merge_clusters(post_node_cluster_plugin_results);
     let bundle_result =
         bundle_supercluster_and_component_results(supercluster_result, component_paths);

@@ -301,6 +301,7 @@ impl UnpopulatedClusterForSerialization {
     pub fn build(
         self,
         cluster_path: &PathBuf,
+        all_cluster_paths: &Vec<PathBuf>,
     ) -> Result<domain::UnpopulatedCluster, anyhow::Error> {
         let folder_name = cluster_path.file_name().ok_or(anyhow::Error::msg(
             "Path does not have a final component.".to_owned(),
@@ -386,10 +387,13 @@ impl UnpopulatedClusterForSerialization {
                 parameters: pfs.parameters,
             })
             .collect();
-        let pre_archive_plugins_result: Result<Vec<_>, _> =
-            load_pre_archive_plugins(unloaded_pre_archive_plugins, cluster_path)
-                .into_iter()
-                .collect();
+        let pre_archive_plugins_result: Result<Vec<_>, _> = load_pre_archive_plugins(
+            unloaded_pre_archive_plugins,
+            cluster_path,
+            all_cluster_paths,
+        )
+        .into_iter()
+        .collect();
         let pre_archive_plugins = pre_archive_plugins_result?;
         // let pre_archive_plugins = pre_archive_plugins_result?;
         Ok(domain::UnpopulatedCluster {
@@ -409,7 +413,11 @@ impl UnpopulatedClusterForSerialization {
 }
 
 impl ClusterForSerialization {
-    pub fn build(self, cluster_path: &PathBuf) -> Result<domain::Cluster, anyhow::Error> {
+    pub fn build(
+        self,
+        cluster_path: &PathBuf,
+        all_cluster_paths: &Vec<PathBuf>,
+    ) -> Result<domain::Cluster, anyhow::Error> {
         let folder_name = cluster_path.file_name().ok_or(anyhow::Error::msg(
             "Path does not have a final component.".to_owned(),
         ))?;
@@ -485,10 +493,13 @@ impl ClusterForSerialization {
                 parameters: pfs.parameters,
             })
             .collect();
-        let pre_archive_plugins_result: Result<Vec<_>, _> =
-            load_pre_archive_plugins(unloaded_pre_archive_plugins, cluster_path)
-                .into_iter()
-                .collect();
+        let pre_archive_plugins_result: Result<Vec<_>, _> = load_pre_archive_plugins(
+            unloaded_pre_archive_plugins,
+            cluster_path,
+            all_cluster_paths,
+        )
+        .into_iter()
+        .collect();
 
         Ok(domain::Cluster {
             namespace_prefix: folder_name.clone(),
