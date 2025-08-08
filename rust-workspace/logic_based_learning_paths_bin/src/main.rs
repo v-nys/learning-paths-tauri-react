@@ -5,7 +5,9 @@ use crate::readers::FileReader;
 use crate::rendering::svgify;
 use anyhow::anyhow;
 use ignore;
-use logic_based_learning_paths_bin::graph_processing::purge_nodes_not_leading_to_project;
+use logic_based_learning_paths_bin::graph_processing::{
+    purge_nodes_not_leading_to_project, subgraph_with_edges,
+};
 use logic_based_learning_paths_bin::plugins::{LBLPPlugin, PreArchivePlugin};
 use petgraph::adj::List;
 use petgraph::visit::IntoNeighbors;
@@ -908,25 +910,6 @@ struct SuperclusterComposition {
 struct SuperclusterErrorBreakdown {
     supercluster_error: anyhow::Error,
     component_results: Vec<anyhow::Result<SuperclusterComponent>>,
-}
-
-fn subgraph_with_edges(parent: &Graph, predicate: impl Fn(&EdgeData) -> bool) -> Graph {
-    let mut subgraph = Graph::new();
-    let node_map = parent
-        .node_references()
-        .map(|(index_in_parent, node_data)| (index_in_parent, subgraph.add_node(node_data.clone())))
-        .collect::<HashMap<_, _>>();
-
-    parent
-        .edge_references()
-        .filter(|edge| predicate(edge.weight()))
-        .for_each(|edge| {
-            let new_source = node_map[&edge.source()];
-            let new_target = node_map[&edge.target()];
-            subgraph.add_edge(new_source, new_target, edge.weight().clone());
-        });
-
-    subgraph
 }
 
 /// Flip both direction and type of "all"-edges.

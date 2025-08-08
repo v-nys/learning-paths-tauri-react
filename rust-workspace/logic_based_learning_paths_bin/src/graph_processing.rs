@@ -1,4 +1,4 @@
-use logic_based_learning_paths::domain_without_loading::Graph;
+use logic_based_learning_paths::domain_without_loading::{EdgeData, Graph};
 use petgraph::{
     algo::{
         toposort,
@@ -7,9 +7,9 @@ use petgraph::{
     },
     graph::NodeIndex,
     prelude::StableGraph,
-    visit::{IntoNeighbors, IntoNodeReferences},
+    visit::{EdgeRef, IntoNeighbors, IntoNodeReferences},
 };
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::ops::Index;
 
 /// Removes nodes from a `Graph` that do not lead (directly or indirectly) to any node
@@ -69,6 +69,25 @@ pub fn purge_nodes_not_leading_to_project(
         cleaned.remove_node(discarded);
     });
     Ok(cleaned.into())
+}
+
+pub fn subgraph_with_edges(parent: &Graph, predicate: impl Fn(&EdgeData) -> bool) -> Graph {
+    let mut subgraph = Graph::new();
+    let node_map = parent
+        .node_references()
+        .map(|(index_in_parent, node_data)| (index_in_parent, subgraph.add_node(node_data.clone())))
+        .collect::<HashMap<_, _>>();
+
+    parent
+        .edge_references()
+        .filter(|edge| predicate(edge.weight()))
+        .for_each(|edge| {
+            let new_source = node_map[&edge.source()];
+            let new_target = node_map[&edge.target()];
+            subgraph.add_edge(new_source, new_target, edge.weight().clone());
+        });
+
+    subgraph
 }
 
 #[cfg(test)]
