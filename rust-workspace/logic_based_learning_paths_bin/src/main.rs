@@ -65,13 +65,6 @@ const SVG_PLACEHOLDER: &str = r##"<?xml version="1.0" encoding="UTF-8"?>
 </g>
 </svg>"##;
 
-// related to archive functionality
-// #[derive(Debug, Serialize)]
-// struct UnlockingCondition {
-//     all_of: HashSet<NodeID>,
-//     one_of: HashSet<NodeID>,
-// }
-//
 // #[derive(Serialize)]
 // struct ReadableUnlockingCondition {
 //     all_of: HashSet<String>,
