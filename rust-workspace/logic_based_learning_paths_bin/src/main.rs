@@ -5,9 +5,8 @@ use crate::readers::FileReader;
 use crate::rendering::svgify;
 use anyhow::anyhow;
 use ignore;
-use logic_based_learning_paths_bin::graph_processing::{
-    purge_nodes_not_leading_to_project, subgraph_with_edges,
-};
+use logic_based_learning_paths::graph_analysis;
+use logic_based_learning_paths_bin::graph_processing::purge_nodes_not_leading_to_project;
 use logic_based_learning_paths_bin::plugins::{LBLPPlugin, PreArchivePlugin};
 use petgraph::adj::List;
 use petgraph::visit::IntoNeighbors;
@@ -970,7 +969,7 @@ fn comment_graph(graph: &Graph, remarks: &mut Vec<String>) {
 
     // rough implementation of rule 1 ("rough" because rule 3 is not currently implemented)
     let is_all_type = |edge: &EdgeData| edge == &EdgeType::All;
-    let all_type_subgraph = subgraph_with_edges(graph, is_all_type);
+    let all_type_subgraph = graph_analysis::subgraph_with_edges(graph, is_all_type);
     let order = toposort(&all_type_subgraph, None)
         .expect("If parent graph was cycle-checked, subgraph should be cycle-free.");
     let redundant_edges = filter_redundant_edges(&all_type_subgraph, order, EdgeType::All);
@@ -1994,63 +1993,6 @@ fn check_learning_path_stateful(
     })
 }
 
-// factored out because it is needed both for checking learning path and for building zip
-fn dependency_helpers(
-    supercluster_with_roots: &RootedSupercluster,
-) -> (
-    (Graph, List<(), NodeIndex>, Vec<NodeIndex>, Vec<NodeIndex>),
-    (Graph, List<(), NodeIndex>, Vec<NodeIndex>, Vec<NodeIndex>),
-    Graph,
-) {
-    let supercluster = &supercluster_with_roots.graph;
-    let is_any_type = |edge: &EdgeData| edge == &EdgeType::AtLeastOne;
-    let is_all_type = |edge: &EdgeData| edge == &EdgeType::All;
-
-    let motivations_graph = subgraph_with_edges(&supercluster, is_any_type);
-    let dependency_to_dependent_graph = subgraph_with_edges(&supercluster, is_all_type);
-    let mut dependent_to_dependency_graph = dependency_to_dependent_graph.clone();
-    dependent_to_dependency_graph.reverse();
-    let dependent_to_dependency_toposort_order = toposort(&dependent_to_dependency_graph, None)
-        .expect(
-            "This function should only be called for graphs which have already been cycle-checked.",
-        );
-    let dependency_to_dependent_toposort_order = toposort(&dependency_to_dependent_graph, None)
-        .expect(
-            "This function should only be called for graphs which have already been cycle-checked.",
-        );
-    let (dependent_to_dependency_res, dependent_to_dependency_revmap) =
-        dag_to_toposorted_adjacency_list(
-            &dependent_to_dependency_graph,
-            &dependent_to_dependency_toposort_order,
-        );
-    let (_, dependent_to_dependency_tc) =
-        dag_transitive_reduction_closure(&dependent_to_dependency_res);
-
-    let (dependency_to_dependent_res, dependency_to_dependent_revmap) =
-        dag_to_toposorted_adjacency_list(
-            &dependency_to_dependent_graph,
-            &dependency_to_dependent_toposort_order,
-        );
-    let (_, dependency_to_dependent_tc) =
-        dag_transitive_reduction_closure(&dependency_to_dependent_res);
-
-    return (
-        (
-            dependent_to_dependency_graph,
-            dependent_to_dependency_tc,
-            dependent_to_dependency_revmap,
-            dependent_to_dependency_toposort_order,
-        ),
-        (
-            dependency_to_dependent_graph,
-            dependency_to_dependent_tc,
-            dependency_to_dependent_revmap,
-            dependency_to_dependent_toposort_order,
-        ),
-        motivations_graph,
-    );
-}
-
 fn check_learning_path(
     supercluster_with_roots: &RootedSupercluster,
     node_ids: Vec<&str>,
@@ -2070,7 +2012,7 @@ fn check_learning_path(
             dependency_to_dependent_toposort_order,
         ),
         motivations_graph,
-    ) = dependency_helpers(supercluster_with_roots);
+    ) = graph_analysis::dependency_helpers(supercluster_with_roots);
     let mut seen_nodes = HashSet::new();
     for (index, namespaced_id) in node_ids.iter().enumerate() {
         let namespaced_id = domain::NodeID::from_two_part_string(namespaced_id);
